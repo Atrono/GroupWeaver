@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- IDirectoryProvider implementations: LdapProvider (read-only), DemoProvider. UI-free. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\GroupWeaver.Core.csproj" />
+  </ItemGroup>
+
+</Project>
