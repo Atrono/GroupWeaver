@@ -1,6 +1,6 @@
 # ADR-001: Graph library — Cytoscape.js in the official Avalonia WebView
 
-**Status:** Proposed (flips to Accepted at PR merge) · **Date:** 2026-06-11
+**Status:** Accepted · **Date:** 2026-06-11
 **Decides:** PLANNING.md O3 / E5 (open graph-library choice) · **Phase:** 0, AP 0.3
 
 ## Context
@@ -113,7 +113,7 @@ installed mid-spike — both full result files are preserved in the spike dir):
 | Interaction path | Software rendering (no GPU driver) | Intel UHD 620 |
 |---|---|---|
 | Human-gesture (DOM drag + wheel) | avg 37.5 / min 4.6 | avg 58.7 / min 12.0 |
-| Programmatic `cy.viewport()` loop (worst case) | avg 4.9 / min 1.9 | avg 16.6 / min 4.6 |
+| Programmatic `cy.viewport()` loop (`textureOnViewport:false`; with texture on, UHD 620: avg 11.9) | avg 4.9 / min 1.9 | avg 16.6 / min 4.6 |
 
 The software-rendered run is the relevant floor for the target audience (RDP
 sessions, servers, GPU-less VMs) — usable there, comfortable with any GPU.
