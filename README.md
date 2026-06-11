@@ -28,11 +28,14 @@ operations of any kind. It runs in the logged-on user's security context
 
 ## Status
 
-Mid-development (Phase 1 of the [project plan](PLANNING.md), German; architecture
-decisions in [docs/adr/](docs/adr/)). Planned scope for v0.1:
+Early development (Phase 1 of the [project plan](PLANNING.md), German;
+architecture decisions in [docs/adr/](docs/adr/)). Planned scope for v0.1:
 
 - Live LDAP connection (read-only, user context) plus a demo mode
+- Entry filter: pick a base OU or group as the graph root
 - Interactive graph: node types, nesting edges, lazy expand, drag/zoom
+- Detail panel showing object attributes — restricted to an explicit
+  attribute whitelist (the privacy baseline)
 - Rule engine: nesting-matrix and naming checks with traffic-light badges
   (plus circularity and empty-group detection)
 - Settings page with rule editor (live preview, import/export)
@@ -51,7 +54,7 @@ only — never against a real directory.
 
 ## System requirements
 
-- Windows
+- Windows 10 / Windows Server 2016 or later
 - .NET 8 runtime (a self-contained portable .zip is planned, so no separate
   install will be required)
 - [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
