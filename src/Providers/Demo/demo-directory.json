@@ -1,0 +1,1977 @@
+{
+  "domain": "weavedemo.example",
+  "rootDn": "OU=AGDLP-Demo,DC=weavedemo,DC=example",
+  "objects": [
+    {
+      "dn": "OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "OrganizationalUnit",
+      "name": "AGDLP-Demo",
+      "attributes": {
+        "description": "WeaveDemo demo directory (fictional)"
+      }
+    },
+    {
+      "dn": "OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "OrganizationalUnit",
+      "name": "Users",
+      "attributes": {
+        "description": "User accounts"
+      }
+    },
+    {
+      "dn": "OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "OrganizationalUnit",
+      "name": "Groups",
+      "attributes": {
+        "description": "Security groups"
+      }
+    },
+    {
+      "dn": "OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "OrganizationalUnit",
+      "name": "Computers",
+      "attributes": {
+        "description": "Workstations"
+      }
+    },
+    {
+      "dn": "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Acker (u001)",
+      "samAccountName": "u001",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ben Acker (u002),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Acker (u002)",
+      "samAccountName": "u002",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Carla Acker (u003),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Acker (u003)",
+      "samAccountName": "u003",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=David Acker (u004),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Acker (u004)",
+      "samAccountName": "u004",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Elena Acker (u005),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Acker (u005)",
+      "samAccountName": "u005",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Felix Acker (u006),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Acker (u006)",
+      "samAccountName": "u006",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Greta Acker (u007),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Acker (u007)",
+      "samAccountName": "u007",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Henrik Acker (u008),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Acker (u008)",
+      "samAccountName": "u008",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ines Acker (u009),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Acker (u009)",
+      "samAccountName": "u009",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Jonas Acker (u010),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Acker (u010)",
+      "samAccountName": "u010",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Katja Acker (u011),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Acker (u011)",
+      "samAccountName": "u011",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Lars Acker (u012),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Acker (u012)",
+      "samAccountName": "u012",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Mara Acker (u013),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Acker (u013)",
+      "samAccountName": "u013",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Nils Acker (u014),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Acker (u014)",
+      "samAccountName": "u014",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Olga Acker (u015),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Acker (u015)",
+      "samAccountName": "u015",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Paul Acker (u016),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Acker (u016)",
+      "samAccountName": "u016",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Rita Acker (u017),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Acker (u017)",
+      "samAccountName": "u017",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Sven Acker (u018),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Acker (u018)",
+      "samAccountName": "u018",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Tina Acker (u019),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Acker (u019)",
+      "samAccountName": "u019",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Udo Acker (u020),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Acker (u020)",
+      "samAccountName": "u020",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Anna Brandt (u021),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Brandt (u021)",
+      "samAccountName": "u021",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ben Brandt (u022),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Brandt (u022)",
+      "samAccountName": "u022",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Carla Brandt (u023),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Brandt (u023)",
+      "samAccountName": "u023",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=David Brandt (u024),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Brandt (u024)",
+      "samAccountName": "u024",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Elena Brandt (u025),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Brandt (u025)",
+      "samAccountName": "u025",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Felix Brandt (u026),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Brandt (u026)",
+      "samAccountName": "u026",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Greta Brandt (u027),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Brandt (u027)",
+      "samAccountName": "u027",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Henrik Brandt (u028),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Brandt (u028)",
+      "samAccountName": "u028",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ines Brandt (u029),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Brandt (u029)",
+      "samAccountName": "u029",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Jonas Brandt (u030),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Brandt (u030)",
+      "samAccountName": "u030",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Katja Brandt (u031),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Brandt (u031)",
+      "samAccountName": "u031",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Lars Brandt (u032),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Brandt (u032)",
+      "samAccountName": "u032",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Mara Brandt (u033),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Brandt (u033)",
+      "samAccountName": "u033",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Nils Brandt (u034),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Brandt (u034)",
+      "samAccountName": "u034",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Olga Brandt (u035),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Brandt (u035)",
+      "samAccountName": "u035",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Paul Brandt (u036),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Brandt (u036)",
+      "samAccountName": "u036",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Rita Brandt (u037),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Brandt (u037)",
+      "samAccountName": "u037",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Sven Brandt (u038),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Brandt (u038)",
+      "samAccountName": "u038",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Tina Brandt (u039),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Brandt (u039)",
+      "samAccountName": "u039",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Udo Brandt (u040),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Brandt (u040)",
+      "samAccountName": "u040",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Anna Claus (u041),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Claus (u041)",
+      "samAccountName": "u041",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ben Claus (u042),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Claus (u042)",
+      "samAccountName": "u042",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Carla Claus (u043),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Claus (u043)",
+      "samAccountName": "u043",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=David Claus (u044),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Claus (u044)",
+      "samAccountName": "u044",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Elena Claus (u045),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Claus (u045)",
+      "samAccountName": "u045",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Felix Claus (u046),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Claus (u046)",
+      "samAccountName": "u046",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Greta Claus (u047),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Claus (u047)",
+      "samAccountName": "u047",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Henrik Claus (u048),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Claus (u048)",
+      "samAccountName": "u048",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ines Claus (u049),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Claus (u049)",
+      "samAccountName": "u049",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Jonas Claus (u050),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Claus (u050)",
+      "samAccountName": "u050",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Katja Claus (u051),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Claus (u051)",
+      "samAccountName": "u051",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Lars Claus (u052),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Claus (u052)",
+      "samAccountName": "u052",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Mara Claus (u053),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Claus (u053)",
+      "samAccountName": "u053",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Nils Claus (u054),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Claus (u054)",
+      "samAccountName": "u054",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Olga Claus (u055),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Claus (u055)",
+      "samAccountName": "u055",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Paul Claus (u056),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Claus (u056)",
+      "samAccountName": "u056",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Rita Claus (u057),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Claus (u057)",
+      "samAccountName": "u057",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Sven Claus (u058),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Claus (u058)",
+      "samAccountName": "u058",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Tina Claus (u059),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Claus (u059)",
+      "samAccountName": "u059",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Udo Claus (u060),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Claus (u060)",
+      "samAccountName": "u060",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Anna Dorn (u061),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Dorn (u061)",
+      "samAccountName": "u061",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ben Dorn (u062),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Dorn (u062)",
+      "samAccountName": "u062",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Carla Dorn (u063),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Dorn (u063)",
+      "samAccountName": "u063",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=David Dorn (u064),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Dorn (u064)",
+      "samAccountName": "u064",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Elena Dorn (u065),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Dorn (u065)",
+      "samAccountName": "u065",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Felix Dorn (u066),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Dorn (u066)",
+      "samAccountName": "u066",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Greta Dorn (u067),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Dorn (u067)",
+      "samAccountName": "u067",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Henrik Dorn (u068),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Dorn (u068)",
+      "samAccountName": "u068",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ines Dorn (u069),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Dorn (u069)",
+      "samAccountName": "u069",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Jonas Dorn (u070),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Dorn (u070)",
+      "samAccountName": "u070",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Katja Dorn (u071),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Dorn (u071)",
+      "samAccountName": "u071",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Lars Dorn (u072),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Dorn (u072)",
+      "samAccountName": "u072",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Mara Dorn (u073),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Dorn (u073)",
+      "samAccountName": "u073",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Nils Dorn (u074),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Dorn (u074)",
+      "samAccountName": "u074",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Olga Dorn (u075),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Dorn (u075)",
+      "samAccountName": "u075",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Paul Dorn (u076),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Dorn (u076)",
+      "samAccountName": "u076",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Rita Dorn (u077),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Dorn (u077)",
+      "samAccountName": "u077",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Sven Dorn (u078),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Dorn (u078)",
+      "samAccountName": "u078",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Tina Dorn (u079),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Dorn (u079)",
+      "samAccountName": "u079",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Udo Dorn (u080),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Dorn (u080)",
+      "samAccountName": "u080",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Anna Ebert (u081),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Ebert (u081)",
+      "samAccountName": "u081",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ben Ebert (u082),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Ebert (u082)",
+      "samAccountName": "u082",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Carla Ebert (u083),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Ebert (u083)",
+      "samAccountName": "u083",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=David Ebert (u084),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Ebert (u084)",
+      "samAccountName": "u084",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Elena Ebert (u085),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Ebert (u085)",
+      "samAccountName": "u085",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Felix Ebert (u086),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Ebert (u086)",
+      "samAccountName": "u086",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Greta Ebert (u087),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Ebert (u087)",
+      "samAccountName": "u087",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Henrik Ebert (u088),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Ebert (u088)",
+      "samAccountName": "u088",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Ines Ebert (u089),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Ebert (u089)",
+      "samAccountName": "u089",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Jonas Ebert (u090),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Ebert (u090)",
+      "samAccountName": "u090",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Katja Ebert (u091),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Ebert (u091)",
+      "samAccountName": "u091",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Lars Ebert (u092),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Ebert (u092)",
+      "samAccountName": "u092",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Mara Ebert (u093),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Ebert (u093)",
+      "samAccountName": "u093",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Nils Ebert (u094),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Ebert (u094)",
+      "samAccountName": "u094",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Olga Ebert (u095),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Ebert (u095)",
+      "samAccountName": "u095",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Paul Ebert (u096),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Ebert (u096)",
+      "samAccountName": "u096",
+      "attributes": {
+        "department": "Sales",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Rita Ebert (u097),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Ebert (u097)",
+      "samAccountName": "u097",
+      "attributes": {
+        "department": "IT",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Sven Ebert (u098),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Ebert (u098)",
+      "samAccountName": "u098",
+      "attributes": {
+        "department": "HR",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Tina Ebert (u099),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Ebert (u099)",
+      "samAccountName": "u099",
+      "attributes": {
+        "department": "Finance",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Udo Ebert (u100),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Ebert (u100)",
+      "samAccountName": "u100",
+      "attributes": {
+        "department": "Ops",
+        "title": "Staff"
+      }
+    },
+    {
+      "dn": "CN=Anna Falk (u101),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Falk (u101)",
+      "samAccountName": "u101",
+      "attributes": {
+        "department": "Sales",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Ben Falk (u102),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Falk (u102)",
+      "samAccountName": "u102",
+      "attributes": {
+        "department": "IT",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Carla Falk (u103),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Falk (u103)",
+      "samAccountName": "u103",
+      "attributes": {
+        "department": "HR",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=David Falk (u104),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Falk (u104)",
+      "samAccountName": "u104",
+      "attributes": {
+        "department": "Finance",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Elena Falk (u105),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Falk (u105)",
+      "samAccountName": "u105",
+      "attributes": {
+        "department": "Ops",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Felix Falk (u106),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Falk (u106)",
+      "samAccountName": "u106",
+      "attributes": {
+        "department": "Sales",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Greta Falk (u107),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Falk (u107)",
+      "samAccountName": "u107",
+      "attributes": {
+        "department": "IT",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Henrik Falk (u108),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Falk (u108)",
+      "samAccountName": "u108",
+      "attributes": {
+        "department": "HR",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Ines Falk (u109),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Falk (u109)",
+      "samAccountName": "u109",
+      "attributes": {
+        "department": "Finance",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Jonas Falk (u110),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Falk (u110)",
+      "samAccountName": "u110",
+      "attributes": {
+        "department": "Ops",
+        "title": "Team Lead"
+      }
+    },
+    {
+      "dn": "CN=Katja Falk (u111),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Falk (u111)",
+      "samAccountName": "u111"
+    },
+    {
+      "dn": "CN=Lars Falk (u112),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Falk (u112)",
+      "samAccountName": "u112"
+    },
+    {
+      "dn": "CN=Mara Falk (u113),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Falk (u113)",
+      "samAccountName": "u113"
+    },
+    {
+      "dn": "CN=Nils Falk (u114),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Falk (u114)",
+      "samAccountName": "u114"
+    },
+    {
+      "dn": "CN=Olga Falk (u115),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Falk (u115)",
+      "samAccountName": "u115"
+    },
+    {
+      "dn": "CN=Paul Falk (u116),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Falk (u116)",
+      "samAccountName": "u116"
+    },
+    {
+      "dn": "CN=Rita Falk (u117),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Falk (u117)",
+      "samAccountName": "u117"
+    },
+    {
+      "dn": "CN=Sven Falk (u118),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Falk (u118)",
+      "samAccountName": "u118"
+    },
+    {
+      "dn": "CN=Tina Falk (u119),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Falk (u119)",
+      "samAccountName": "u119"
+    },
+    {
+      "dn": "CN=Udo Falk (u120),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Falk (u120)",
+      "samAccountName": "u120"
+    },
+    {
+      "dn": "CN=Anna Gruber (u121),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Anna Gruber (u121)",
+      "samAccountName": "u121"
+    },
+    {
+      "dn": "CN=Ben Gruber (u122),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ben Gruber (u122)",
+      "samAccountName": "u122"
+    },
+    {
+      "dn": "CN=Carla Gruber (u123),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Carla Gruber (u123)",
+      "samAccountName": "u123"
+    },
+    {
+      "dn": "CN=David Gruber (u124),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "David Gruber (u124)",
+      "samAccountName": "u124"
+    },
+    {
+      "dn": "CN=Elena Gruber (u125),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Elena Gruber (u125)",
+      "samAccountName": "u125"
+    },
+    {
+      "dn": "CN=Felix Gruber (u126),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Felix Gruber (u126)",
+      "samAccountName": "u126"
+    },
+    {
+      "dn": "CN=Greta Gruber (u127),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Greta Gruber (u127)",
+      "samAccountName": "u127"
+    },
+    {
+      "dn": "CN=Henrik Gruber (u128),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Henrik Gruber (u128)",
+      "samAccountName": "u128"
+    },
+    {
+      "dn": "CN=Ines Gruber (u129),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Ines Gruber (u129)",
+      "samAccountName": "u129"
+    },
+    {
+      "dn": "CN=Jonas Gruber (u130),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Jonas Gruber (u130)",
+      "samAccountName": "u130"
+    },
+    {
+      "dn": "CN=Katja Gruber (u131),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Katja Gruber (u131)",
+      "samAccountName": "u131"
+    },
+    {
+      "dn": "CN=Lars Gruber (u132),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Lars Gruber (u132)",
+      "samAccountName": "u132"
+    },
+    {
+      "dn": "CN=Mara Gruber (u133),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Mara Gruber (u133)",
+      "samAccountName": "u133"
+    },
+    {
+      "dn": "CN=Nils Gruber (u134),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Nils Gruber (u134)",
+      "samAccountName": "u134"
+    },
+    {
+      "dn": "CN=Olga Gruber (u135),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Olga Gruber (u135)",
+      "samAccountName": "u135"
+    },
+    {
+      "dn": "CN=Paul Gruber (u136),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Paul Gruber (u136)",
+      "samAccountName": "u136"
+    },
+    {
+      "dn": "CN=Rita Gruber (u137),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Rita Gruber (u137)",
+      "samAccountName": "u137"
+    },
+    {
+      "dn": "CN=Sven Gruber (u138),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Sven Gruber (u138)",
+      "samAccountName": "u138"
+    },
+    {
+      "dn": "CN=Tina Gruber (u139),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Tina Gruber (u139)",
+      "samAccountName": "u139"
+    },
+    {
+      "dn": "CN=Udo Gruber (u140),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "User",
+      "name": "Udo Gruber (u140)",
+      "samAccountName": "u140"
+    },
+    {
+      "dn": "CN=LAB-PC01,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC01",
+      "samAccountName": "LAB-PC01$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC02,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC02",
+      "samAccountName": "LAB-PC02$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC03,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC03",
+      "samAccountName": "LAB-PC03$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC04,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC04",
+      "samAccountName": "LAB-PC04$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC05,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC05",
+      "samAccountName": "LAB-PC05$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC06,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC06",
+      "samAccountName": "LAB-PC06$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC07,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC07",
+      "samAccountName": "LAB-PC07$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC08,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC08",
+      "samAccountName": "LAB-PC08$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC09,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC09",
+      "samAccountName": "LAB-PC09$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=LAB-PC10,OU=Computers,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "Computer",
+      "name": "LAB-PC10",
+      "samAccountName": "LAB-PC10$",
+      "attributes": {
+        "operatingSystem": "Windows 11 Pro"
+      }
+    },
+    {
+      "dn": "CN=GG_Sales_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Sales_Staff",
+      "samAccountName": "GG_Sales_Staff",
+      "attributes": {
+        "description": "Role group: Sales staff"
+      },
+      "members": [
+        "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Felix Acker (u006),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Katja Acker (u011),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Paul Acker (u016),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Anna Brandt (u021),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Felix Brandt (u026),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Katja Brandt (u031),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Paul Brandt (u036),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Anna Claus (u041),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Felix Claus (u046),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Katja Claus (u051),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Paul Claus (u056),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Anna Dorn (u061),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Felix Dorn (u066),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Katja Dorn (u071),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Paul Dorn (u076),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Anna Ebert (u081),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Felix Ebert (u086),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Katja Ebert (u091),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Paul Ebert (u096),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Sales_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Sales_Lead",
+      "samAccountName": "GG_Sales_Lead",
+      "attributes": {
+        "description": "Role group: Sales leads"
+      },
+      "members": [
+        "CN=Anna Falk (u101),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Felix Falk (u106),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_IT_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_IT_Staff",
+      "samAccountName": "GG_IT_Staff",
+      "attributes": {
+        "description": "Role group: IT staff"
+      },
+      "members": [
+        "CN=Ben Acker (u002),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Greta Acker (u007),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Lars Acker (u012),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Rita Acker (u017),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ben Brandt (u022),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Greta Brandt (u027),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Lars Brandt (u032),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Rita Brandt (u037),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ben Claus (u042),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Greta Claus (u047),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Lars Claus (u052),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Rita Claus (u057),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ben Dorn (u062),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Greta Dorn (u067),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Lars Dorn (u072),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Rita Dorn (u077),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ben Ebert (u082),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Greta Ebert (u087),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Lars Ebert (u092),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Rita Ebert (u097),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_IT_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_IT_Lead",
+      "samAccountName": "GG_IT_Lead",
+      "attributes": {
+        "description": "Role group: IT leads"
+      },
+      "members": [
+        "CN=Ben Falk (u102),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Greta Falk (u107),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_HR_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_HR_Staff",
+      "samAccountName": "GG_HR_Staff",
+      "attributes": {
+        "description": "Role group: HR staff"
+      },
+      "members": [
+        "CN=Carla Acker (u003),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Henrik Acker (u008),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Mara Acker (u013),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Sven Acker (u018),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Carla Brandt (u023),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Henrik Brandt (u028),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Mara Brandt (u033),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Sven Brandt (u038),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Carla Claus (u043),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Henrik Claus (u048),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Mara Claus (u053),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Sven Claus (u058),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Carla Dorn (u063),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Henrik Dorn (u068),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Mara Dorn (u073),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Sven Dorn (u078),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Carla Ebert (u083),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Henrik Ebert (u088),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Mara Ebert (u093),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Sven Ebert (u098),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_HR_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_HR_Lead",
+      "samAccountName": "GG_HR_Lead",
+      "attributes": {
+        "description": "Role group: HR leads"
+      },
+      "members": [
+        "CN=Carla Falk (u103),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Henrik Falk (u108),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Finance_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Finance_Staff",
+      "samAccountName": "GG_Finance_Staff",
+      "attributes": {
+        "description": "Role group: Finance staff"
+      },
+      "members": [
+        "CN=David Acker (u004),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ines Acker (u009),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Nils Acker (u014),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Tina Acker (u019),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=David Brandt (u024),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ines Brandt (u029),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Nils Brandt (u034),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Tina Brandt (u039),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=David Claus (u044),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ines Claus (u049),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Nils Claus (u054),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Tina Claus (u059),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=David Dorn (u064),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ines Dorn (u069),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Nils Dorn (u074),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Tina Dorn (u079),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=David Ebert (u084),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ines Ebert (u089),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Nils Ebert (u094),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Tina Ebert (u099),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Finance_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Finance_Lead",
+      "samAccountName": "GG_Finance_Lead",
+      "attributes": {
+        "description": "Role group: Finance leads"
+      },
+      "members": [
+        "CN=David Falk (u104),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ines Falk (u109),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Ops_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Ops_Staff",
+      "samAccountName": "GG_Ops_Staff",
+      "attributes": {
+        "description": "Role group: Ops staff"
+      },
+      "members": [
+        "CN=Elena Acker (u005),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Jonas Acker (u010),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Olga Acker (u015),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Udo Acker (u020),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Elena Brandt (u025),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Jonas Brandt (u030),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Olga Brandt (u035),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Udo Brandt (u040),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Elena Claus (u045),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Jonas Claus (u050),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Olga Claus (u055),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Udo Claus (u060),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Elena Dorn (u065),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Jonas Dorn (u070),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Olga Dorn (u075),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Udo Dorn (u080),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Elena Ebert (u085),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Jonas Ebert (u090),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Olga Ebert (u095),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Udo Ebert (u100),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Ops_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Ops_Lead",
+      "samAccountName": "GG_Ops_Lead",
+      "attributes": {
+        "description": "Role group: Ops leads"
+      },
+      "members": [
+        "CN=Elena Falk (u105),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Jonas Falk (u110),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_IT_Admins,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_IT_Admins",
+      "samAccountName": "GG_IT_Admins",
+      "attributes": {
+        "description": "Role group: IT Admins"
+      },
+      "members": [
+        "CN=GG_IT_Backup,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_IT_Helpdesk,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_IT_Helpdesk",
+      "samAccountName": "GG_IT_Helpdesk",
+      "attributes": {
+        "description": "Role group: IT Helpdesk"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=GG_IT_Backup,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_IT_Backup",
+      "samAccountName": "GG_IT_Backup",
+      "attributes": {
+        "description": "Role group: IT Backup"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=DL_FS-Sales_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Sales_RW",
+      "samAccountName": "DL_FS-Sales_RW",
+      "attributes": {
+        "description": "Resource access: FS-Sales (read-write)"
+      },
+      "members": [
+        "CN=GG_Sales_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-Sales_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Sales_RO",
+      "samAccountName": "DL_FS-Sales_RO",
+      "attributes": {
+        "description": "Resource access: FS-Sales (read-only)"
+      },
+      "members": [
+        "CN=GG_Sales_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-IT_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-IT_RW",
+      "samAccountName": "DL_FS-IT_RW",
+      "attributes": {
+        "description": "Resource access: FS-IT (read-write)"
+      },
+      "members": [
+        "CN=GG_IT_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Domain Admins,CN=Users,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-IT_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-IT_RO",
+      "samAccountName": "DL_FS-IT_RO",
+      "attributes": {
+        "description": "Resource access: FS-IT (read-only)"
+      },
+      "members": [
+        "CN=GG_IT_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-HR_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-HR_RW",
+      "samAccountName": "DL_FS-HR_RW",
+      "attributes": {
+        "description": "Resource access: FS-HR (read-write)"
+      },
+      "members": [
+        "CN=GG_HR_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-HR_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-HR_RO",
+      "samAccountName": "DL_FS-HR_RO",
+      "attributes": {
+        "description": "Resource access: FS-HR (read-only)"
+      },
+      "members": [
+        "CN=GG_HR_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-Finance_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Finance_RW",
+      "samAccountName": "DL_FS-Finance_RW",
+      "attributes": {
+        "description": "Resource access: FS-Finance (read-write)"
+      },
+      "members": [
+        "CN=GG_Finance_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-Finance_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Finance_RO",
+      "samAccountName": "DL_FS-Finance_RO",
+      "attributes": {
+        "description": "Resource access: FS-Finance (read-only)"
+      },
+      "members": [
+        "CN=GG_Finance_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=DL_Nested_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-Ops_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Ops_RW",
+      "samAccountName": "DL_FS-Ops_RW",
+      "attributes": {
+        "description": "Resource access: FS-Ops (read-write)"
+      },
+      "members": [
+        "CN=GG_Ops_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_FS-Ops_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Ops_RO",
+      "samAccountName": "DL_FS-Ops_RO",
+      "attributes": {
+        "description": "Resource access: FS-Ops (read-only)"
+      },
+      "members": [
+        "CN=GG_Ops_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_Print-HQ_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_Print-HQ_RW",
+      "samAccountName": "DL_Print-HQ_RW",
+      "attributes": {
+        "description": "Resource access: Print-HQ (read-write)"
+      },
+      "members": [
+        "CN=GG_IT_Helpdesk,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Print Operators,CN=Builtin,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_Print-HQ_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_Print-HQ_RO",
+      "samAccountName": "DL_Print-HQ_RO",
+      "attributes": {
+        "description": "Resource access: Print-HQ (read-only)"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=DL_App-CRM_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_App-CRM_RW",
+      "samAccountName": "DL_App-CRM_RW",
+      "attributes": {
+        "description": "Resource access: App-CRM (read-write)"
+      },
+      "members": [
+        "CN=UG_AllStaff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_App-CRM_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_App-CRM_RO",
+      "samAccountName": "DL_App-CRM_RO",
+      "attributes": {
+        "description": "Resource access: App-CRM (read-only)"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=DL_App-ERP_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_App-ERP_RW",
+      "samAccountName": "DL_App-ERP_RW",
+      "attributes": {
+        "description": "Resource access: App-ERP (read-write)"
+      },
+      "members": [
+        "CN=UG_Managers,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=DL_App-ERP_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_App-ERP_RO",
+      "samAccountName": "DL_App-ERP_RO",
+      "attributes": {
+        "description": "Resource access: App-ERP (read-only)"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=UG_AllStaff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "UniversalGroup",
+      "name": "UG_AllStaff",
+      "samAccountName": "UG_AllStaff",
+      "attributes": {
+        "description": "Universal group: all staff"
+      },
+      "members": [
+        "CN=GG_Sales_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_IT_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_HR_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_Finance_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_Ops_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=Ben Acker (u002),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=UG_Managers,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "UniversalGroup",
+      "name": "UG_Managers",
+      "samAccountName": "UG_Managers",
+      "attributes": {
+        "description": "Universal group: managers"
+      },
+      "members": [
+        "CN=GG_Sales_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_IT_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_HR_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_Finance_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+        "CN=GG_Ops_Lead,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=UG_ProjectX,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "UniversalGroup",
+      "name": "UG_ProjectX",
+      "samAccountName": "UG_ProjectX",
+      "attributes": {
+        "description": "Universal group: Project X"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=DL_Nested_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_Nested_RO",
+      "samAccountName": "DL_Nested_RO",
+      "attributes": {
+        "description": "Nested read-only access"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=SalesTeamGlobal,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "SalesTeamGlobal",
+      "samAccountName": "SalesTeamGlobal",
+      "attributes": {
+        "description": "Sales team (legacy name)"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=dl-finance-extra,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "dl-finance-extra",
+      "samAccountName": "dl-finance-extra",
+      "attributes": {
+        "description": "Extra finance share access (legacy)"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=GG_X,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_X",
+      "samAccountName": "GG_X",
+      "attributes": {
+        "description": "Temporary group"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=GG_Circle_A,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Circle_A",
+      "samAccountName": "GG_Circle_A",
+      "attributes": {
+        "description": "Project circle A"
+      },
+      "members": [
+        "CN=GG_Circle_B,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Circle_B,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Circle_B",
+      "samAccountName": "GG_Circle_B",
+      "attributes": {
+        "description": "Project circle B"
+      },
+      "members": [
+        "CN=GG_Circle_A,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example"
+      ]
+    },
+    {
+      "dn": "CN=GG_Empty_Marketing,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "GlobalGroup",
+      "name": "GG_Empty_Marketing",
+      "samAccountName": "GG_Empty_Marketing",
+      "attributes": {
+        "description": "Marketing role group"
+      },
+      "members": []
+    },
+    {
+      "dn": "CN=DL_FS-Legacy_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example",
+      "kind": "DomainLocalGroup",
+      "name": "DL_FS-Legacy_RO",
+      "samAccountName": "DL_FS-Legacy_RO",
+      "attributes": {
+        "description": "Legacy file share (decommissioned)"
+      },
+      "members": []
+    }
+  ]
+}
