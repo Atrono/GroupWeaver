@@ -17,9 +17,11 @@ internal enum LdapErrorKind
 internal static class LdapErrors
 {
     /// <summary>
-    /// Maps an HRESULT to <see cref="LdapErrorKind"/>. Only the two
-    /// "object genuinely absent" codes — 0x80072030 (ERROR_DS_NO_SUCH_OBJECT)
-    /// and 0x80005000 (E_ADS_BAD_PATHNAME) — classify as
+    /// Maps an HRESULT to <see cref="LdapErrorKind"/>. Only the three
+    /// "object genuinely absent / unresolvable" codes — 0x80072030
+    /// (ERROR_DS_NO_SUCH_OBJECT), 0x80072032 (ERROR_DS_INVALID_DN_SYNTAX,
+    /// the server-side rejection of a garbage DN) and 0x80005000
+    /// (E_ADS_BAD_PATHNAME, the client-side equivalent) — classify as
     /// <see cref="LdapErrorKind.NotFound"/>. Known connectivity/bind failures
     /// (0x8007203A server not operational, 0x8007052E logon failure,
     /// 0x800704CF network unreachable, 0x8007054B no such domain) and EVERY
@@ -30,6 +32,7 @@ internal static class LdapErrors
     public static LdapErrorKind ClassifyHResult(int hresult) => unchecked((uint)hresult) switch
     {
         0x80072030 => LdapErrorKind.NotFound, // ERROR_DS_NO_SUCH_OBJECT
+        0x80072032 => LdapErrorKind.NotFound, // ERROR_DS_INVALID_DN_SYNTAX (garbage DN, server-side)
         0x80005000 => LdapErrorKind.NotFound, // E_ADS_BAD_PATHNAME
         _ => LdapErrorKind.Unavailable,
     };
