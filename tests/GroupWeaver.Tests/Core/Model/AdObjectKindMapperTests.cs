@@ -62,6 +62,8 @@ public class AdObjectKindMapperTests
     [InlineData(-2147483640, AdObjectKind.UniversalGroup)] // 0x80000008 security universal
     [InlineData(8, AdObjectKind.UniversalGroup)] // distribution universal
     [InlineData(-2147483643, AdObjectKind.DomainLocalGroup)] // 0x80000005 builtin forces DL
+    [InlineData(0, AdObjectKind.External)] // no scope bit: meaningless groupType
+    [InlineData(16, AdObjectKind.External)] // 0x10 APP_BASIC only, still no scope bit
     public void Map_GroupTypeScopeBits_MapToExpectedScope(int groupType, AdObjectKind expected)
     {
         Assert.Equal(expected, AdObjectKindMapper.Map(["top", "group"], groupType));
