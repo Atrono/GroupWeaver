@@ -1,0 +1,333 @@
+using System.Runtime.Versioning;
+
+using GroupWeaver.Core.Model;
+using GroupWeaver.Core.Providers;
+using GroupWeaver.Providers;
+
+using Xunit;
+
+namespace GroupWeaver.Tests.Providers.Ldap;
+
+/// <summary>
+/// Eagerly loads the full live AGDLP-Lab scope ONCE per test class; the
+/// read-only assertions share this snapshot to keep integration wall time low.
+/// Loading is guarded by <see cref="AdFactAttribute.IsLabReachable"/>: when the
+/// lab OU is unreachable the snapshot stays unloaded — every test using it is
+/// then skipped by <see cref="AdFactAttribute"/> anyway.
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class LdapLabFixture : IAsyncLifetime
+{
+    /// <summary>The lab DC; this box (CLAUDE.md environment).</summary>
+    public const string Server = "localhost";
+
+    /// <summary>Root of the seeded fixture tree (tools/seed-testad.ps1).</summary>
+    public const string LabDn = "OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    /// <summary>The provider under test, pinned to the lab OU.</summary>
+    public LdapProvider Provider { get; } = new(Server, LabDn);
+
+    /// <summary>Snapshot of the full lab scope (<see cref="LabDn"/>).</summary>
+    public DirectorySnapshot FullSnapshot { get; private set; } = null!;
+
+    /// <inheritdoc />
+    public async Task InitializeAsync()
+    {
+        if (AdFactAttribute.IsLabReachable)
+        {
+            FullSnapshot = await Provider.LoadScopeAsync(LabDn);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task DisposeAsync() => Task.CompletedTask;
+}
+
+/// <summary>
+/// Integration tests for <see cref="LdapProvider"/> against the live
+/// <c>OU=AGDLP-Lab</c> fixtures seeded by <c>tools/seed-testad.ps1</c> (194
+/// objects: 140 users, 18 GG + 19 DL + 3 UG groups, 10 computers, 4 OUs; 139
+/// membership edges; 12 empty groups; the GG_Circle_A↔GG_Circle_B circular
+/// nesting). Excluded in CI via the class-level <c>Category=RequiresAd</c>
+/// trait; skipped with a loud warning off the lab DC via <see cref="AdFactAttribute"/>.
+/// If one of these tests fails, suspect the provider or a drifted fixture
+/// first, not the expectation — counts here are derived from the seed script.
+/// </summary>
+[SupportedOSPlatform("windows")]
+[Trait(TestCategories.Category, TestCategories.RequiresAd)]
+public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
+{
+    private const string LabDn = LdapLabFixture.LabDn;
+    private const string GroupsOuDn = "OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    private const string CircleADn = "CN=GG_Circle_A,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string CircleBDn = "CN=GG_Circle_B,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string GgSalesStaffDn = "CN=GG_Sales_Staff,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string DlFsSalesRwDn = "CN=DL_FS-Sales_RW,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string EmptyMarketingDn = "CN=GG_Empty_Marketing,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string LegacyRoDn = "CN=DL_FS-Legacy_RO,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string User001Dn = "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    private readonly LdapLabFixture _fixture;
+
+    public LdapProviderIntegrationTests(LdapLabFixture fixture) => _fixture = fixture;
+
+    private static bool IsGroup(AdObjectKind kind) =>
+        kind is AdObjectKind.GlobalGroup or AdObjectKind.DomainLocalGroup or AdObjectKind.UniversalGroup;
+
+    // --- T1: ConnectAsync ---------------------------------------------------
+
+    [AdFact]
+    public async Task ConnectAsync_ReportsFortyGroups()
+    {
+        var connection = await _fixture.Provider.ConnectAsync();
+
+        Assert.Equal(40, connection.GroupCount);
+    }
+
+    [AdFact]
+    public async Task ConnectAsync_DescriptionNamesServerAndLabBase()
+    {
+        var connection = await _fixture.Provider.ConnectAsync();
+
+        Assert.Contains("agdlp", connection.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("LDAP localhost — OU=AGDLP-Lab,DC=agdlp,DC=lab", connection.Description);
+    }
+
+    // --- T2/T3: full-scope load ----------------------------------------------
+
+    [AdFact]
+    public void LoadScope_Lab_Loads194Objects_WithExpectedKindBreakdown()
+    {
+        var snapshot = _fixture.FullSnapshot;
+        var byKind = snapshot.Objects
+            .GroupBy(o => o.Kind)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        Assert.Equal(194, snapshot.Objects.Count);
+        Assert.Equal(140, byKind[AdObjectKind.User]);
+        Assert.Equal(18, byKind[AdObjectKind.GlobalGroup]);
+        Assert.Equal(19, byKind[AdObjectKind.DomainLocalGroup]);
+        Assert.Equal(3, byKind[AdObjectKind.UniversalGroup]);
+        Assert.Equal(10, byKind[AdObjectKind.Computer]);
+        Assert.Equal(4, byKind[AdObjectKind.OrganizationalUnit]);
+        Assert.Equal(6, byKind.Count); // nothing unclassified / External in scope
+    }
+
+    [AdFact]
+    public void LoadScope_Lab_Has139MembershipEdges()
+    {
+        // The lab fixture creates no built-in member edges — 139 here vs. 141 in
+        // the demo dataset (divergence documented in src/Providers/Demo/README.md).
+        Assert.Equal(139, _fixture.FullSnapshot.Edges.Count);
+    }
+
+    // --- T4: loaded-vs-empty semantics ----------------------------------------
+
+    [AdFact]
+    public void LoadScope_Lab_EveryGroupIsLoaded_ExactlyTwelveAreEmpty()
+    {
+        var snapshot = _fixture.FullSnapshot;
+        var groups = snapshot.Objects.Where(o => IsGroup(o.Kind)).ToList();
+
+        Assert.Equal(40, groups.Count);
+        Assert.All(groups, g => Assert.True(snapshot.IsLoaded(g.Dn), $"group not marked loaded: {g.Dn}"));
+        Assert.Equal(12, groups.Count(g => snapshot.GetMembers(g.Dn)!.Count == 0));
+    }
+
+    [AdFact]
+    public void LoadScope_Lab_SeededEmptyGroups_AreLoadedAndEmpty()
+    {
+        var snapshot = _fixture.FullSnapshot;
+
+        // Loaded-but-empty (empty list) is distinct from never-loaded (null).
+        var marketing = snapshot.GetMembers(EmptyMarketingDn);
+        Assert.NotNull(marketing);
+        Assert.Empty(marketing);
+
+        var legacy = snapshot.GetMembers(LegacyRoDn);
+        Assert.NotNull(legacy);
+        Assert.Empty(legacy);
+    }
+
+    // --- T5: circular nesting (provider-side termination proof) ----------------
+
+    [AdFact]
+    public void LoadScope_Lab_CircularNesting_BothDirectionsPresent()
+    {
+        // That LoadScopeAsync completed at all is the provider-side termination
+        // proof for the GG_Circle_A <-> GG_Circle_B cycle; both edges must survive.
+        var edges = _fixture.FullSnapshot.Edges;
+
+        Assert.Contains(new MembershipEdge(CircleADn, CircleBDn), edges);
+        Assert.Contains(new MembershipEdge(CircleBDn, CircleADn), edges);
+    }
+
+    // --- T6: paging -------------------------------------------------------------
+
+    [AdFact]
+    public async Task LoadScope_PageSize50_YieldsIdentical194Objects()
+    {
+        // 194 objects / page size 50 forces 4 server pages (RFC 2696).
+        var provider = new LdapProvider(LdapLabFixture.Server, LabDn, pageSize: 50);
+
+        var snapshot = await provider.LoadScopeAsync(LabDn);
+
+        Assert.Equal(194, snapshot.Objects.Count);
+    }
+
+    // --- T7: attribute whitelist enforcement -------------------------------------
+
+    [AdFact]
+    public void LoadScope_User001_AttributesAreWhitelistFiltered()
+    {
+        Assert.True(_fixture.FullSnapshot.TryGetObject(User001Dn, out var user));
+
+        Assert.Equal(AdObjectKind.User, user!.Kind);
+        Assert.Equal("u001", user.SamAccountName);
+        Assert.Equal("513", user.Attributes["primaryGroupID"]);
+
+        // Seeded but fetched-never (outside AttributeWhitelist.FetchProperties):
+        Assert.False(user.Attributes.ContainsKey("givenName"));
+        Assert.False(user.Attributes.ContainsKey("sn"));
+
+        // Fetched but structural — must never leak into Attributes:
+        Assert.False(user.Attributes.ContainsKey("member"));
+        Assert.False(user.Attributes.ContainsKey("objectClass"));
+        Assert.False(user.Attributes.ContainsKey("distinguishedName"));
+        Assert.False(user.Attributes.ContainsKey("name"));
+        Assert.False(user.Attributes.ContainsKey("sAMAccountName"));
+
+        // whenCreated is normalized to invariant UTC.
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", user.Attributes["whenCreated"]);
+    }
+
+    // --- T8: unavailable directory -------------------------------------------------
+
+    [AdFact]
+    public async Task ConnectAsync_ClosedPort_ThrowsDirectoryUnavailable()
+    {
+        var provider = new LdapProvider("localhost:50000"); // nothing listens there
+
+        await Assert.ThrowsAsync<DirectoryUnavailableException>(() => provider.ConnectAsync());
+    }
+
+    // --- T9: narrow scope, out-of-scope members --------------------------------------
+
+    [AdFact]
+    public async Task LoadScope_GroupsOuOnly_OutOfScopeMembersAreExternal_EdgesKept()
+    {
+        var snapshot = await _fixture.Provider.LoadScopeAsync(GroupsOuDn);
+
+        Assert.Equal(41, snapshot.Objects.Count); // the Groups OU itself + 40 groups
+        Assert.Equal(40, snapshot.Objects.Count(o => IsGroup(o.Kind)));
+
+        // u001 sits in OU=Users — outside this scope — so its kind resolves External,
+        // but the user->group membership edges must still be present.
+        Assert.Equal(AdObjectKind.External, snapshot.GetKind(User001Dn));
+        var edges = snapshot.Edges;
+        Assert.Contains(new MembershipEdge(DlFsSalesRwDn, User001Dn), edges);
+        Assert.Contains(new MembershipEdge(GgSalesStaffDn, User001Dn), edges);
+    }
+
+    // --- T10: root candidates ------------------------------------------------------
+
+    [AdFact]
+    public async Task GetRootCandidates_Returns44_OnlyOusAndGroups()
+    {
+        var candidates = await _fixture.Provider.GetRootCandidatesAsync();
+
+        Assert.Equal(44, candidates.Count);
+        Assert.Equal(4, candidates.Count(c => c.Kind == AdObjectKind.OrganizationalUnit));
+        Assert.Equal(40, candidates.Count(c => IsGroup(c.Kind))); // 4 + 40 = 44: no other kinds
+    }
+
+    // --- T11: GetObjectAsync ---------------------------------------------------------
+
+    [AdFact]
+    public async Task GetObject_KnownGroupDn_ReturnsCorrectKindAndName()
+    {
+        var obj = await _fixture.Provider.GetObjectAsync(GgSalesStaffDn);
+
+        Assert.NotNull(obj);
+        Assert.Equal(AdObjectKind.GlobalGroup, obj.Kind);
+        Assert.Equal("GG_Sales_Staff", obj.Name);
+        Assert.Equal("GG_Sales_Staff", obj.SamAccountName);
+    }
+
+    [AdFact]
+    public async Task GetObject_NonexistentDn_ReturnsNull()
+    {
+        var obj = await _fixture.Provider.GetObjectAsync("CN=DoesNotExist,OU=AGDLP-Lab,DC=agdlp,DC=lab");
+
+        Assert.Null(obj);
+    }
+
+    [AdFact]
+    public async Task GetObject_MalformedPathname_ReturnsNull()
+    {
+        // "CN=" is locally rejected by ADSI path parsing (E_ADS_BAD_PATHNAME,
+        // 0x80005000) — classified NotFound, so it must come back as a value.
+        var obj = await _fixture.Provider.GetObjectAsync("CN=");
+
+        Assert.Null(obj);
+    }
+
+    [AdFact]
+    public async Task GetObject_GarbageString_ReturnsNull_DoesNotThrow()
+    {
+        // Contract (IDirectoryProvider + data-model rules): an unresolvable DN is a
+        // value, never an exception. "not a dn" reaches the server and is rejected
+        // with ERROR_DS_INVALID_DN_SYNTAX (0x80072032) — a name that can never
+        // denote an object, i.e. "absent", not "directory unavailable".
+        var obj = await _fixture.Provider.GetObjectAsync("not a dn");
+
+        Assert.Null(obj);
+    }
+
+    // --- T12: GetMembersAsync -----------------------------------------------------------
+
+    [AdFact]
+    public async Task GetMembers_DlFsSalesRw_ContainsNestedGgAndDirectUser_CorrectlyKinded()
+    {
+        var members = await _fixture.Provider.GetMembersAsync(DlFsSalesRwDn);
+
+        Assert.Equal(2, members.Count);
+        var gg = Assert.Single(members, m => Dn.Comparer.Equals(m.Dn, GgSalesStaffDn));
+        Assert.Equal(AdObjectKind.GlobalGroup, gg.Kind);
+
+        // u001 directly inside a DL is the seeded AGDLP violation — it must
+        // surface as a real, correctly kinded user.
+        var user = Assert.Single(members, m => Dn.Comparer.Equals(m.Dn, User001Dn));
+        Assert.Equal(AdObjectKind.User, user.Kind);
+    }
+
+    [AdFact]
+    public async Task GetMembers_VanishedParent_ReturnsEmptyList()
+    {
+        var members = await _fixture.Provider.GetMembersAsync("CN=Vanished,OU=AGDLP-Lab,DC=agdlp,DC=lab");
+
+        Assert.Empty(members);
+    }
+
+    // --- Cancellation smoke ----------------------------------------------------------------
+
+    [AdFact]
+    public async Task LoadScope_PreCancelledToken_ThrowsOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _fixture.Provider.LoadScopeAsync(LabDn, cts.Token));
+    }
+
+    // --- Constructor guard (no directory needed, but lab-only by class trait) ---------------
+
+    [AdFact]
+    public void Constructor_PageSizeOutOfRange_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LdapProvider(pageSize: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LdapProvider(pageSize: 1001));
+    }
+}
