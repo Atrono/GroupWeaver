@@ -5,8 +5,8 @@ using Xunit;
 namespace GroupWeaver.Tests.Providers.Ldap;
 
 /// <summary>
-/// Pins <see cref="LdapErrors.ClassifyHResult"/>: only the two
-/// "object genuinely absent" HRESULTs classify as NotFound; known connectivity
+/// Pins <see cref="LdapErrors.ClassifyHResult"/>: only the three
+/// "object genuinely absent / unresolvable" HRESULTs classify as NotFound; known connectivity
 /// failures AND every unknown HRESULT classify as Unavailable — an
 /// unrecognized error must never silently become "object absent".
 /// </summary>
@@ -14,6 +14,7 @@ public class LdapErrorClassificationTests
 {
     [Theory]
     [InlineData(unchecked((int)0x80072030))] // ERROR_DS_NO_SUCH_OBJECT
+    [InlineData(unchecked((int)0x80072032))] // ERROR_DS_INVALID_DN_SYNTAX (garbage DN, server-side)
     [InlineData(unchecked((int)0x80005000))] // E_ADS_BAD_PATHNAME
     public void ClassifyHResult_ObjectAbsentCodes_AreNotFound(int hresult)
     {
