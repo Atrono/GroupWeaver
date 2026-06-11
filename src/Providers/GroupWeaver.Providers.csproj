@@ -6,4 +6,9 @@
     <ProjectReference Include="..\Core\GroupWeaver.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Demo dataset ships inside the assembly: the portable single-file exe must work without loose files. -->
+    <EmbeddedResource Include="Demo\demo-directory.json" LogicalName="GroupWeaver.Providers.Demo.demo-directory.json" />
+  </ItemGroup>
+
 </Project>
