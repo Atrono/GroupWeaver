@@ -137,7 +137,8 @@ public sealed class DemoProvider : IDirectoryProvider
                 $"demo dataset: every object needs 'dn' and 'name' (offending dn: '{entry.Dn}').");
         }
 
-        if (!Enum.TryParse<AdObjectKind>(entry.Kind, ignoreCase: false, out var kind))
+        if (!Enum.TryParse<AdObjectKind>(entry.Kind, ignoreCase: false, out var kind)
+            || !Enum.IsDefined(kind))
         {
             throw new InvalidDataException(
                 $"demo dataset: '{entry.Dn}' has unknown kind '{entry.Kind}'.");
