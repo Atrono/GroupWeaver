@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- UI-free core: AdObject model, GraphBuilder, RuleEngine (data model lands in AP 1.3). -->
+  <!-- Shared settings live in Directory.Build.props. -->
+
+</Project>

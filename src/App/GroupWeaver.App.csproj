@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Phase 1: console app (M1 DoD is log output only). The Avalonia shell arrives in Phase 2 (AP 2.1). -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\GroupWeaver.Core.csproj" />
+    <ProjectReference Include="..\Providers\GroupWeaver.Providers.csproj" />
+  </ItemGroup>
+
+</Project>
