@@ -58,7 +58,7 @@ public sealed class DirectorySnapshot
     /// was never loaded; an empty list means it was loaded and is genuinely empty.
     /// </summary>
     public IReadOnlyList<string>? GetMembers(string parentDn) =>
-        _members.TryGetValue(parentDn, out var members) ? members : null;
+        _members.TryGetValue(parentDn, out var members) ? members.AsReadOnly() : null;
 
     /// <summary>Kind of the object with the given DN; <see cref="AdObjectKind.External"/>
     /// when the DN is not in the snapshot.</summary>
