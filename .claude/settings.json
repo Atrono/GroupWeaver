@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -Command \"& (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/guard.ps1')\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -Command \"& (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/format-cs.ps1')\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -Command \"& (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/session-start.ps1')\""
+          }
+        ]
+      }
+    ]
+  }
+}
