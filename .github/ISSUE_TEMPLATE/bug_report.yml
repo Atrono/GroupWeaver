@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a defect in GroupWeaver
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!CAUTION]
+        > **Never paste real Active Directory data (DNs, user/group names, group
+        > structures) into a public issue.** If possible, reproduce the problem
+        > in demo mode (`--demo`) and report it from there.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start GroupWeaver with --demo
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GroupWeaver version
+      placeholder: e.g. v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      placeholder: e.g. Windows 11 23H2, Windows Server 2022
+    validations:
+      required: true
+  - type: dropdown
+    id: webview2
+    attributes:
+      label: WebView2 Evergreen Runtime installed?
+      options:
+        - "Yes"
+        - "No"
+        - "Don't know"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: Did this happen in demo mode or against a live AD?
+      options:
+        - Demo mode (--demo)
+        - Live AD
+        - Both
+    validations:
+      required: true
