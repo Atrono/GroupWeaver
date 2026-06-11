@@ -51,4 +51,24 @@ public class AdObjectTests
         Assert.True(obj.Attributes.ContainsKey("Description"));
         Assert.Equal("Sales read access", obj.Attributes["DESCRIPTION"]);
     }
+
+    [Fact]
+    public void Attributes_InitWithKeysDifferingOnlyByCase_ThrowsArgumentException()
+    {
+        // The init copy re-keys with the ordinal case-insensitive comparer, so
+        // "cn" and "CN" collide: silently dropping one would lose data.
+        var collidingSource = new Dictionary<string, string>
+        {
+            ["cn"] = "GG_Sales_Read",
+            ["CN"] = "gg_sales_read",
+        };
+
+        Assert.Throws<ArgumentException>(() => new AdObject
+        {
+            Dn = "CN=GG_Sales_Read,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab",
+            Kind = AdObjectKind.GlobalGroup,
+            Name = "GG_Sales_Read",
+            Attributes = collidingSource,
+        });
+    }
 }

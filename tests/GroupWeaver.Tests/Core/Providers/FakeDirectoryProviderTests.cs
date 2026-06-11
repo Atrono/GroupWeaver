@@ -20,16 +20,15 @@ public class FakeDirectoryProviderTests
     private const string OutOfScopeDn = "CN=Domain Admins,CN=Users,DC=agdlp,DC=lab";
 
     [Fact]
-    public async Task ConnectAsync_ReturnsConnection_GroupCountProducesM1DoDLine()
+    public async Task ConnectAsync_ReportsGroupCountForM1DoDLine()
     {
         var provider = CreateProvider();
 
         var connection = await provider.ConnectAsync();
 
-        Assert.IsType<DirectoryConnection>(connection);
-        Assert.Equal(
-            "connected, 3 groups loaded",
-            $"connected, {connection.GroupCount} groups loaded");
+        // GroupCount is the only datum the "connected, N groups loaded" M1 DoD
+        // line needs; asserting it directly pins that the line can be produced.
+        Assert.Equal(3, connection.GroupCount);
     }
 
     [Fact]
