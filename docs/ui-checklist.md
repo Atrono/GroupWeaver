@@ -9,9 +9,10 @@ via Avalonia.Headless. Screenshots go to `artifacts/ui/` (gitignored).
 Screenshot fixture: `tools/test-graph-bundle.ps1` drives `tests/graph-bundle/verify.mjs`
 (Playwright, headless Chromium, 1600×1000) against the LITERAL shipped `src/App/web`
 bundle fed the literal GraphBuilder demo dump — it writes `graph-overview.png`,
-`graph-focus.png` and `graph-cycle.png`. `workspace-live-graph.png` is the windowed
-smoke capture of the real app (`--demo`, DPI-aware PrintWindow via
-`tools/capture-window.ps1`) — re-take it whenever the renderer/mount path changes.
+`graph-focus.png`, `graph-cycle.png` and `graph-expanded.png`.
+`workspace-live-graph.png` is the windowed smoke capture of the real app (`--demo`,
+DPI-aware PrintWindow via `tools/capture-window.ps1`) — re-take it whenever the
+renderer/mount path changes.
 
 Evidence tags: **[S:name]** = judge from `artifacts/ui/<name>.png`; **[P]** = pinned by
 a `tests/graph-bundle/verify.mjs` assertion; **[T:Class]** = pinned by the named xUnit
@@ -23,10 +24,11 @@ test; **[I]** = interactive/manual — cannot be evidenced by a static frame.
 - [ ] Label contrast sufficient: labels sit BELOW the nodes on the dark page background with a dark outline, never on the node fill [S:graph-focus] (labels are hidden at fit zoom BY DESIGN via `min-zoomed-font-size` — judge graph-focus, never the overview)
 - [ ] Drag/zoom respond [I — manual spot-check on the windowed `--demo` run; done for AP 2.2 via posted mouse input + frame diffs]
 - [ ] Live workspace mount: the real app's WebView shows the rendered graph (in-page legend top-left, no airspace violation) and the status row carries the graph summary [S:workspace-live-graph]
+- [ ] Lazy-expand responds: dbltap round-trips `nodeExpand` — including on a node the update itself added (handlers are bound on the cy core and survive) — and the result lands replace-in-place on the LIVE instance: viewport untouched (no fit), post-update `loaded` counts match the mutated set, the dropped membership edge gone (ADR-005 D1) [P graphUpdate phase] [S:graph-expanded]
+- [ ] Expanded vs. collapsed state distinguishable by kind resolution (ADR-005 D5): unexpanded frontier nodes render External (dashed gray); expansion restyles them to their true kind color/shape — no extra badge to judge [S:graph-expanded — the post-update node shows its true kind at label zoom] [T:WorkspaceExpandTests — External frontier resolved via GetObjectAsync]
 
 ### Future (owned later — judge when the owning AP lands)
 
-- [ ] Lazy-expand responds; expanded vs. collapsed state distinguishable → AP 2.3
 - [ ] Severity colors (red/yellow/info) and roll-up badge ("⚠ n below") readable at default zoom → AP 3.4
 
 ## B. Native chrome (Avalonia)
@@ -67,6 +69,8 @@ and spot-checked by hand when the step changes.
 - [ ] DetailPanelRegion sits BESIDE GraphHost in its own right-hand column with a visible separator — never overlapping the graph region (ADR-001 airspace) [S:workspace-demo]
 - [ ] Status bar below the graph region: connection summary ("connected, n groups loaded — …") left, "root: <DN>" right, single dimmed line, no clipping [S:workspace-demo]
 - [ ] Status bar shows the drawn-graph summary ("<n> objects, <m> edges"), dimmed, between the connection summary and the root DN, only once the load completed [S:workspace-demo] [S:workspace-live-graph]
+- [ ] Refresh button tops the right detail column — above the DetailPanelRegion seam, native chrome, never over GraphHost (ADR-005 D4); label "Refresh" (shipped UI strings are English), tooltip present [S:workspace-demo — disabled there: nothing selected]
+- [ ] Refresh enablement: armed iff the selection is a fetchable kind (GG/DL/UG/External frontier — loaded or not; refresh is a FORCED re-fetch) and nothing is loading; disarmed for users/computers/OUs, with no selection, and while any load/expand is in flight [I — pinned by WorkspaceLoadTests (button wiring) and WorkspaceExpandTests (command matrix)]
 - [ ] Nothing floats, pops up, or layers over GraphHost; anything modal is its own Window [I — design rule, re-check on every workspace change]
 
 ### WebView2 runtime (missing-runtime UX)
