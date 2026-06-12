@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 
@@ -167,9 +168,10 @@ public sealed class DemoProvider : IDirectoryProvider
     private static bool IsGroup(AdObjectKind kind) =>
         kind is AdObjectKind.GlobalGroup or AdObjectKind.DomainLocalGroup or AdObjectKind.UniversalGroup;
 
+    // Escape-aware ancestry via DnPath (#29): a textual ",{baseDn}" suffix is NOT
+    // enough — an escaped comma (\,) inside an RDN value never separates.
     private static bool IsInScope(string dn, string baseDn) =>
-        Dn.Comparer.Equals(dn, baseDn) ||
-        dn.EndsWith("," + baseDn, StringComparison.OrdinalIgnoreCase);
+        DnPath.RelativeDepth(dn, baseDn) >= 0;
 
     private static AdObject MakeExternal(string dn) => new()
     {
