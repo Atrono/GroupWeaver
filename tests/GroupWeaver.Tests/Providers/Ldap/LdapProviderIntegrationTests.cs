@@ -46,9 +46,10 @@ public sealed class LdapLabFixture : IAsyncLifetime
 /// <summary>
 /// Integration tests for <see cref="LdapProvider"/> against the live
 /// <c>OU=AGDLP-Lab</c> fixtures seeded by <c>tools/seed-testad.ps1</c> (194
-/// objects: 140 users, 18 GG + 19 DL + 3 UG groups, 10 computers, 4 OUs; 139
-/// membership edges; 12 empty groups; the GG_Circle_A↔GG_Circle_B circular
-/// nesting). Excluded in CI via the class-level <c>Category=RequiresAd</c>
+/// objects: 140 users, 18 GG + 19 DL + 3 UG groups, 10 computers, 4 OUs; 140
+/// membership edges — one targets the foreign-domain FSP outside the OU; 12
+/// empty groups; the GG_Circle_A↔GG_Circle_B circular nesting). Excluded in
+/// CI via the class-level <c>Category=RequiresAd</c>
 /// trait; skipped with a loud warning off the lab DC via <see cref="AdFactAttribute"/>.
 /// If one of these tests fails, suspect the provider or a drifted fixture
 /// first, not the expectation — counts here are derived from the seed script.
@@ -67,6 +68,16 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
     private const string EmptyMarketingDn = "CN=GG_Empty_Marketing,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
     private const string LegacyRoDn = "CN=DL_FS-Legacy_RO,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
     private const string User001Dn = "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string DlAppErpRwDn = "CN=DL_App-ERP_RW,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string UgManagersDn = "CN=UG_Managers,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    /// <summary>Fixed dangling cross-forest SID seeded by Ensure-ForeignSidMember.</summary>
+    private const string ForeignSid = "S-1-5-21-1100000001-2200000002-3300000003-1106";
+
+    /// <summary>The FSP the DC system-created for <see cref="ForeignSid"/> — deliberately
+    /// OUTSIDE OU=AGDLP-Lab (FSPs always live in CN=ForeignSecurityPrincipals).</summary>
+    private const string ForeignFspDn =
+        "CN=" + ForeignSid + ",CN=ForeignSecurityPrincipals,DC=agdlp,DC=lab";
 
     private readonly LdapLabFixture _fixture;
 
@@ -115,11 +126,13 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
     }
 
     [AdFact]
-    public void LoadScope_Lab_Has139MembershipEdges()
+    public void LoadScope_Lab_Has140MembershipEdges()
     {
-        // The lab fixture creates no built-in member edges — 139 here vs. 141 in
-        // the demo dataset (divergence documented in src/Providers/Demo/README.md).
-        Assert.Equal(139, _fixture.FullSnapshot.Edges.Count);
+        // 139 in-OU edges + the DL_App-ERP_RW → foreign-domain FSP edge added by
+        // the seed script's Ensure-ForeignSidMember (commit 264ce7d). The demo
+        // dataset has 141: no FSP edge but two built-in member edges instead
+        // (divergence documented in src/Providers/Demo/README.md).
+        Assert.Equal(140, _fixture.FullSnapshot.Edges.Count);
     }
 
     // --- T4: loaded-vs-empty semantics ----------------------------------------
@@ -308,6 +321,45 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
         var members = await _fixture.Provider.GetMembersAsync("CN=Vanished,OU=AGDLP-Lab,DC=agdlp,DC=lab");
 
         Assert.Empty(members);
+    }
+
+    // --- T13: FSP member resolution (cross-forest AGDLP shape) -------------------------
+
+    [AdFact]
+    public async Task GetMembers_DlAppErpRw_ResolvesFspAsExternal_AndUgManagersAsUniversal()
+    {
+        // Seed script: DL_App-ERP_RW = UG_Managers (Universal) + the dangling
+        // foreign-domain FSP added via Ensure-ForeignSidMember (commit 264ce7d).
+        var members = await _fixture.Provider.GetMembersAsync(DlAppErpRwDn);
+
+        Assert.Equal(2, members.Count);
+
+        var ug = Assert.Single(members, m => Dn.Comparer.Equals(m.Dn, UgManagersDn));
+        Assert.Equal(AdObjectKind.UniversalGroup, ug.Kind);
+
+        // The FSP object exists (the DC system-created it outside the lab OU), so
+        // GetMembersAsync resolves it LIVE: objectClass foreignSecurityPrincipal
+        // maps to External via AdObjectKindMapper. Name = the SID (its `name`
+        // attribute) proves the live-resolution path was taken — the unresolvable
+        // fallback (MakeExternal) would have set Name to the full DN instead.
+        var fsp = Assert.Single(members, m => Dn.Comparer.Equals(m.Dn, ForeignFspDn));
+        Assert.Equal(AdObjectKind.External, fsp.Kind);
+        Assert.Equal(ForeignSid, fsp.Name);
+    }
+
+    // --- T14: FSP in the full-scope snapshot (out-of-scope edge target) ----------------
+
+    [AdFact]
+    public void LoadScope_Lab_FspEdgePresent_TargetResolvesExternal()
+    {
+        var snapshot = _fixture.FullSnapshot;
+
+        // The FSP lives in CN=ForeignSecurityPrincipals — outside OU=AGDLP-Lab — so
+        // it is never an object of the scoped snapshot (194 stays 194) and GetKind
+        // falls back to External; the membership edge pointing at it must survive.
+        Assert.False(snapshot.TryGetObject(ForeignFspDn, out _));
+        Assert.Equal(AdObjectKind.External, snapshot.GetKind(ForeignFspDn));
+        Assert.Contains(new MembershipEdge(DlAppErpRwDn, ForeignFspDn), snapshot.Edges);
     }
 
     // --- Cancellation smoke ----------------------------------------------------------------
