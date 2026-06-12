@@ -205,13 +205,15 @@ public sealed class GraphJsonTests
         // literal inside InvokeScript. That is only safe while GraphJson keeps the
         // DEFAULT STJ encoder, which escapes ALL non-ASCII to \uXXXX - including
         // U+2028/U+2029 (legal in JSON strings, fatal inside a JS string literal).
-        // This pins the encoder (reviewer finding, PR #27 / issue #28): switching
-        // WireOptions to UnsafeRelaxedJsonEscaping lets raw non-ASCII like 'ü'
-        // through (it does still escape U+2028/U+2029 on .NET 8 - the umlaut is
-        // what trips the pin there), and JavaScriptEncoder.Create(...) encoders
-        // stop escaping the separators themselves. Either way the wire is no
-        // longer all-ASCII and this test fails in CI instead of InvokeScript
-        // failing at runtime.
+        // This pins the encoder (reviewer finding, PR #27 / issue #28): on
+        // .NET 8, BOTH known relaxed encoders - UnsafeRelaxedJsonEscaping and
+        // JavaScriptEncoder.Create(...) - keep escaping U+2028/U+2029, yet both
+        // emit other non-ASCII like 'ü' raw. The umlaut is therefore the active
+        // tripwire for either relaxed encoder; the U+2028/U+2029 inputs stay in
+        // the test data because they document the actual InvokeScript hazard
+        // and guard against hypothetical encoders that would emit them raw.
+        // Either way a relaxed encoder makes the wire non-ASCII and this test
+        // fails in CI instead of InvokeScript failing at runtime.
         const string Label = "Vertrieb\u2028Süd\u2029Team";
         var model = new GraphModel(
             [new GraphNode("CN=GG_VertriebSüd,OU=Gruppen,DC=x", Label, AdObjectKind.GlobalGroup, 1d, 2d, 1, IsRoot: false)],
