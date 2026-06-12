@@ -20,4 +20,14 @@ internal static class RulesetJson
         PropertyNameCaseInsensitive = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
+
+    /// <summary>Strict camelCase JSON out, nulls omitted. PROPERTY names only:
+    /// matrix dictionary KEYS stay verbatim PascalCase kind names (no
+    /// <c>DictionaryKeyPolicy</c> on purpose — the loader parses them exact-case).</summary>
+    internal static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 }
