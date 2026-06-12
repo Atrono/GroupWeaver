@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             x:Class="GroupWeaver.App.Views.WorkspaceView"
+             x:DataType="vm:WorkspaceViewModel">
+
+  <!-- Workspace step (AP 2.1): the airspace-shaped layout (ADR-003 D5, ADR-001
+       guardrail 5). GraphHost is the reserved center region the AP 2.2 WebView's
+       native child HWND mounts into; the detail panel lives BESIDE it in its own
+       grid column and the status bar BELOW it. NOTHING may ever be styled to
+       float, popup, or otherwise layer over GraphHost - the native HWND wins
+       every airspace fight. Anything genuinely modal must be its own Window. -->
+  <Grid RowDefinitions="*,Auto">
+
+    <Grid Grid.Row="0" ColumnDefinitions="*,300">
+
+      <ContentControl Grid.Column="0" Name="GraphHost">
+        <StackPanel Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <TextBlock Text="Graph view arrives in AP 2.2"
+                     FontSize="20" HorizontalAlignment="Center" />
+          <TextBlock Text="{Binding RootDn}"
+                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+      </ContentControl>
+
+      <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
+        <ContentControl Name="DetailPanelRegion">
+          <TextBlock Text="Detail panel arrives in AP 2.5"
+                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </ContentControl>
+      </Border>
+
+    </Grid>
+
+    <Border Grid.Row="1" BorderThickness="0,1,0,0" BorderBrush="#33808080">
+      <DockPanel Margin="12,6">
+        <TextBlock DockPanel.Dock="Right" Margin="24,0,0,0"
+                   Text="{Binding RootDn, StringFormat='root: {0}'}"
+                   FontSize="12" Opacity="0.7" />
+        <TextBlock Text="{Binding ConnectionSummary}"
+                   FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+    </Border>
+
+  </Grid>
+
+</UserControl>
