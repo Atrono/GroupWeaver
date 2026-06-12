@@ -1,12 +1,42 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:GroupWeaver.App.ViewModels"
+        xmlns:views="using:GroupWeaver.App.Views"
+        xmlns:cp="using:GroupWeaver.Core.Providers"
         x:Class="GroupWeaver.App.Views.MainWindow"
+        x:DataType="vm:ShellViewModel"
         Title="GroupWeaver"
         Width="1280" Height="720"
         MinWidth="960" MinHeight="600">
 
-  <!-- Empty shell: the step-switched content (Connect → PickRoot → Workspace,
-       ADR-003 D5) lands in the following AP 2.1 slices. -->
-  <Panel />
+  <!-- Step-switched shell (ADR-003 D5): one DataTemplate per step content type,
+       selected by ShellViewModel.CurrentStep. S5 appends the RootPicker and
+       Workspace templates here. -->
+  <Window.DataTemplates>
+
+    <DataTemplate DataType="vm:ConnectionViewModel">
+      <views:ConnectionView />
+    </DataTemplate>
+
+    <!-- PickRoot, S3 placeholder: the raw DirectoryConnection stands in for the
+         RootPicker ViewModel until S5 replaces this template. -->
+    <DataTemplate DataType="cp:DirectoryConnection">
+      <StackPanel Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="Root picker arrives in S5"
+                   FontSize="20" HorizontalAlignment="Center" />
+        <TextBlock Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center">
+          <TextBlock.Text>
+            <MultiBinding StringFormat="connected, {0} groups loaded — {1}">
+              <Binding Path="GroupCount" />
+              <Binding Path="Description" />
+            </MultiBinding>
+          </TextBlock.Text>
+        </TextBlock>
+      </StackPanel>
+    </DataTemplate>
+
+  </Window.DataTemplates>
+
+  <ContentControl Content="{Binding CurrentStep}" />
 
 </Window>
