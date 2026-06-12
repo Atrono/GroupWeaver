@@ -27,8 +27,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private bool _disposed;
 
-    /// <summary>True while the scope load + first render — or an expand fetch
-    /// (AP 2.3) — are in flight; the ONE global busy gate (ADR-005 D3).</summary>
+    /// <summary>True while the scope load + first render — or an expand pipeline
+    /// (AP 2.3; fetch AND focus-only branch alike) — is in flight; the ONE global
+    /// busy gate (ADR-005 D3).</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     private bool _isLoading;
@@ -178,12 +179,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// pipeline as a dbltap gesture with the IsLoaded cache check BYPASSED — refresh
     /// exists FOR loaded nodes (<see cref="DirectorySnapshot.SetMembers"/> REPLACES,
     /// the refresh semantics of the data-model contract). A stale-armed Execute
-    /// (busy/disposed/selection no longer fetchable) is dropped, never queued.
+    /// (busy/disposed/renderer-less/selection no longer fetchable) is dropped,
+    /// never queued.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanRefresh))]
     private void Refresh()
     {
-        if (_disposed || IsLoading || Snapshot is null
+        if (_disposed || IsLoading || Snapshot is null || GraphRenderer is null
             || SelectedDn is not { } dn || !IsFetchable(Snapshot.GetKind(dn)))
         {
             return;
@@ -192,10 +194,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         Expansion = ExpandAsync(dn, forceFetch: true, _cts.Token);
     }
 
-    /// <summary>Armed iff a fetchable snapshot kind is selected and the ONE global
-    /// busy gate is idle (ADR-005 D4); never touches the provider.</summary>
+    /// <summary>Armed iff a renderer exists (the AP 2.5 seam allows selection without
+    /// one — nothing to update then), a fetchable snapshot kind is selected, and the
+    /// ONE global busy gate is idle (ADR-005 D4); never touches the provider.</summary>
     private bool CanRefresh() =>
         !IsLoading
+        && GraphRenderer is not null
         && Snapshot is not null
         && SelectedDn is { } dn
         && IsFetchable(Snapshot.GetKind(dn));
@@ -211,7 +215,18 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     private async Task ExpandAsync(string dn, bool forceFetch, CancellationToken cancellationToken)
     {
         var snapshot = Snapshot!;
-        var renderer = GraphRenderer!; // gestures only arrive from a built renderer
+        // Both entry points already drop renderer-less calls (gestures only arrive
+        // from a built renderer; Refresh re-guards) — defense in depth for the
+        // AP 2.5 seam, where a selection can exist without a renderer.
+        if (GraphRenderer is not { } renderer)
+        {
+            return;
+        }
+
+        // ADR-005 D3: the ONE global busy gate is held across the WHOLE pipeline —
+        // the focus-only branch included, so the entry guards drop overlapping
+        // gestures during an in-flight camera move exactly like during a fetch.
+        IsLoading = true;
         try
         {
             var fetchable = IsFetchable(snapshot.GetKind(dn));
@@ -226,7 +241,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            IsLoading = true;
             LoadError = null; // every new attempt clears the inline error (load policy)
 
             // Transactional fetch (ADR-005 D3): resolve the parent object only when its
@@ -238,6 +252,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
                 resolved = await Provider.GetObjectAsync(dn, cancellationToken);
             }
 
+            // A frontier DN may resolve to a NON-group (e.g. User): GetMembersAsync then
+            // answers truthfully empty and SetMembers records REAL load state — never
+            // fabricated (null-vs-empty contract; AP 3.2 filters by kind, not this).
             var fetched = await Provider.GetMembersAsync(dn, cancellationToken);
             var memberDns = fetched.Select(m => m.Dn).ToList();
 

@@ -161,6 +161,103 @@ function toHex(cssColor) {
   throw new Error(`unrecognized CSS color format: '${cssColor}'`);
 }
 
+// ---------------------------------------------------------------------------
+// Fresh-page probe (AP 2.3 review pin): graphUpdate dispatched BEFORE any
+// graphCommit has no live cytoscape instance to update - ADR-005 D1 pins
+// "graphUpdate before any graphCommit -> jsError". A SEPARATE page (own
+// incognito context via browser.newPage) with its OWN bridge channel on
+// purpose: the main session's final audit pins ZERO jsError across its whole
+// run, and this probe's deliberately provoked jsError must never reach that
+// channel. Harness morals hold: primitives only out of page.evaluate, the
+// message waits carry MESSAGE_TIMEOUT_MS, the bare protocol awaits fall under
+// the global watchdog (see the boundedness inventory above), no sleeps.
+// ---------------------------------------------------------------------------
+async function probeGraphUpdateBeforeCommit(browser, indexHtml) {
+  const probeMessages = [];
+  const probePending = new Map();
+  const probeWaiters = new Map();
+
+  function onProbeMessage(text) {
+    const msg = JSON.parse(text);
+    probeMessages.push(msg);
+    const waiter = probeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!probePending.has(msg.type)) {
+      probePending.set(msg.type, []);
+    }
+    probePending.get(msg.type).push(msg);
+  }
+
+  function awaitProbeMessage(type, context) {
+    const queued = probePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = probeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = probeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (probe: ${context}); probe messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!probeWaiters.has(type)) {
+        probeWaiters.set(type, []);
+      }
+      probeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage();
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  // Same belt-and-braces folding as the main page: an UNCAUGHT page error on
+  // the premature graphUpdate would surface here as source 'playwright:pageerror'
+  // and fail the source assert below - the report must come from the handler.
+  page.on('pageerror', (err) => onProbeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onProbeMessage);
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitProbeMessage('ready', 'probe bundle startup after goto');
+
+  // One minimal chunk, then the update verb - and NO graphCommit, ever.
+  await page.evaluate((cmd) => window.bridge.dispatch(cmd), {
+    type: 'graphChunk',
+    nodes: [{ id: 'CN=Probe,OU=NoCommit,DC=groupweaver,DC=invalid', label: 'Probe', kind: 'User', x: 0, y: 0 }],
+    edges: [],
+  });
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+
+  const jsError = await awaitProbeMessage(
+    'jsError', 'graphUpdate dispatched before any graphCommit (ADR-005 D1)');
+  assert(jsError.source === 'handler:graphUpdate',
+    `the premature graphUpdate must be reported by the graphUpdate handler itself: source '${jsError.source}', message '${jsError.message}'`);
+
+  // Liveness: the page survived and the bridge still dispatches - a primitive
+  // out of evaluate; this round-trip also orders AFTER any further sends the
+  // handler made synchronously, so the exactly-one count below is honest.
+  const bridgeAlive = await page.evaluate(() => typeof window.bridge.dispatch === 'function');
+  assert(bridgeAlive === true,
+    'page must survive the premature graphUpdate with a working bridge (no crash)');
+
+  const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
+  assert(probeJsErrors.length === 1,
+    `the premature graphUpdate must produce exactly ONE jsError, got ${probeJsErrors.length}: ${JSON.stringify(probeJsErrors)}`);
+
+  await page.close();
+}
+
 async function main() {
   const fixturePath = process.argv[2];
   const screenshotDir = process.argv[3];
@@ -503,6 +600,12 @@ async function main() {
     assert(jsErrors.length === 0,
       `jsError messages were reported during the run: ${JSON.stringify(jsErrors, null, 2)}`);
     phase('audit (zero jsError)');
+
+    // --- fresh-page probe: graphUpdate before any graphCommit (ADR-005 D1) ---
+    // Runs AFTER the audit on a separate page/context/channel - the provoked
+    // jsError stays out of the zero-jsError accounting above by construction.
+    await probeGraphUpdateBeforeCommit(browser, indexHtml);
+    phase('graphUpdate-before-graphCommit probe (fresh page: one handler jsError, no crash)');
 
     console.log(
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `

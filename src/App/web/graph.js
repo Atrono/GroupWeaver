@@ -178,8 +178,12 @@
     for (var i = 0; i < ids.length; i++) {
       col = col.union(cy.getElementById(ids[i]));
     }
-    cy.fit(col, 80);
+    // Register BEFORE mutating, same rationale as updateGraph: cy.fit schedules
+    // the redraw, and a listener attached after a render already fired would
+    // leave 'focused' unsent (FocusAsync would hit its bounded wait). Same
+    // synchronous turn, so no stale pre-fit render can slip in between.
     cy.one('render', function () { window.bridge.send({ type: 'focused' }); });
+    cy.fit(col, 80);
   }
 
   window.bridge.onCommand(function (cmd) {

@@ -33,6 +33,11 @@ namespace GroupWeaver.App.Tests;
 /// expand of <see cref="WorkspaceViewModel.SelectedDn"/> — armed iff a fetchable
 /// snapshot kind is selected and the busy gate is idle, cache bypassed even when
 /// IsLoaded, <c>SetMembers</c> REPLACES (refresh semantics, data-model rule).
+/// Review pins (AP 2.3 pre-merge): section (m) — the ONE busy gate spans the WHOLE
+/// pipeline INCLUDING the focus-only branch, so overlap during an in-flight focus is
+/// dropped exactly like overlap during a fetch; section (n) — a renderer-less
+/// (headless, null factory) workspace keeps Refresh disarmed, and a direct Execute is
+/// a silent no-op (no NRE, no provider traffic, no snapshot mutation).
 /// VM-only behavior — plain facts, no visual tree.
 /// </summary>
 public sealed class WorkspaceExpandTests
@@ -835,6 +840,199 @@ public sealed class WorkspaceExpandTests
         Assert.False(vm.IsLoading);
     }
 
+    // --- (m) review pins: the busy gate spans the WHOLE pipeline, focus-only included --
+
+    [Fact]
+    public async Task FocusOnlyExpand_HoldsTheOneGlobalBusyGate_WhileTheFocusIsInFlight()
+    {
+        var snapshot = CircleScope();
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // Anchor: with the gate idle, a fetchable selection arms Refresh — proving the
+        // False below is caused by the gate, not by the selection.
+        vm.SelectedDn = CircleBDn;
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+
+        var focusGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.FocusResult = focusGate.Task;
+
+        fake.RaiseNodeExpandRequested(CircleADn, "GlobalGroup"); // cache hit -> focus path
+
+        // ADR-005 D3: ONE global busy gate across the WHOLE expand pipeline — the
+        // focus-only (cache-hit) branch INCLUDED. While the camera move is in flight
+        // the gate is held: IsLoading true, Refresh disarmed.
+        Assert.False(vm.Expansion.IsCompleted);
+        Assert.True(
+            vm.IsLoading,
+            "the focus-only branch must hold the ONE global busy gate (ADR-005 D3)");
+        Assert.False(vm.RefreshCommand.CanExecute(null));
+
+        focusGate.SetResult();
+        await vm.Expansion;
+
+        Assert.False(vm.IsLoading);
+        Assert.True(vm.RefreshCommand.CanExecute(null), "the gate must release after the focus");
+        AssertFocusSet(Assert.Single(fake.FocusCalls), CircleADn, CircleBDn, AdaDn, ExternalDn);
+        Assert.Equal(0, provider.GetObjectCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+        Assert.Null(vm.LoadError);
+    }
+
+    [Fact]
+    public async Task ExpandGesture_WhileAFocusOnlyExpandIsInFlight_IsDropped_NotQueued()
+    {
+        var snapshot = KindScope(); // GG_Circle_A LOADED; DL_App_RO fetchable, NOT loaded
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        provider.GetMembersHandler = (_, _) => Task.FromResult<IReadOnlyList<AdObject>>([]);
+
+        var focusGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.FocusResult = focusGate.Task;
+
+        fake.RaiseNodeExpandRequested(CircleADn, "GlobalGroup"); // cache hit -> focus path
+        var inFlight = vm.Expansion;
+        Assert.False(inFlight.IsCompleted);
+        Assert.Single(fake.FocusCalls);
+
+        // Mirror of section (g) for the FOCUS path: a second gesture during the
+        // in-flight camera move must be dropped exactly like one during a fetch —
+        // zero provider traffic, zero additional focus, Expansion reference-unchanged.
+        fake.RaiseNodeExpandRequested(DlDn, "DomainLocalGroup");
+
+        Assert.Same(inFlight, vm.Expansion);
+        Assert.Equal(0, provider.GetObjectCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+        Assert.Single(fake.FocusCalls);
+        Assert.Empty(fake.UpdatedGraphs);
+        Assert.False(snapshot.IsLoaded(DlDn));
+
+        focusGate.SetResult();
+        await inFlight;
+        Assert.False(vm.IsLoading);
+
+        // The dropped gesture was NOT queued — and a fresh one afterwards is honored.
+        Assert.Equal(0, provider.GetMembersCalls);
+        Assert.False(snapshot.IsLoaded(DlDn));
+        fake.RaiseNodeExpandRequested(DlDn, "DomainLocalGroup");
+        await vm.Expansion;
+        Assert.Equal(1, provider.GetMembersCalls);
+        Assert.True(snapshot.IsLoaded(DlDn));
+        Assert.Equal(2, fake.FocusCalls.Count);
+        AssertFocusSet(fake.FocusCalls[^1], DlDn);
+    }
+
+    [Fact]
+    public async Task RefreshExecute_WhileAFocusOnlyExpandIsInFlight_IsDropped_NotQueued()
+    {
+        var snapshot = CircleScope(); // GG_Circle_A and GG_Circle_B both LOADED
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        var graphBefore = vm.Graph;
+        var summaryBefore = vm.GraphSummary;
+        provider.GetMembersHandler = (_, _) => Task.FromResult<IReadOnlyList<AdObject>>(
+            [Obj("Ada Lovelace", AdaDn, AdObjectKind.User)]);
+
+        var focusGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.FocusResult = focusGate.Task;
+
+        fake.RaiseNodeExpandRequested(CircleADn, "GlobalGroup"); // cache hit -> focus path
+        var inFlight = vm.Expansion;
+        Assert.False(inFlight.IsCompleted);
+
+        // RelayCommand.Execute does NOT gate on CanExecute: a stale-armed Execute during
+        // the in-flight FOCUS must be dropped exactly like one during a fetch (section k)
+        // — no snapshot mutation, no graph update, no provider traffic, Expansion untouched.
+        vm.SelectedDn = CircleBDn;
+        vm.RefreshCommand.Execute(null);
+
+        Assert.Same(inFlight, vm.Expansion);
+        Assert.Equal(0, provider.GetObjectCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+        Assert.Equal(new[] { CircleADn }, snapshot.GetMembers(CircleBDn));
+        Assert.Empty(fake.UpdatedGraphs);
+        Assert.Single(fake.FocusCalls);
+        Assert.Same(graphBefore, vm.Graph);
+        Assert.Equal(summaryBefore, vm.GraphSummary);
+
+        focusGate.SetResult();
+        await inFlight;
+        Assert.False(vm.IsLoading);
+
+        // Dropped, not queued: nothing replays after the focus completes …
+        Assert.Equal(0, provider.GetMembersCalls);
+        Assert.Equal(new[] { CircleADn }, snapshot.GetMembers(CircleBDn));
+
+        // … but dropped ≠ disarmed: the SAME refresh, re-issued sequentially, fetches.
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+        vm.RefreshCommand.Execute(null);
+        await vm.Expansion;
+        Assert.Equal(1, provider.GetMembersCalls);
+        Assert.Equal(new[] { AdaDn }, snapshot.GetMembers(CircleBDn)); // SetMembers REPLACES
+    }
+
+    // --- (n) review pins: a renderer-less workspace keeps Refresh disarmed and inert ---
+
+    [Fact]
+    public async Task RefreshCanExecute_IsFalseWithoutARenderer_EvenWithAFetchableSelection()
+    {
+        var snapshot = CircleScope();
+        var provider = Provider(snapshot);
+        var vm = RendererlessWorkspace(provider);
+        await vm.Initialization;
+        Assert.Null(vm.GraphRenderer);
+
+        // SelectedDn has a public setter (the declared AP 2.5 detail-panel seam) —
+        // selection can exist without a renderer, but Refresh must never arm: there is
+        // no surface to update, and the pipeline would dereference a null renderer.
+        vm.SelectedDn = CircleADn;
+
+        Assert.False(
+            vm.RefreshCommand.CanExecute(null),
+            "Refresh must stay disarmed when no renderer exists");
+        Assert.Equal(0, provider.GetObjectCalls); // arming must never touch the provider
+        Assert.Equal(0, provider.GetMembersCalls);
+    }
+
+    [Fact]
+    public async Task RefreshExecute_WithoutARenderer_IsASilentNoOp_NoFetch_NoMutation_NoCrash()
+    {
+        var snapshot = CircleScope();
+        var provider = Provider(snapshot);
+        var vm = RendererlessWorkspace(provider);
+        await vm.Initialization;
+        var expansionBefore = vm.Expansion;
+        var graphBefore = vm.Graph;
+        // If the pipeline ever reached the provider, this handler would let it run all
+        // the way to the null-renderer dereference — the no-op must stop FAR earlier.
+        provider.GetMembersHandler = (_, _) => Task.FromResult<IReadOnlyList<AdObject>>(
+            [Obj("GG_Circle_B", CircleBDn)]);
+
+        vm.SelectedDn = CircleADn;
+        vm.RefreshCommand.Execute(null);
+
+        // Silent no-op (drop semantics): awaiting Expansion must not throw — today this
+        // surfaces the null-renderer NRE — and NOTHING may have happened.
+        await vm.Expansion;
+
+        Assert.Same(expansionBefore, vm.Expansion);
+        Assert.Equal(0, provider.GetObjectCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+        Assert.Equal(new[] { CircleBDn, AdaDn, ExternalDn }, snapshot.GetMembers(CircleADn));
+        Assert.True(snapshot.IsLoaded(CircleADn));
+        Assert.Same(graphBefore, vm.Graph);
+        Assert.Null(vm.LoadError);
+        Assert.False(vm.IsLoading);
+        // NodeExpandRequested is unreachable without a renderer (no event source exists),
+        // so the Refresh pin is the complete null-renderer surface (review finding 2).
+    }
+
     // --- helpers ------------------------------------------------------------------------
 
     private static AdObject Obj(
@@ -900,6 +1098,17 @@ public sealed class WorkspaceExpandTests
             new DirectoryConnection("stub directory", 5),
             webView2Missing: false,
             rendererFactory);
+
+    /// <summary>Workspace VM constructed HEADLESS — null renderer factory (the same
+    /// shape the AP 2.5 detail-panel tests will use): no renderer ever exists, no
+    /// renderer events can fire (section n).</summary>
+    private static WorkspaceViewModel RendererlessWorkspace(StubDirectoryProvider provider) =>
+        new(
+            provider,
+            Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit),
+            new DirectoryConnection("stub directory", 5),
+            webView2Missing: false,
+            graphRendererFactory: null);
 
     /// <summary>Asserts one focus call names exactly <paramref name="expected"/>
     /// (set semantics via <see cref="Dn.Comparer"/>, count pinned — no duplicates).</summary>
