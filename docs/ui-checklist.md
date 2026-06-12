@@ -37,7 +37,8 @@ Screenshot fixture: `tests/GroupWeaver.App.Tests/Screenshots/ShellScreenshotTest
 renders every shipped shell state via real Skia (real DemoProvider, real views) to
 `artifacts/ui/<view>-<W>x<H>.png` at **both** 1280×720 and 1920×1080:
 `connection-idle`, `connection-error`, `rootpicker-demo`, `rootpicker-demo-tail`,
-`workspace-demo`, `workspace-webview2-missing` — 12 PNGs per run.
+`workspace-demo`, `workspace-webview2-missing`, `workspace-detail`,
+`workspace-detail-frontier` — 16 PNGs per run.
 
 Evidence tags: **[S:name]** = judge from the `name-*.png` pair; **[I]** = interactive
 or transient — cannot be evidenced by a static frame; covered by headless tests
@@ -73,6 +74,19 @@ and spot-checked by hand when the step changes.
 - [ ] Refresh enablement: armed iff the selection is a fetchable kind (GG/DL/UG/External frontier — loaded or not; refresh is a FORCED re-fetch) and nothing is loading; disarmed for users/computers/OUs, with no selection, and while any load/expand is in flight [I — pinned by WorkspaceLoadTests (button wiring) and WorkspaceExpandTests (command matrix)]
 - [ ] Nothing floats, pops up, or layers over GraphHost; anything modal is its own Window [I — design rule, re-check on every workspace change]
 
+### Detail panel
+
+`workspace-detail` stages a selected demo user at the user display set's 5-row
+maximum in the exact live-LDAP attribute shape; `workspace-detail-frontier`
+selects a never-fetched member of a group-rooted scope (honest NotLoaded).
+
+- [ ] Attribute rows show whitelist attribute NAMES only, in `AttributeWhitelist.FetchProperties` declaration order — the user frame reads exactly description, whenCreated, department, title, primaryGroupID, nothing else; dimmed label above each value, both legible [S:workspace-detail]
+- [ ] Header kind badge: label readable on the badge color, palette parity with the root-picker badges and the graph node colors (same kind = same color everywhere); name prominent beside it, SAM + DN dimmed below [S:workspace-detail]
+- [ ] Long DN WRAPS fully across lines and is text-selectable — never truncated/ellipsized (ADR-007 D4: the panel is the full-value surface, unlike the picker rows), DN rendered verbatim incl. escape sequences [I — pinned by DetailPanelViewTests (SelectableTextBlock, ordinal verbatim match); wrap spot-checked on the workspace-detail pair]
+- [ ] Load-state honesty (ADR-007 D3) — no selection: "Click a node to inspect it." placeholder [S:workspace-demo]; not loaded: External badge, DN verbatim, the expand/Refresh resolve hint, ZERO attribute rows [S:workspace-detail-frontier]; unresolvable (fetched FSP): the no-attributes-available explanation [I — state pinned by WorkspaceDetailTests; text spot-checked when it changes]
+- [ ] Refresh STILL tops the right column with a populated panel below it: header row above the panel content, the panel scrolls under it, never pushes it out [S:workspace-detail]
+- [ ] Panel content stays inside the right detail column — long values wrap within it, the column scrolls vertically only, nothing floats or layers over GraphHost [S:workspace-detail] [I — ADR-001 airspace rule, pinned by DetailPanelViewTests' airspace fact; re-check on every panel change]
+
 ### WebView2 runtime (missing-runtime UX)
 
 - [ ] Banner docked above the step content when the probe reports missing: amber tint, wrapped text, never a dialog, never blocks [S:workspace-webview2-missing]
@@ -90,6 +104,5 @@ and spot-checked by hand when the step changes.
 
 ### Future (not shipped yet — judge when the owning AP lands)
 
-- [ ] Detail panel (AP 2.5): whitelist attributes only; long DNs truncated with full value available
 - [ ] Settings/rule editor (Phase 3): live preview updates; import/export present
 - [ ] Violation sidebar (AP 3.4): list with jump-to-node; "unexpanded areas are unchecked" notice visible
