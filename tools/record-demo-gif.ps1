@@ -338,9 +338,10 @@ New-Item -ItemType Directory -Force $frameDir | Out-Null
 $gifDir = Split-Path -Parent $OutGif
 if ($gifDir -and -not (Test-Path $gifDir)) { New-Item -ItemType Directory -Force $gifDir | Out-Null }
 
-# Launch WITHOUT --demo: the GIF must show "Demo mode" being clicked. The script
-# NEVER invokes "Connect to domain" - demo data only reaches the public artifact.
-Log 'Launching GroupWeaver (no args - demo is chosen on camera)...'
+# Launch WITHOUT --demo and UIA-click "Demo mode" OFF CAMERA (no frame captured
+# before the root picker - the idle connect card renders the live operator
+# identity). The script NEVER invokes "Connect to domain" - demo data only.
+Log 'Launching GroupWeaver (no args - demo chosen via UIA, off camera)...'
 $app = Start-Process -FilePath $exe -PassThru
 
 try {
