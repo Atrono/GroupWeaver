@@ -49,8 +49,9 @@ as-is — "cycle handling is the consumer's concern".
    guarantees O(V+E) termination on the finite in-memory snapshot, and the walk
    takes no provider — there is no I/O channel to become unbounded through.
    Unboundedness guards live where data enters (paging, MemberCollector's 10K
-   bound, mandatory root filter). Tests keep an independent step-count bound
-   (≤ V+E+1) instead — proof without trusting the implementation.
+   bound, mandatory root filter). Tests keep an independent visit-count bound
+   (≤ V+E+1) plus timeout guards instead — a black-box test cannot count steps,
+   but duplicate visits and non-termination both trip loudly.
 5. **No app wiring in this package.** Consumers arrive with AP 3.2/3.4; the
    expand pipeline has no traversal to protect (ADR-005). No UI diff → the
    screenshot DoD step is N/A.

@@ -15,10 +15,13 @@ namespace GroupWeaver.Tests.Core.Graph;
 /// never-loaded members stay out of it (the ADR-006 frontier kind filter).
 /// </summary>
 /// <remarks>
-/// Dataset shape relied on below is pinned by <c>DemoProviderTests</c>:
+/// Dataset shape relied on below is pinned by THESE tests plus the checked-in
+/// JSON itself (<c>DemoProviderTests</c> pins only weaker facts: both circle
+/// edges present, every group loaded, DL_FS-IT_RW contains Domain Admins):
 /// GG_Circle_A and GG_Circle_B hold exactly each other; DL_FS-IT_RW holds
 /// [GG_IT_Staff, CN=Domain Admins,CN=Users,… (external)] in that stored order and
-/// GG_IT_Staff holds 20 users; the full scope loads every group's members.
+/// GG_IT_Staff holds 20 users — reordering or extending those entries in
+/// demo-directory.json deliberately fails these tests.
 /// <c>DemoProviderTests.Violations_CircularNesting_BoundedMemberWalkTerminates</c>
 /// deliberately stays independent of this utility — it pins the DATASET with its
 /// own inline bounded walk and must not be rebased onto MembershipTraversal.
