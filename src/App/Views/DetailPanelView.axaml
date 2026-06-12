@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:views="using:GroupWeaver.App.Views"
+             x:Class="GroupWeaver.App.Views.DetailPanelView"
+             x:DataType="vm:DetailPanelModel">
+
+  <!-- Detail panel (AP 2.5 S3, ADR-007): binds ONLY the immutable DetailPanelModel
+       projection (D2) - never an AdObject or the snapshot. Lives inside the
+       DetailPanelRegion seam BESIDE the graph; nothing here may ever overlay
+       GraphHost (ADR-001 airspace guardrail 5). Values wrap and are selectable;
+       the panel is the full-value surface (D4) - no truncation, ever. -->
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="12" Spacing="8">
+
+      <!-- Header: kind badge from THE one converter palette (parity with the root
+           picker and the graph node colors) + the object name, prominent. -->
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Border MinWidth="34" VerticalAlignment="Center"
+                CornerRadius="3" Padding="5,2"
+                Background="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+          <TextBlock Text="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     HorizontalAlignment="Center" />
+        </Border>
+        <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold"
+                   VerticalAlignment="Center" TextWrapping="Wrap"
+                   IsVisible="{Binding Name, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </StackPanel>
+
+      <TextBlock Text="{Binding SamAccountName}" FontSize="12" Opacity="0.7"
+                 TextWrapping="Wrap"
+                 IsVisible="{Binding SamAccountName, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+      <!-- The DN, verbatim (never canonicalized) and text-selectable: the one
+           copy-source for the full identity of the object. -->
+      <SelectableTextBlock Text="{Binding Dn}" FontSize="12" Opacity="0.7"
+                           TextWrapping="Wrap" />
+
+      <!-- Load-state honesty (ADR-007 D3), derived from snapshot state alone. -->
+      <TextBlock Text="This object is not loaded yet. Double-click it in the graph or press Refresh to resolve it."
+                 IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsNotLoaded}}"
+                 Opacity="0.7" TextWrapping="Wrap" />
+
+      <TextBlock Text="Unresolvable: the directory cannot resolve this DN (for example a foreign security principal), so no attributes are available."
+                 IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsUnresolvable}}"
+                 Opacity="0.7" TextWrapping="Wrap" />
+
+      <TextBlock Text="No whitelisted attributes."
+                 IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsLoadedWithoutAttributes}}"
+                 Opacity="0.7" TextWrapping="Wrap" />
+
+      <!-- Attribute rows: the projection's Rows VERBATIM (the D2 mirror - the UI
+           never re-filters; a provider whitelist bug must become visible). -->
+      <ItemsControl ItemsSource="{Binding Rows}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:DetailRow">
+            <StackPanel Margin="0,0,0,8">
+              <TextBlock Text="{Binding Label}" FontSize="11" Opacity="0.6" />
+              <SelectableTextBlock Text="{Binding Value}" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+    </StackPanel>
+  </ScrollViewer>
+
+</UserControl>

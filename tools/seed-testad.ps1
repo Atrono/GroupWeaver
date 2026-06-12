@@ -37,6 +37,7 @@ function Assert-LabPath([string]$dn) {
 
 $script:created = 0
 $script:skipped = 0
+$script:updated = 0
 
 function Test-AdObjectDn([string]$dn) {
     try { Get-ADObject -Identity $dn | Out-Null; $true } catch { $false }
@@ -53,11 +54,23 @@ function Ensure-OU([string]$name, [string]$path) {
     $dn
 }
 
-function Ensure-User([string]$sam, [string]$given, [string]$surname, [string]$path) {
+function Ensure-User([string]$sam, [string]$given, [string]$surname, [string]$path, [string]$department, [string]$title) {
     Assert-LabPath $path
-    if (Get-ADUser -Filter "sAMAccountName -eq '$sam'" -SearchBase $labDN) { $script:skipped++; return }
+    $existing = Get-ADUser -Filter "sAMAccountName -eq '$sam'" -SearchBase $labDN -Properties department, title
+    if ($existing) {
+        # Attribute top-up: department/title arrived with AP 2.5's live whitelist
+        # evidence; users seeded earlier lack them. Idempotent - writes only on
+        # drift, counted as updated (not created/skipped).
+        if (($department -and $existing.department -cne $department) -or ($title -and $existing.title -cne $title)) {
+            Assert-LabPath $existing.DistinguishedName
+            Set-ADUser -Identity $existing -Department $department -Title $title
+            $script:updated++
+        }
+        else { $script:skipped++ }
+        return
+    }
     New-ADUser -Name "$given $surname ($sam)" -GivenName $given -Surname $surname `
-        -SamAccountName $sam -Path $path -Enabled $false | Out-Null
+        -SamAccountName $sam -Path $path -Enabled $false -Department $department -Title $title | Out-Null
     $script:created++
 }
 
@@ -124,10 +137,15 @@ $ouComputers = Ensure-OU 'Computers' $labDN
 $firstNames = 'Anna','Ben','Carla','David','Elena','Felix','Greta','Henrik','Ines','Jonas',
               'Katja','Lars','Mara','Nils','Olga','Paul','Rita','Sven','Tina','Udo'
 $lastNames  = 'Acker','Brandt','Claus','Dorn','Ebert','Falk','Gruber','Hahn','Iben','Jung','Kraus','Lenz'
+$departments = 'Sales','IT','HR','Finance','Ops'
 for ($i = 1; $i -le 140; $i++) {
     $g = $firstNames[($i - 1) % $firstNames.Count]
     $s = $lastNames[[math]::Floor(($i - 1) / $firstNames.Count) % $lastNames.Count]
-    Ensure-User ('u{0:d3}' -f $i) $g $s $ouUsers
+    # Department cycles, u101-u110 are Team Leads - mirrors the DemoProvider
+    # dataset (AP 1.4) so AP 2.5's live whitelist evidence can pin presence.
+    $dept   = $departments[($i - 1) % $departments.Count]
+    $jobttl = if ($i -ge 101 -and $i -le 110) { 'Team Lead' } else { 'Staff' }
+    Ensure-User ('u{0:d3}' -f $i) $g $s $ouUsers $dept $jobttl
 }
 
 # --- Computers (10) -------------------------------------------------------------
@@ -205,4 +223,4 @@ $null = Ensure-OU 'Research/Development' $labDN
 
 # --- Summary ------------------------------------------------------------------------
 $total = (Get-ADObject -SearchBase $labDN -Filter * | Measure-Object).Count
-Write-Host "seed-testad: $($script:created) created, $($script:skipped) already present, $total objects under $labDN"
+Write-Host "seed-testad: $($script:created) created, $($script:updated) updated, $($script:skipped) already present, $total objects under $labDN"

@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:views="using:GroupWeaver.App.Views"
              x:Class="GroupWeaver.App.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel">
 
@@ -64,16 +65,19 @@
                      IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"
                      Foreground="#C42B1C" TextWrapping="Wrap" />
 
+          <!-- Detail panel (AP 2.5, ADR-007 D2): the view binds ONLY the immutable
+               DetailPanelModel projection - never an AdObject or the snapshot. The
+               wrapper Panel carries the visibility switch because its DataContext
+               is still the workspace VM; the inner view's is the projection. -->
           <ContentControl Grid.Row="2" Name="DetailPanelRegion">
             <Panel>
-              <TextBlock Text="Detail panel arrives in AP 2.5"
-                         IsVisible="{Binding SelectedDn, Converter={x:Static ObjectConverters.IsNull}}"
+              <TextBlock Text="Click a node to inspect it."
+                         IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
                          Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
                          HorizontalAlignment="Center" VerticalAlignment="Center" />
-              <!-- Placeholder binding, THE AP 2.5 seam: the clicked node's DN, verbatim. -->
-              <TextBlock Text="{Binding SelectedDn}"
-                         IsVisible="{Binding SelectedDn, Converter={x:Static ObjectConverters.IsNotNull}}"
-                         Margin="12" TextWrapping="Wrap" />
+              <Panel IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <views:DetailPanelView DataContext="{Binding DetailPanel}" />
+              </Panel>
             </Panel>
           </ContentControl>
 
