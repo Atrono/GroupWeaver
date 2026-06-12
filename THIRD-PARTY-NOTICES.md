@@ -4,6 +4,19 @@ GroupWeaver ships third-party components under their own licenses, listed
 below. NuGet dependencies (Avalonia, etc.) will be enumerated here as they are
 added to the product.
 
+## NuGet packages
+
+Shipped (non-vendored) runtime dependencies; their license texts travel inside
+the packages themselves. Versions are pinned exactly (ADR-001/ADR-003).
+
+- **Avalonia 11.3.17** (+ Avalonia.Desktop, Avalonia.Themes.Fluent) — MIT —
+  https://avaloniaui.net/
+- **Avalonia.Controls.WebView 11.4.0** — MIT — https://avaloniaui.net/
+  (the official AvaloniaUI WebView, FOSS since March 2026; WebView2 backend on
+  Windows, see [ADR-001](docs/adr/001-graph-library.md))
+- **CommunityToolkit.Mvvm 8.4.2** — MIT —
+  https://github.com/CommunityToolkit/dotnet
+
 ## Cytoscape.js 3.34.0
 
 - License: MIT

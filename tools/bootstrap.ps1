@@ -101,4 +101,21 @@ Install-ADDSForest `
     if ($LASTEXITCODE -ne 0) { throw "DC promotion failed (exit $LASTEXITCODE) - see C:\Windows\debug\dcpromo.log" }
 }
 
+# --- 4. Graph-bundle test harness deps (npm + Playwright chromium) ------------
+# tests/graph-bundle (AP 2.2, ADR-004) verifies the shipped web bundle headlessly;
+# chromium lands under %LOCALAPPDATA%\ms-playwright. Both commands are idempotent.
+$graphBundleDir = Join-Path $PSScriptRoot '..\tests\graph-bundle'
+if (Test-Path (Join-Path $graphBundleDir 'package.json')) {
+    Log 'Installing graph-bundle harness deps (npm ci + Playwright chromium)...'
+    Push-Location $graphBundleDir
+    try {
+        npm ci
+        if ($LASTEXITCODE -ne 0) { throw "npm ci in tests/graph-bundle failed (exit $LASTEXITCODE)" }
+        npx playwright install chromium
+        if ($LASTEXITCODE -ne 0) { throw "npx playwright install chromium failed (exit $LASTEXITCODE)" }
+    }
+    finally { Pop-Location }
+}
+else { Log 'tests/graph-bundle not present - skipping Playwright harness setup.' }
+
 Log 'Bootstrap finished (if promotion just ran, a reboot is imminent).'

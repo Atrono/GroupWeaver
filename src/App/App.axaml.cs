@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using GroupWeaver.App.Graph;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
@@ -34,7 +35,10 @@ public sealed partial class App : Application
                 static demo => demo ? new DemoProvider() : (IDirectoryProvider)new LdapProvider(),
                 StartupOptions,
                 // Probed ONCE here (ADR-003 D3); missing = persistent banner, never a blocker.
-                WebView2Runtime.Probe());
+                WebView2Runtime.Probe(),
+                // The ONLY place the real renderer is wired (ADR-004 D5). Headless tests
+                // never reach this: they construct VMs directly (null factory or fakes).
+                static () => new CytoscapeGraphRenderer());
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
 

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>GroupWeaver Graph</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1b1f27; }
+    #cy { width: 100%; height: 100%; }
+    #legend {
+      position: fixed; top: 12px; left: 12px; z-index: 10;
+      padding: 8px 12px; border-radius: 6px;
+      background: rgba(27, 31, 39, 0.85);
+      border: 1px solid rgba(232, 236, 242, 0.15);
+      color: #E8ECF2; font: 11px/1.7 "Segoe UI", sans-serif;
+      pointer-events: none;
+    }
+    #legend .edge-sample {
+      display: inline-block; width: 24px; margin-right: 6px;
+      vertical-align: middle; border-top: 2px solid #7A8699;
+    }
+    #legend .edge-sample.contains { border-top: 2px dashed #4A5568; }
+    #legend .swatch {
+      display: inline-block; width: 10px; height: 10px; margin-right: 6px;
+      vertical-align: middle; border-radius: 2px;
+    }
+    #legend .swatch.external { border: 1px dashed #B0B6BF; }
+  </style>
+</head>
+<body>
+  <div id="cy"></div>
+  <div id="legend">
+    <div><span class="edge-sample"></span>&rarr;&nbsp;is member of</div>
+    <div><span class="edge-sample contains"></span>contains</div>
+    <div><span class="swatch" style="background: #038387;"></span>User (circle)</div>
+    <div><span class="swatch" style="background: #107C10;"></span>Global group (triangle)</div>
+    <div><span class="swatch" style="background: #A14000;"></span>Domain-local group (diamond)</div>
+    <div><span class="swatch" style="background: #744DA9;"></span>Universal group (pentagon)</div>
+    <div><span class="swatch" style="background: #0F6CBD;"></span>OU (rounded square)</div>
+    <div><span class="swatch" style="background: #556070;"></span>Computer (square)</div>
+    <div><span class="swatch external" style="background: #757575;"></span>External (dashed circle)</div>
+  </div>
+  <!-- cytoscape 3.34.0, vendored - byte-identical to spikes/GraphSpike/web/vendor (pinned by WebBundleTests). -->
+  <script src="vendor/cytoscape.min.js"></script>
+  <script src="bridge.js"></script>
+  <script src="graph.js"></script>
+</body>
+</html>

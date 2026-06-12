@@ -3,25 +3,39 @@
 Judged by the `ui-verifier` agent on every UI change (CLAUDE.md DoD step 2).
 Two parts: (A) graph layer via Playwright/headless Chromium, (B) native chrome
 via Avalonia.Headless. Screenshots go to `artifacts/ui/` (gitignored).
-Section A is still a stub until the graph ships (AP 2.2); section B covers the
-shipped AP 2.1 shell, with future panels parked under "Future".
 
 ## A. Graph layer (browser bundle)
 
-- [ ] Node types visually distinct (color/shape): User, GG, DL, UG, OU, Computer, extern/unresolvable
-- [ ] Nesting edges legible, direction unambiguous
-- [ ] Concentric layout sane: root centered, no node overlap at 200 demo nodes
-- [ ] Drag/zoom/lazy-expand respond; expanded vs. collapsed state distinguishable
-- [ ] Severity colors (red/yellow/info) and roll-up badge ("⚠ n below") readable at default zoom
-- [ ] Label contrast sufficient on every node color (no dark-on-dark)
+Screenshot fixture: `tools/test-graph-bundle.ps1` drives `tests/graph-bundle/verify.mjs`
+(Playwright, headless Chromium, 1600×1000) against the LITERAL shipped `src/App/web`
+bundle fed the literal GraphBuilder demo dump — it writes `graph-overview.png`,
+`graph-focus.png` and `graph-cycle.png`. `workspace-live-graph.png` is the windowed
+smoke capture of the real app (`--demo`, DPI-aware PrintWindow via
+`tools/capture-window.ps1`) — re-take it whenever the renderer/mount path changes.
+
+Evidence tags: **[S:name]** = judge from `artifacts/ui/<name>.png`; **[P]** = pinned by
+a `tests/graph-bundle/verify.mjs` assertion; **[T:Class]** = pinned by the named xUnit
+test; **[I]** = interactive/manual — cannot be evidenced by a static frame.
+
+- [ ] Node types visually distinct — all 7 kinds differ by BOTH color and shape: User, GG, DL, UG, OU, Computer, External/unresolvable [S:graph-focus] [P palette parity C#↔JS for every kind]
+- [ ] Nesting edges legible, direction unambiguous: membership = bezier with arrowhead drawn member → group (the legend's "is member of" reading); containment = dashed, arrowless [S:graph-focus] [S:graph-cycle — the seeded antiparallel A↔B pair shows as two separated curves with both arrowheads visible, never one merged line]
+- [ ] Concentric layout sane: root centered, no node overlap at ~200 demo nodes [S:graph-overview] [T:GraphBuilderGeometryTests] [P rendered pairwise min center distance ≥ 44 + loaded counts match the fixture]
+- [ ] Label contrast sufficient: labels sit BELOW the nodes on the dark page background with a dark outline, never on the node fill [S:graph-focus] (labels are hidden at fit zoom BY DESIGN via `min-zoomed-font-size` — judge graph-focus, never the overview)
+- [ ] Drag/zoom respond [I — manual spot-check on the windowed `--demo` run; done for AP 2.2 via posted mouse input + frame diffs]
+- [ ] Live workspace mount: the real app's WebView shows the rendered graph (in-page legend top-left, no airspace violation) and the status row carries the graph summary [S:workspace-live-graph]
+
+### Future (owned later — judge when the owning AP lands)
+
+- [ ] Lazy-expand responds; expanded vs. collapsed state distinguishable → AP 2.3
+- [ ] Severity colors (red/yellow/info) and roll-up badge ("⚠ n below") readable at default zoom → AP 3.4
 
 ## B. Native chrome (Avalonia)
 
 Screenshot fixture: `tests/GroupWeaver.App.Tests/Screenshots/ShellScreenshotTests.cs`
 renders every shipped shell state via real Skia (real DemoProvider, real views) to
 `artifacts/ui/<view>-<W>x<H>.png` at **both** 1280×720 and 1920×1080:
-`connection-idle`, `connection-error`, `rootpicker-demo`, `workspace-demo`,
-`workspace-webview2-missing` — 10 PNGs per run.
+`connection-idle`, `connection-error`, `rootpicker-demo`, `rootpicker-demo-tail`,
+`workspace-demo`, `workspace-webview2-missing` — 12 PNGs per run.
 
 Evidence tags: **[S:name]** = judge from the `name-*.png` pair; **[I]** = interactive
 or transient — cannot be evidenced by a static frame; covered by headless tests
@@ -49,9 +63,10 @@ and spot-checked by hand when the step changes.
 
 ### Workspace
 
-- [ ] GraphHost seam placeholder centered in the graph region: "Graph view arrives in AP 2.2" plus the chosen root DN [S:workspace-demo]
+- [ ] GraphHost placeholder ("Graph view is unavailable in this environment." plus the chosen root DN) appears ONLY when no renderer is wired — headless tests / null factory; a missing WebView2 Runtime shows the missing-runtime variant instead, and the real app mounts the WebView (section A, workspace-live-graph) [S:workspace-demo]
 - [ ] DetailPanelRegion sits BESIDE GraphHost in its own right-hand column with a visible separator — never overlapping the graph region (ADR-001 airspace) [S:workspace-demo]
 - [ ] Status bar below the graph region: connection summary ("connected, n groups loaded — …") left, "root: <DN>" right, single dimmed line, no clipping [S:workspace-demo]
+- [ ] Status bar shows the drawn-graph summary ("<n> objects, <m> edges"), dimmed, between the connection summary and the root DN, only once the load completed [S:workspace-demo] [S:workspace-live-graph]
 - [ ] Nothing floats, pops up, or layers over GraphHost; anything modal is its own Window [I — design rule, re-check on every workspace change]
 
 ### WebView2 runtime (missing-runtime UX)

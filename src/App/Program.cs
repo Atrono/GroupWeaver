@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Avalonia;
+using GroupWeaver.App.Graph;
+using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Providers;
 using GroupWeaver.Providers;
 
@@ -19,6 +21,12 @@ internal static class Program
         if (args.Contains("--check"))
         {
             return RunCheck(demo);
+        }
+
+        var dumpGraphIndex = Array.IndexOf(args, "--dump-graph");
+        if (dumpGraphIndex >= 0)
+        {
+            return RunDumpGraph(demo, dumpGraphIndex + 1 < args.Length ? args[dumpGraphIndex + 1] : null);
         }
 
         App.StartupOptions = new StartupOptions(Demo: demo);
@@ -83,6 +91,65 @@ internal static class Program
             Console.Error.WriteLine("no domain reachable in this user context - try --demo for the embedded demo directory");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Headless flat graph dump — the permanent fixture/diagnostic command (ADR-004 D7).
+    /// Demo-only by design: without <c>--demo</c> it exits 64, because live-AD structure
+    /// must never reach artifacts (public-media rule). Never initializes Avalonia;
+    /// contract pinned by the <c>--dump-graph</c> tests in <c>AppCliTests</c>.
+    /// </summary>
+    private static int RunDumpGraph(bool demo, string? path)
+    {
+        EnsureConsole();
+
+        if (!demo)
+        {
+            Console.Error.WriteLine(
+                "--dump-graph is demo-only: live-AD structure must never reach artifacts - re-run with --demo");
+            return 64;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            Console.Error.WriteLine("usage: GroupWeaver --demo --dump-graph <path>");
+            return 64;
+        }
+
+        try
+        {
+            var provider = new DemoProvider();
+            provider.ConnectAsync().GetAwaiter().GetResult();
+
+            // The demo dataset root: the candidate closest to the directory root,
+            // i.e. with the fewest RDN components (escape-aware), ordinal tie-break.
+            var rootDn = provider.GetRootCandidatesAsync().GetAwaiter().GetResult()
+                .OrderBy(candidate => RdnComponentCount(candidate.Dn))
+                .ThenBy(candidate => candidate.Dn, StringComparer.Ordinal)
+                .First().Dn;
+
+            var snapshot = provider.LoadScopeAsync(rootDn).GetAwaiter().GetResult();
+            File.WriteAllText(path, GraphJson.SerializeFlat(GraphBuilder.Build(snapshot, rootDn)));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+    }
+
+    /// <summary>How many RDN components <paramref name="dn"/> has — unescaped-comma
+    /// separated, counted via the escape-aware <see cref="DnPath"/> walker.</summary>
+    private static int RdnComponentCount(string dn)
+    {
+        var count = 1;
+        for (var ancestor = DnPath.Parent(dn); ancestor is not null; ancestor = DnPath.Parent(ancestor))
+        {
+            count++;
+        }
+
+        return count;
     }
 
     // ---------- console attachment shim (WinExe has no console of its own) ----------

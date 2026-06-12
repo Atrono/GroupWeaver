@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Graph;
 using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Providers;
 
@@ -12,9 +13,10 @@ namespace GroupWeaver.App.ViewModels;
 /// callbacks: Connect succeeds into the root picker, the picker either confirms into a
 /// workspace or backs out to a fresh Connect step.
 /// </summary>
-public sealed partial class ShellViewModel : ObservableObject
+public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly Func<bool, IDirectoryProvider> _providerFactory;
+    private readonly Func<IGraphRenderer>? _graphRendererFactory;
 
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
@@ -23,9 +25,11 @@ public sealed partial class ShellViewModel : ObservableObject
     public ShellViewModel(
         Func<bool, IDirectoryProvider> providerFactory,
         StartupOptions startupOptions,
-        WebView2RuntimeStatus? webView2Runtime = null)
+        WebView2RuntimeStatus? webView2Runtime = null,
+        Func<IGraphRenderer>? graphRendererFactory = null)
     {
         _providerFactory = providerFactory;
+        _graphRendererFactory = graphRendererFactory;
 
         // Default = real probe, so harnesses constructing the shell directly behave like
         // the app; S8's headless tests pass an explicit status to force the missing state.
@@ -73,7 +77,8 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         Provider = provider;
         CurrentStep = new RootPickerViewModel(
-            provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing);
+            provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing,
+            _graphRendererFactory);
     }
 
     /// <summary>The picker's Back: drop the provider, start over on a fresh Connect step.</summary>
@@ -84,4 +89,11 @@ public sealed partial class ShellViewModel : ObservableObject
     }
 
     private void OnRootChosen(WorkspaceViewModel workspace) => CurrentStep = workspace;
+
+    /// <summary>
+    /// Disposes the active step (cancels the workspace's in-flight scope load,
+    /// AP 2.2 S6). The workspace is the only disposable step and is terminal in the
+    /// step machine — no transition ever swaps a disposable step away mid-session.
+    /// </summary>
+    public void Dispose() => (CurrentStep as IDisposable)?.Dispose();
 }

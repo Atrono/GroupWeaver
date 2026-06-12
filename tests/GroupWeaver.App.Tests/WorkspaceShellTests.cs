@@ -51,6 +51,11 @@ public sealed class WorkspaceShellTests
 
         var workspace = Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
 
+        // S6: settle the scope load before asserting — the seam/status pins below
+        // describe the post-load workspace, not the transient loading state.
+        await workspace.Initialization;
+        Dispatcher.UIThread.RunJobs();
+
         // The picker view is gone; exactly one workspace view replaced it (D5 switch).
         Assert.Empty(window.GetVisualDescendants().OfType<RootPickerView>());
         var workspaceView = Assert.Single(window.GetVisualDescendants().OfType<WorkspaceView>());

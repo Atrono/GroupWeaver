@@ -228,6 +228,12 @@ public sealed class ShellScreenshotTests
         picker.SelectedCandidate = picker.Candidates
             .First(c => c.Kind == AdObjectKind.OrganizationalUnit);
         picker.LoadRootCommand.Execute(null);
-        Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
+        var workspace = Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
+
+        // S6: the workspace frames must capture the settled post-load state — never a
+        // transient progress bar. Capture-and-discard (CapturePng) only fixes compositor
+        // lag, not load timing, so the load itself is awaited here; the real
+        // DemoProvider behind the shell makes this the genuine demo-mode truth.
+        await workspace.Initialization;
     }
 }

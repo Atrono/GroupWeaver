@@ -28,9 +28,20 @@
 - **Screenshot gotchas (found during AP 2.1):** the desktop runs at >100% DPI
   scale — PrintWindow captures of live windows need
   `SetThreadDpiAwarenessContext(-4)` first or `GetWindowRect` crops the right
-  edge. Headless: `CaptureRenderedFrame` lags one compositor batch — the first
-  capture after a VM mutation returns the *previous* frame; capture-and-discard
-  then capture (no sleeps; see `tests/GroupWeaver.App.Tests/Screenshots/`).
+  edge (reusable: `tools/capture-window.ps1`, also sets `PW_RENDERFULLCONTENT`
+  for WebView2 content). Headless: `CaptureRenderedFrame` lags one compositor
+  batch — the first capture after a VM mutation returns the *previous* frame;
+  capture-and-discard then capture (no sleeps; see
+  `tests/GroupWeaver.App.Tests/Screenshots/`).
+- **Windowed-smoke driving (found during AP 2.2):** this agent context has no
+  interactive input desktop (`SetCursorPos` fails, `OpenInputDesktop` denied) —
+  real mouse injection is impossible. Drive Avalonia chrome via UIA patterns
+  (`SelectionItemPattern`/`InvokePattern` work); drive the WebView canvas by
+  posting `WM_LBUTTON*`/`WM_MOUSEMOVE`/`WM_MOUSEWHEEL` directly to the
+  `Chrome_RenderWidgetHostHWND` child. Once that child HWND exists, UIA
+  descendant queries on the window return ONLY Chromium content — Avalonia
+  TextBlocks vanish from the UIA tree; judge Avalonia-side state from
+  PrintWindow captures instead.
 - **AD quirks (found during AP 1.5):** SAM rejects well-known special-identity
   SIDs (S-1-5-11 etc.) as members of *account-domain* groups — only BUILTIN
   aliases may hold them; lab FSP fixture therefore uses a fabricated

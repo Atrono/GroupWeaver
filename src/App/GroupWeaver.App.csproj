@@ -14,18 +14,31 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Versions pinned EXACTLY per ADR-001/ADR-003 D2 - upgrades are deliberate, reviewed events.
-         Avalonia.Controls.WebView (pinned 11.4.0) arrives in AP 2.2, not here. -->
+    <!-- Versions pinned EXACTLY per ADR-001/ADR-003 D2 - upgrades are deliberate, reviewed events. -->
     <PackageReference Include="Avalonia" Version="11.3.17" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17" Condition="'$(Configuration)' == 'Debug'" />
+    <!-- Official AvaloniaUI WebView, MIT; 11.3.x package versions are deprecated commercial
+         builds - pin exactly [11.4.0] (ADR-001). Depends on Avalonia >= 11.1.0, so the
+         11.3.17 core pin above stays untouched. -->
+    <PackageReference Include="Avalonia.Controls.WebView" Version="[11.4.0]" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Core\GroupWeaver.Core.csproj" />
     <ProjectReference Include="..\Providers\GroupWeaver.Providers.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Production web bundle (AP 2.2 S3, ADR-004 D6): served via file:// from next to
+         the exe, so it must stay LOOSE files even under -p:PublishSingleFile=true
+         (ExcludeFromSingleFile). Pinned by tests/GroupWeaver.App.Tests/Graph/WebBundleTests. -->
+    <Content Include="web\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
   </ItemGroup>
 
 </Project>
