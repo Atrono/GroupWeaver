@@ -26,6 +26,10 @@
       e = pendingEdges[i];
       elements.push({ group: 'edges', data: { id: e.id, source: e.s, target: e.t, rel: e.rel } });
     }
+    // A second chunk+commit cycle must start from scratch, not re-init over the
+    // accumulated union (duplicate-id errors). Unreachable today, trap for AP 2.3+.
+    pendingNodes = [];
+    pendingEdges = [];
 
     cy = cytoscape({
       container: document.getElementById('cy'),
@@ -99,13 +103,18 @@
           }
         },
         {
+          // Dashed = containment; the dash pattern (not color) separates it from
+          // member edges. Opacity tuned for ~2.45:1 blended contrast on #1b1f27
+          // (ui-checklist A2: legible, verifier-justified vs the 3:1 floor by the
+          // crisp dash pattern; bump to ~0.72 if a hard 3:1 is ever required)
+          // while staying visually subordinate to member edges.
           selector: "edge[rel='contains']",
           style: {
             'curve-style': 'bezier',
             width: 1,
             'line-style': 'dashed',
-            'line-color': '#4A5568',
-            opacity: 0.2
+            'line-color': '#7A8699',
+            opacity: 0.6
           }
         }
       ]
