@@ -51,6 +51,22 @@ $machineUser = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
                [Environment]::GetEnvironmentVariable('Path', 'User')
 $env:Path = (($env:Path + ';' + $machineUser) -split ';' | Where-Object { $_ } | Select-Object -Unique) -join ';'
 
+# --- 2b. Git Bash (bash.exe/sh.exe) on the Machine PATH -----------------------
+# Git's installer only puts ...\Git\cmd on PATH. Append ...\Git\bin so bash/sh
+# resolve everywhere (added 2026-06-12). Deliberately NOT usr\bin: its ~250
+# Unix tools risk shadowing Windows' find/sort depending on PATH order.
+$gitBin = Join-Path $env:ProgramFiles 'Git\bin'
+if (Test-Path (Join-Path $gitBin 'bash.exe')) {
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    if (($machinePath -split ';') -notcontains $gitBin) {
+        Log "Adding $gitBin to the Machine PATH..."
+        [Environment]::SetEnvironmentVariable('Path', ($machinePath.TrimEnd(';') + ';' + $gitBin), 'Machine')
+        $env:Path += ';' + $gitBin
+    }
+    else { Log 'Git\bin already on the Machine PATH.' }
+}
+else { Log "WARNING: $gitBin\bash.exe not found - Git layout changed?" }
+
 # --- 3. AD DS role + new forest agdlp.lab (REBOOTS THE MACHINE) ---------------
 # DomainRole: 0/2 standalone, 1/3 member, 4 backup DC, 5 primary DC
 $role = (Get-CimInstance Win32_ComputerSystem).DomainRole

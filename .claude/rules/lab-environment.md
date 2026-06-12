@@ -7,9 +7,11 @@
   does NOT install it. Perf numbers must always state which rendering mode they
   were measured in; the software-rendered numbers are the target-audience floor
   (RDP/server/VM) — see `spikes/GraphSpike/RESULTS-software-rendering.md`.
-- **No `sh`, no `jq` on PATH.** Git Bash's `sh.exe` exists under
-  `C:\Program Files\Git\(usr\)bin` but is not on PATH; `jq` is not installed at
-  all. Anything user-facing (statusline, hooks) must be PowerShell-native.
+- **`bash`/`sh` ARE on the Machine PATH since 2026-06-12** (`C:\Program
+  Files\Git\bin`, added by `bootstrap.ps1` step 2b; `usr\bin` deliberately NOT —
+  its Unix `find`/`sort` risk shadowing Windows'). Sessions started before the
+  change won't see it. `jq` is still not installed; keep statusline/hooks
+  PowerShell-native anyway (Windows-first box).
 - **Hook commands run through Git Bash, not PowerShell** (Claude Code's Windows
   default; PowerShell only if Git Bash is absent). Bash expands `$env` and
   `$LASTEXITCODE` to empty strings before `pwsh` ever sees the command — never
