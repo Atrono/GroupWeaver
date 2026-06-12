@@ -28,4 +28,14 @@
     <ProjectReference Include="..\Providers\GroupWeaver.Providers.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Production web bundle (AP 2.2 S3, ADR-004 D6): served via file:// from next to
+         the exe, so it must stay LOOSE files even under -p:PublishSingleFile=true
+         (ExcludeFromSingleFile). Pinned by tests/GroupWeaver.App.Tests/Graph/WebBundleTests. -->
+    <Content Include="web\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+
 </Project>
