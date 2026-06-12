@@ -19,8 +19,11 @@ namespace GroupWeaver.App.ViewModels;
 /// AP 2.3 adds the lazy-expand pipeline (ADR-005 D3) behind
 /// <see cref="IGraphRenderer.NodeExpandRequested"/>, observable via <see cref="Expansion"/>
 /// under the same error policy, plus <see cref="RefreshCommand"/> (ADR-005 D4): a
-/// FORCED expand of <see cref="SelectedDn"/> through the same pipeline. Contract pinned by
-/// <c>tests/GroupWeaver.App.Tests/WorkspaceLoadTests.cs</c> and <c>WorkspaceExpandTests.cs</c>.
+/// FORCED expand of <see cref="SelectedDn"/> through the same pipeline. AP 2.5 (ADR-007)
+/// projects the selection into <see cref="DetailPanel"/> — snapshot-only, recomputed on
+/// selection change and in each pipeline's <c>finally</c>. Contract pinned by
+/// <c>tests/GroupWeaver.App.Tests/WorkspaceLoadTests.cs</c>, <c>WorkspaceExpandTests.cs</c>
+/// and <c>WorkspaceDetailTests.cs</c>.
 /// </summary>
 public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
 {
@@ -48,6 +51,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// over the DRAWN graph (<see cref="Graph"/> node/edge counts, not the snapshot's).</summary>
     [ObservableProperty]
     private string? _graphSummary;
+
+    /// <summary>The AP 2.5 detail-panel projection of <see cref="SelectedDn"/> (ADR-007):
+    /// the ONLY thing the panel binds. Recomputed at exactly three points — selection
+    /// change plus each pipeline's <c>finally</c>; <c>null</c> while nothing is selected
+    /// or no snapshot exists yet. Pinned by <c>WorkspaceDetailTests.cs</c>.</summary>
+    [ObservableProperty]
+    private DetailPanelModel? _detailPanel;
 
     public WorkspaceViewModel(
         IDirectoryProvider provider,
@@ -132,6 +142,16 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>The built graph model handed to the renderer; <c>null</c> until built.</summary>
     public GraphModel? Graph { get; private set; }
 
+    /// <summary>ADR-007 D1: selection re-projects IMMEDIATELY — snapshot-only reads,
+    /// never busy-gated, so the panel stays responsive during any in-flight pipeline.</summary>
+    partial void OnSelectedDnChanged(string? value) => RecomputeDetailPanel();
+
+    /// <summary>The single projection write: a pure snapshot read through the
+    /// <see cref="DetailPanelModel.Build"/> choke point — never calls the provider,
+    /// never checks or takes the busy gate (ADR-007 D1).</summary>
+    private void RecomputeDetailPanel() =>
+        DetailPanel = Snapshot is null ? null : DetailPanelModel.Build(Snapshot, SelectedDn);
+
     private async Task LoadAsync(CancellationToken cancellationToken)
     {
         IsLoading = true;
@@ -157,6 +177,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            // ADR-007 D1: every pipeline run re-projects (error paths included) — a
+            // selection made during the gated load shows up without a further gesture.
+            RecomputeDetailPanel();
             IsLoading = false;
         }
     }
@@ -290,6 +313,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            // ADR-007 D1: re-project the CURRENT selection — an upserted/refreshed
+            // selected object updates the open panel; a stale panel is impossible.
+            RecomputeDetailPanel();
             IsLoading = false;
         }
     }
