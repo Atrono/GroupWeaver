@@ -22,11 +22,21 @@ public interface IGraphRenderer
     /// renderer has accepted the model (the VM's readiness must not lie about this).</summary>
     Task ShowGraphAsync(GraphModel graph, CancellationToken cancellationToken = default);
 
+    /// <summary>Replace-in-place update of the live graph (ADR-005 D1/D2): no destroy,
+    /// no fit, viewport untouched; completes once the renderer confirmed the update.
+    /// Only valid after a successful <see cref="ShowGraphAsync"/>.</summary>
+    Task UpdateGraphAsync(GraphModel graph, CancellationToken cancellationToken = default);
+
+    /// <summary>Moves the camera to fit the nodes named by <paramref name="dns"/>
+    /// (ADR-005 D2/D3: parent + members after an expand); completes once the renderer
+    /// confirmed the move. Unknown DNs are silently skipped by the graph surface.</summary>
+    Task FocusAsync(IReadOnlyCollection<string> dns, CancellationToken cancellationToken = default);
+
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
-    /// <summary>A node was double-tapped for expansion — part of the interface now,
-    /// ignored by the VM until AP 2.3 (ADR-004 D5).</summary>
+    /// <summary>A node was double-tapped for expansion — drives the AP 2.3 lazy-expand
+    /// pipeline in the workspace VM (ADR-005 D3).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeExpandRequested;
 
     /// <summary>The renderer failed (ready timeout, JS error, …) — surfaced as an

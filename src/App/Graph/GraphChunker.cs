@@ -8,18 +8,38 @@ namespace GroupWeaver.App.Graph;
 /// per-chunk caps (nodes and edges may share a chunk), then a trailing
 /// <c>{"type":"graphCommit"}</c> as the LAST command — JS is a dumb accumulator.
 /// Order is preserved, every element is delivered exactly once, and edge ids are
-/// unique across the whole transfer.
+/// unique across the whole transfer. Update mode (<see cref="ToUpdateCommands"/>,
+/// ADR-005 D1) shares the ONE slicing path and differs ONLY in the trailing commit
+/// verb: <c>{"type":"graphUpdate"}</c> (replace-in-place) instead of <c>graphCommit</c>.
 /// Contract pinned by <c>tests/GroupWeaver.App.Tests/Graph/GraphChunkerTests.cs</c>.
 /// </summary>
 public static class GraphChunker
 {
     private const string CommitCommand = """{"type":"graphCommit"}""";
+    private const string UpdateCommand = """{"type":"graphUpdate"}""";
 
-    /// <summary>Maps <paramref name="model"/> to the chunked wire commands.</summary>
+    /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a full
+    /// init (<c>graphCommit</c>: destroy + fit).</summary>
     public static IReadOnlyList<string> ToChunkCommands(
         GraphModel model,
         int maxNodesPerChunk = 500,
-        int maxEdgesPerChunk = 1000)
+        int maxEdgesPerChunk = 1000) =>
+        ToCommands(model, maxNodesPerChunk, maxEdgesPerChunk, CommitCommand);
+
+    /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a
+    /// replace-in-place update (<c>graphUpdate</c>: live instance, viewport untouched,
+    /// ADR-005 D1) — same chunks as <see cref="ToChunkCommands"/>, different trailer.</summary>
+    public static IReadOnlyList<string> ToUpdateCommands(
+        GraphModel model,
+        int maxNodesPerChunk = 500,
+        int maxEdgesPerChunk = 1000) =>
+        ToCommands(model, maxNodesPerChunk, maxEdgesPerChunk, UpdateCommand);
+
+    private static IReadOnlyList<string> ToCommands(
+        GraphModel model,
+        int maxNodesPerChunk,
+        int maxEdgesPerChunk,
+        string trailingCommand)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxNodesPerChunk);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEdgesPerChunk);
@@ -46,7 +66,7 @@ public static class GraphChunker
             edgeIndex += edgeCount;
         }
 
-        commands.Add(CommitCommand);
+        commands.Add(trailingCommand);
         return commands;
     }
 

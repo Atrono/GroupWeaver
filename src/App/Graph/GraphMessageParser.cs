@@ -45,6 +45,7 @@ public static class GraphMessageParser
                 "loaded" => ParseLoaded(root, json),
                 "nodeClick" => ParseNodeClick(root, json),
                 "nodeExpand" => ParseNodeExpand(root, json),
+                "focused" => new FocusedMessage(),
                 "jsError" => ParseJsError(root, json),
                 _ => new UnknownMessage(json, $"unknown message type '{type}'"),
             };

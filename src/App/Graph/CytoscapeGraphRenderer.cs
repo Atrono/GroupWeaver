@@ -19,16 +19,18 @@ namespace GroupWeaver.App.Graph;
 /// </summary>
 public sealed class CytoscapeGraphRenderer : IGraphRenderer
 {
-    /// <summary>Bound on each bridge wait (ready, loaded) — never a hang (ADR-004 D5).</summary>
+    /// <summary>Bound on each bridge wait (ready, loaded, focused) — never a hang
+    /// (ADR-004 D5).</summary>
     private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(60);
 
     private readonly TaskCompletionSource _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private TaskCompletionSource? _loaded;
+    private TaskCompletionSource? _focused;
     private NativeWebView? _webView;
     private bool _navigated;
-    private bool _showInFlight;
+    private bool _commandInFlight;
 
     /// <summary>The WebView, created on first access (single instance for the
     /// renderer's lifetime). Must be accessed on the UI thread.</summary>
@@ -50,63 +52,160 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// DirectoryUnavailableException) and turn a degraded renderer into a crash-bug,
     /// against the never-hang-but-don't-crash intent. Trade-off accepted: on timeout
     /// the VM still sets GraphSummary, beside the visible LoadError.
-    /// Re-entrancy: a second call while one is in flight throws
-    /// <see cref="InvalidOperationException"/> — the VM shows exactly one graph per
-    /// workspace lifetime, so an overlap is a caller bug; queueing would hide it
-    /// (AP 2.3's lazy expand uses its own command, not a second full show).
+    /// Re-entrancy: a second call while ANY renderer call is in flight throws
+    /// <see cref="InvalidOperationException"/> — the single-flight guard is shared
+    /// with <see cref="UpdateGraphAsync"/>/<see cref="FocusAsync"/> (ADR-005 D2/D3:
+    /// the VM's busy gate drops overlapping gestures, so an overlap here is a caller
+    /// bug; queueing would hide it).
     /// </summary>
     public async Task ShowGraphAsync(GraphModel graph, CancellationToken cancellationToken = default)
     {
-        if (_showInFlight)
-        {
-            throw new InvalidOperationException(
-                "ShowGraphAsync is already in flight — the renderer shows one graph at a time.");
-        }
-
-        _showInFlight = true;
+        EnterSingleFlight(nameof(ShowGraphAsync));
         try
         {
-            try
+            if (!await TryAwaitReadyAsync(cancellationToken))
             {
-                await _ready.Task.WaitAsync(BridgeTimeout, cancellationToken);
-            }
-            catch (TimeoutException)
-            {
-                RaiseError("renderer", "web bundle never became ready (60 s)");
                 return;
             }
 
             // Armed BEFORE the first dispatch: the page may confirm faster than the
             // last InvokeScript returns.
             _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            foreach (var command in GraphChunker.ToChunkCommands(graph))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // The chunk JSON is embedded verbatim as a JS object literal: safe,
-                // because GraphJson's default STJ encoder emits ASCII-only output
-                // (non-ASCII — including the JS-literal-breaking U+2028/U+2029 —
-                // escaped to \uXXXX), and ASCII-safe JSON is a valid JS expression.
-                // _webView cannot be null here: the ready message only arrives from
-                // the navigated WebView, which only exists once View was accessed.
-                await _webView!.InvokeScript($"window.bridge.dispatch({command})");
-            }
-
-            try
-            {
-                await _loaded.Task.WaitAsync(BridgeTimeout, cancellationToken);
-            }
-            catch (TimeoutException)
-            {
-                RaiseError("renderer", "graph render never completed (60 s)");
-            }
+            await DispatchAsync(GraphChunker.ToChunkCommands(graph), cancellationToken);
+            await AwaitConfirmationAsync(
+                _loaded.Task, "graph render never completed (60 s)", cancellationToken);
         }
         finally
         {
-            _showInFlight = false;
+            _commandInFlight = false;
         }
     }
+
+    /// <summary>
+    /// Replace-in-place update (ADR-005 D1/D2): same chunks as a show but committed
+    /// with <c>graphUpdate</c> — the page mutates the LIVE cytoscape instance (no
+    /// destroy, no fit) and confirms with the same <c>loaded</c> message. Identical
+    /// single-flight guard and 60 s bounded-wait → RendererError-and-return-normally
+    /// policy as <see cref="ShowGraphAsync"/> (see its remarks).
+    /// </summary>
+    public async Task UpdateGraphAsync(GraphModel graph, CancellationToken cancellationToken = default)
+    {
+        EnterSingleFlight(nameof(UpdateGraphAsync));
+        try
+        {
+            if (!await TryAwaitReadyAsync(cancellationToken))
+            {
+                return;
+            }
+
+            // Armed BEFORE the first dispatch: the page may confirm faster than the
+            // last InvokeScript returns.
+            _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await DispatchAsync(GraphChunker.ToUpdateCommands(graph), cancellationToken);
+            await AwaitConfirmationAsync(
+                _loaded.Task, "graph update never completed (60 s)", cancellationToken);
+        }
+        finally
+        {
+            _commandInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Camera move (ADR-005 D2): sends the <c>focus</c> command and completes on the
+    /// page's <c>focused</c> confirmation. Identical single-flight guard and 60 s
+    /// bounded-wait → RendererError-and-return-normally policy as
+    /// <see cref="ShowGraphAsync"/> (see its remarks).
+    /// </summary>
+    public async Task FocusAsync(IReadOnlyCollection<string> dns, CancellationToken cancellationToken = default)
+    {
+        EnterSingleFlight(nameof(FocusAsync));
+        try
+        {
+            if (!await TryAwaitReadyAsync(cancellationToken))
+            {
+                return;
+            }
+
+            // Armed BEFORE the dispatch: the page may confirm faster than
+            // InvokeScript returns.
+            _focused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await DispatchAsync(
+                [GraphJson.Serialize(new FocusDto("focus", [.. dns]))], cancellationToken);
+            await AwaitConfirmationAsync(
+                _focused.Task, "focus move never completed (60 s)", cancellationToken);
+        }
+        finally
+        {
+            _commandInFlight = false;
+        }
+    }
+
+    /// <summary>One renderer call at a time, shared across show/update/focus —
+    /// an overlap is a caller bug, never queued (ADR-005 D3).</summary>
+    private void EnterSingleFlight(string operation)
+    {
+        if (_commandInFlight)
+        {
+            throw new InvalidOperationException(
+                $"{operation} while another renderer call is in flight — the renderer runs one command at a time.");
+        }
+
+        _commandInFlight = true;
+    }
+
+    /// <summary>Bounded wait for the bundle's <c>ready</c>; on timeout raises
+    /// <see cref="RendererError"/> and reports <c>false</c> — callers return normally
+    /// (never a hang, never a throw; ADR-004 D5).</summary>
+    private async Task<bool> TryAwaitReadyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _ready.Task.WaitAsync(BridgeTimeout, cancellationToken);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            RaiseError("renderer", "web bundle never became ready (60 s)");
+            return false;
+        }
+    }
+
+    /// <summary>Bounded wait for a page confirmation (<c>loaded</c>/<c>focused</c>);
+    /// timeout → <see cref="RendererError"/> and a normal return.</summary>
+    private async Task AwaitConfirmationAsync(
+        Task confirmation, string timeoutMessage, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await confirmation.WaitAsync(BridgeTimeout, cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            RaiseError("renderer", timeoutMessage);
+        }
+    }
+
+    private async Task DispatchAsync(
+        IReadOnlyList<string> commands, CancellationToken cancellationToken)
+    {
+        foreach (var command in commands)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // The command JSON is embedded verbatim as a JS object literal: safe,
+            // because GraphJson's default STJ encoder emits ASCII-only output
+            // (non-ASCII — including the JS-literal-breaking U+2028/U+2029 —
+            // escaped to \uXXXX), and ASCII-safe JSON is a valid JS expression.
+            // _webView cannot be null here: the ready message only arrives from
+            // the navigated WebView, which only exists once View was accessed.
+            await _webView!.InvokeScript($"window.bridge.dispatch({command})");
+        }
+    }
+
+    /// <summary>The <c>focus</c> bridge command (ADR-005 D2); serialized through
+    /// <see cref="GraphJson"/> so comma/quote-containing DNs are escaped correctly.</summary>
+    private sealed record FocusDto(string Type, IReadOnlyList<string> Ids);
 
     private NativeWebView CreateWebView()
     {
@@ -158,6 +257,9 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 break;
             case LoadedMessage:
                 _loaded?.TrySetResult();
+                break;
+            case FocusedMessage:
+                _focused?.TrySetResult();
                 break;
             case NodeClickMessage click:
                 NodeClicked?.Invoke(this, new GraphNodeEventArgs(click.Id, click.Kind));
