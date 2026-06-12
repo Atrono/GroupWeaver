@@ -1,3 +1,5 @@
+using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 
@@ -13,11 +15,15 @@ namespace GroupWeaver.App.ViewModels;
 public sealed class WorkspaceViewModel
 {
     public WorkspaceViewModel(
-        IDirectoryProvider provider, AdObject root, DirectoryConnection connection)
+        IDirectoryProvider provider,
+        AdObject root,
+        DirectoryConnection connection,
+        bool webView2Missing = false)
     {
         Provider = provider;
         Root = root;
         Connection = connection;
+        WebView2Missing = webView2Missing;
     }
 
     /// <summary>Provider behind the active connection; AP 2.2 loads the scope from it.</summary>
@@ -38,4 +44,15 @@ public sealed class WorkspaceViewModel
     /// <summary>Status-bar line; same shape as the M1 DoD console line.</summary>
     public string ConnectionSummary =>
         $"connected, {Connection.GroupCount} groups loaded — {Connection.Description}";
+
+    /// <summary>
+    /// Handed through from <see cref="ShellViewModel"/> at construction (ADR-003 D3):
+    /// switches the GraphHost placeholder to its missing-runtime variant. AP 2.2
+    /// re-checks before mounting the real WebView.
+    /// </summary>
+    public bool WebView2Missing { get; }
+
+    /// <summary>Placeholder hyperlink: open the runtime's download page in the browser.</summary>
+    public IRelayCommand OpenWebView2DownloadPageCommand { get; } =
+        new RelayCommand(WebView2Runtime.OpenDownloadPage);
 }

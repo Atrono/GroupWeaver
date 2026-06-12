@@ -21,6 +21,7 @@ public sealed partial class RootPickerViewModel : ObservableObject
     private readonly DirectoryConnection _connection;
     private readonly Action _onBack;
     private readonly Action<WorkspaceViewModel> _onConfirmed;
+    private readonly bool _webView2Missing;
 
     /// <summary>True while the candidate enumeration is in flight.</summary>
     [ObservableProperty]
@@ -49,12 +50,14 @@ public sealed partial class RootPickerViewModel : ObservableObject
         IDirectoryProvider provider,
         DirectoryConnection connection,
         Action onBack,
-        Action<WorkspaceViewModel> onConfirmed)
+        Action<WorkspaceViewModel> onConfirmed,
+        bool webView2Missing = false)
     {
         _provider = provider;
         _connection = connection;
         _onBack = onBack;
         _onConfirmed = onConfirmed;
+        _webView2Missing = webView2Missing;
         LoadCandidates = LoadCandidatesAsync();
     }
 
@@ -97,7 +100,8 @@ public sealed partial class RootPickerViewModel : ObservableObject
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanLoadRoot))]
     private void LoadRoot() =>
-        _onConfirmed(new WorkspaceViewModel(_provider, SelectedCandidate!, _connection));
+        _onConfirmed(new WorkspaceViewModel(
+            _provider, SelectedCandidate!, _connection, _webView2Missing));
 
     private bool CanLoadRoot() => SelectedCandidate is not null;
 

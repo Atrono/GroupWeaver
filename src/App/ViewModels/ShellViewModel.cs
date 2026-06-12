@@ -1,4 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Providers;
 
 namespace GroupWeaver.App.ViewModels;
@@ -19,9 +21,18 @@ public sealed partial class ShellViewModel : ObservableObject
     private object _currentStep;
 
     public ShellViewModel(
-        Func<bool, IDirectoryProvider> providerFactory, StartupOptions startupOptions)
+        Func<bool, IDirectoryProvider> providerFactory,
+        StartupOptions startupOptions,
+        WebView2RuntimeStatus? webView2Runtime = null)
     {
         _providerFactory = providerFactory;
+
+        // Default = real probe, so harnesses constructing the shell directly behave like
+        // the app; S8's headless tests pass an explicit status to force the missing state.
+        var runtime = webView2Runtime ?? WebView2Runtime.Probe();
+        WebView2Missing = !runtime.IsInstalled;
+        WebView2Version = runtime.Version;
+
         var connect = new ConnectionViewModel(providerFactory, OnConnected);
         _currentStep = connect;
 
@@ -44,10 +55,25 @@ public sealed partial class ShellViewModel : ObservableObject
     /// </summary>
     public IDirectoryProvider? Provider { get; private set; }
 
+    /// <summary>
+    /// True when the startup probe found no WebView2 Runtime (ADR-003 D3). Drives the
+    /// persistent shell banner; a missing runtime never blocks — only the AP 2.2 graph
+    /// view needs it. Fixed at construction (installing mid-session needs a restart).
+    /// </summary>
+    public bool WebView2Missing { get; }
+
+    /// <summary>Detected runtime version (<c>pv</c>); <c>null</c> when missing.</summary>
+    public string? WebView2Version { get; }
+
+    /// <summary>Banner hyperlink: open the runtime's download page in the browser.</summary>
+    [RelayCommand]
+    private void OpenWebView2DownloadPage() => WebView2Runtime.OpenDownloadPage();
+
     private void OnConnected(IDirectoryProvider provider, DirectoryConnection connection)
     {
         Provider = provider;
-        CurrentStep = new RootPickerViewModel(provider, connection, OnBackToConnect, OnRootChosen);
+        CurrentStep = new RootPickerViewModel(
+            provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing);
     }
 
     /// <summary>The picker's Back: drop the provider, start over on a fresh Connect step.</summary>

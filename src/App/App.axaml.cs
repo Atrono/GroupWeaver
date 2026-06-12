@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
 using GroupWeaver.Core.Providers;
@@ -31,7 +32,9 @@ public sealed partial class App : Application
         {
             var shell = new ShellViewModel(
                 static demo => demo ? new DemoProvider() : (IDirectoryProvider)new LdapProvider(),
-                StartupOptions);
+                StartupOptions,
+                // Probed ONCE here (ADR-003 D3); missing = persistent banner, never a blocker.
+                WebView2Runtime.Probe());
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
 

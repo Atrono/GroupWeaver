@@ -26,6 +26,31 @@
 
   </Window.DataTemplates>
 
-  <ContentControl Content="{Binding CurrentStep}" />
+  <DockPanel>
+
+    <!-- WebView2-Runtime warning banner (AP 2.1 S7, ADR-003 D3): persistent across ALL
+         steps when the startup probe found no runtime — informational only, never a
+         dialog, never blocks. DockPanel.Dock=Top keeps it in layout flow ABOVE the step
+         content, so it can never overlap the workspace's GraphHost region (ADR-001
+         airspace guardrail 5: nothing floats over the native HWND). -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding WebView2Missing}"
+            Background="#2EFFB900" BorderBrush="#66FFB900" BorderThickness="0,0,0,1"
+            Padding="12,8">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap"
+                   Text="The Microsoft Edge WebView2 Runtime was not found. GroupWeaver needs it to display the graph (everything else works). Download:" />
+        <Button Grid.Column="1" Classes="hyperlink"
+                Margin="8,0,0,0" VerticalAlignment="Center"
+                Command="{Binding OpenWebView2DownloadPageCommand}">
+          <TextBlock Text="developer.microsoft.com/microsoft-edge/webview2"
+                     TextDecorations="Underline" />
+        </Button>
+      </Grid>
+    </Border>
+
+    <ContentControl Content="{Binding CurrentStep}" />
+
+  </DockPanel>
 
 </Window>

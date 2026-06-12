@@ -15,12 +15,32 @@
     <Grid Grid.Row="0" ColumnDefinitions="*,300">
 
       <ContentControl Grid.Column="0" Name="GraphHost">
-        <StackPanel Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock Text="Graph view arrives in AP 2.2"
-                     FontSize="20" HorizontalAlignment="Center" />
-          <TextBlock Text="{Binding RootDn}"
-                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
-        </StackPanel>
+        <!-- Two placeholder variants switched on the runtime probe (AP 2.1 S7,
+             ADR-003 D3); AP 2.2 replaces this content with the real WebView. -->
+        <Panel>
+
+          <StackPanel IsVisible="{Binding !WebView2Missing}" Spacing="8"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="Graph view arrives in AP 2.2"
+                       FontSize="20" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding RootDn}"
+                       Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding WebView2Missing}" Spacing="8" MaxWidth="520"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="The Microsoft Edge WebView2 Runtime was not found."
+                       FontSize="20" TextWrapping="Wrap" TextAlignment="Center" />
+            <TextBlock Text="GroupWeaver needs it to display the graph (everything else works). Download:"
+                       Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+            <Button Classes="hyperlink" HorizontalAlignment="Center"
+                    Command="{Binding OpenWebView2DownloadPageCommand}">
+              <TextBlock Text="developer.microsoft.com/microsoft-edge/webview2"
+                         TextDecorations="Underline" />
+            </Button>
+          </StackPanel>
+
+        </Panel>
       </ContentControl>
 
       <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
