@@ -8,6 +8,7 @@ object-for-object. The flaws are DELIBERATE test cases — do not "fix" them: AG
 circular nesting (`GG_Circle_A` ↔ `GG_Circle_B`), empty groups (`GG_Empty_Marketing`,
 `DL_FS-Legacy_RO`, …), 30 orphan users (u111–u140), and two out-of-dataset member DNs
 imitating built-ins (`Domain Admins`, `Print Operators`) for the External path and the
-AP 3.1 ignore-list test. Note: those two built-in edges exist only here — the lab fixture
-script creates no built-in member edges (139 edges in the lab vs. 141 in this dataset).
-All public screenshots/GIFs use exactly this dataset (demo mode only).
+AP 3.1 ignore-list test. Edge-count divergence vs. the lab fixture: the two built-in
+edges exist only here, while the lab instead has one foreign-domain FSP edge
+(`DL_App-ERP_RW` → dangling cross-forest SID) — 141 edges in this dataset vs. 140 in
+the lab. All public screenshots/GIFs use exactly this dataset (demo mode only).

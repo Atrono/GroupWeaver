@@ -7,6 +7,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Read-only LDAP access: DirectorySearcher/DirectoryEntry reads only, never writes (project rule #1). -->
+    <PackageReference Include="System.DirectoryServices" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The internal LdapProvider seams (LdapEntry, MemberRangeParser, MemberCollector, LdapErrors) are pinned by unit tests. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>GroupWeaver.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Demo dataset ships inside the assembly: the portable single-file exe must work without loose files. -->
     <EmbeddedResource Include="Demo\demo-directory.json" LogicalName="GroupWeaver.Providers.Demo.demo-directory.json" />
   </ItemGroup>
