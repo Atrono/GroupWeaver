@@ -37,6 +37,8 @@ $packages = @(
     @{ Pkg = 'powershell-core';  Present = { [bool](Get-Command pwsh -ErrorAction SilentlyContinue) } }
     # WebView2 Evergreen Runtime - not preinstalled on Server 2022; choco-list guard only
     @{ Pkg = 'webview2-runtime'; Present = { $false } }
+    # ffmpeg: assembles the demo-mode evidence GIFs (tools/record-demo-gif.ps1, M2; AP 3.5)
+    @{ Pkg = 'ffmpeg';           Present = { [bool](Get-Command ffmpeg -ErrorAction SilentlyContinue) } }
 )
 foreach ($p in $packages) {
     if ((Test-ChocoPkg $p.Pkg) -or (& $p.Present)) { Log "$($p.Pkg) present."; continue }
