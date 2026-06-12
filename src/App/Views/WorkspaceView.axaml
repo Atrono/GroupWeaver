@@ -16,12 +16,13 @@
 
       <ContentControl Grid.Column="0" Name="GraphHost">
         <!-- Two placeholder variants switched on the runtime probe (AP 2.1 S7,
-             ADR-003 D3); AP 2.2 replaces this content with the real WebView. -->
+             ADR-003 D3); the code-behind swaps this content for the renderer's
+             surface when a graph renderer exists (AP 2.2 S6, ADR-004 D5). -->
         <Panel>
 
           <StackPanel IsVisible="{Binding !WebView2Missing}" Spacing="8"
                       HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock Text="Graph view arrives in AP 2.2"
+            <TextBlock Text="Graph view is unavailable in this environment."
                        FontSize="20" HorizontalAlignment="Center" />
             <TextBlock Text="{Binding RootDn}"
                        Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
@@ -44,11 +45,30 @@
       </ContentControl>
 
       <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
-        <ContentControl Name="DetailPanelRegion">
-          <TextBlock Text="Detail panel arrives in AP 2.5"
-                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </ContentControl>
+        <Grid RowDefinitions="Auto,*">
+
+          <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
+               demo hint - a connection already succeeded). Top of the detail column,
+               never over GraphHost (ADR-001 airspace guardrail 5). -->
+          <TextBlock Grid.Row="0" Margin="12,12,12,0"
+                     Text="{Binding LoadError}"
+                     IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Foreground="#C42B1C" TextWrapping="Wrap" />
+
+          <ContentControl Grid.Row="1" Name="DetailPanelRegion">
+            <Panel>
+              <TextBlock Text="Detail panel arrives in AP 2.5"
+                         IsVisible="{Binding SelectedDn, Converter={x:Static ObjectConverters.IsNull}}"
+                         Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <!-- Placeholder binding, THE AP 2.5 seam: the clicked node's DN, verbatim. -->
+              <TextBlock Text="{Binding SelectedDn}"
+                         IsVisible="{Binding SelectedDn, Converter={x:Static ObjectConverters.IsNotNull}}"
+                         Margin="12" TextWrapping="Wrap" />
+            </Panel>
+          </ContentControl>
+
+        </Grid>
       </Border>
 
     </Grid>
@@ -58,6 +78,8 @@
         <TextBlock DockPanel.Dock="Right" Margin="24,0,0,0"
                    Text="{Binding RootDn, StringFormat='root: {0}'}"
                    FontSize="12" Opacity="0.7" />
+        <ProgressBar DockPanel.Dock="Right" Margin="24,0,0,0" Width="120"
+                     IsIndeterminate="True" IsVisible="{Binding IsLoading}" />
         <TextBlock Text="{Binding ConnectionSummary}"
                    FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis" />
       </DockPanel>

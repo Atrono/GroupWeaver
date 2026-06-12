@@ -18,7 +18,9 @@ namespace GroupWeaver.App.Tests;
 /// Pins the missing-WebView2-Runtime UX (AP 2.1 S7, ADR-003 D3): the persistent shell
 /// banner is visible on EVERY step while the probe reported missing — and never when it
 /// reported present — and the workspace's GraphHost placeholder switches between its
-/// normal "arrives in AP 2.2" variant and the missing-runtime variant. The status is
+/// normal "unavailable in this environment" variant and the missing-runtime variant
+/// (since AP 2.2 the placeholder only appears when no renderer factory is wired,
+/// i.e. headless tests or a missing runtime). The status is
 /// forced through <see cref="ShellViewModel"/>'s optional ctor parameter, so no test
 /// here depends on what is actually installed on the box. The texts are matched
 /// verbatim: the banner is one combined TextBlock, the placeholder splits headline and
@@ -35,7 +37,7 @@ public sealed class WebView2BannerTests
     private const string PlaceholderMissingHeadline =
         "The Microsoft Edge WebView2 Runtime was not found.";
 
-    private const string PlaceholderNormalHeadline = "Graph view arrives in AP 2.2";
+    private const string PlaceholderNormalHeadline = "Graph view is unavailable in this environment.";
 
     private const string DownloadLinkText = "developer.microsoft.com/microsoft-edge/webview2";
 
