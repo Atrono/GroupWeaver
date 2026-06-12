@@ -10,10 +10,14 @@
 - **No `sh`, no `jq` on PATH.** Git Bash's `sh.exe` exists under
   `C:\Program Files\Git\(usr\)bin` but is not on PATH; `jq` is not installed at
   all. Anything user-facing (statusline, hooks) must be PowerShell-native.
-- **Hook wrappers must propagate exit codes:** `pwsh -Command "& script.ps1"`
-  swallows the script's `exit n`; always append `; exit ($LASTEXITCODE ?? 1)`
-  (see `.claude/settings.json`, fixed 2026-06-11). Claude Code only blocks on
-  exit code 2.
+- **Hook commands run through Git Bash, not PowerShell** (Claude Code's Windows
+  default; PowerShell only if Git Bash is absent). Bash expands `$env` and
+  `$LASTEXITCODE` to empty strings before `pwsh` ever sees the command — never
+  use PowerShell `$`-syntax in the `command` string. Correct pattern (fixed
+  2026-06-12): `pwsh -NoProfile -File "$CLAUDE_PROJECT_DIR/.claude/hooks/x.ps1"`
+  — POSIX env-var form, and `-File` propagates the script's `exit n` natively
+  (the old `-Command "& …"; exit ($LASTEXITCODE ?? 1)` wrapper is obsolete).
+  Claude Code only blocks on exit code 2.
 - **GraphSpike gotchas (bind Phase 2):** exe needs `app.manifest` with
   `<supportedOS>` for NativeControlHost; perf harnesses must drive DOM-level
   gestures (programmatic `cy.zoom()/cy.pan()` bypasses cytoscape's viewport
