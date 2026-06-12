@@ -18,7 +18,8 @@ namespace GroupWeaver.App.ViewModels;
 /// <see cref="Initialization"/> quietly; everything else propagates (crash = bug).
 /// AP 2.3 adds the lazy-expand pipeline (ADR-005 D3) behind
 /// <see cref="IGraphRenderer.NodeExpandRequested"/>, observable via <see cref="Expansion"/>
-/// under the same error policy. Contract pinned by
+/// under the same error policy, plus <see cref="RefreshCommand"/> (ADR-005 D4): a
+/// FORCED expand of <see cref="SelectedDn"/> through the same pipeline. Contract pinned by
 /// <c>tests/GroupWeaver.App.Tests/WorkspaceLoadTests.cs</c> and <c>WorkspaceExpandTests.cs</c>.
 /// </summary>
 public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
@@ -29,6 +30,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>True while the scope load + first render — or an expand fetch
     /// (AP 2.3) — are in flight; the ONE global busy gate (ADR-005 D3).</summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     private bool _isLoading;
 
     /// <summary>Inline load/renderer error; <c>null</c> hides the error block.</summary>
@@ -38,6 +40,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>DN of the last clicked graph node — the AP 2.5 detail-panel seam.
     /// Carried verbatim (data-model rule: DN strings are never canonicalized).</summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     private string? _selectedDn;
 
     /// <summary>Status line for the loaded graph: <c>"&lt;n&gt; objects, &lt;m&gt; edges"</c>
@@ -167,22 +170,52 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             return;
         }
 
-        Expansion = ExpandAsync(dn, _cts.Token);
+        Expansion = ExpandAsync(dn, forceFetch: false, _cts.Token);
     }
 
-    private async Task ExpandAsync(string dn, CancellationToken cancellationToken)
+    /// <summary>
+    /// Refresh = forced expand of <see cref="SelectedDn"/> (ADR-005 D4): the SAME
+    /// pipeline as a dbltap gesture with the IsLoaded cache check BYPASSED — refresh
+    /// exists FOR loaded nodes (<see cref="DirectorySnapshot.SetMembers"/> REPLACES,
+    /// the refresh semantics of the data-model contract). A stale-armed Execute
+    /// (busy/disposed/selection no longer fetchable) is dropped, never queued.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRefresh))]
+    private void Refresh()
+    {
+        if (_disposed || IsLoading || Snapshot is null
+            || SelectedDn is not { } dn || !IsFetchable(Snapshot.GetKind(dn)))
+        {
+            return;
+        }
+
+        Expansion = ExpandAsync(dn, forceFetch: true, _cts.Token);
+    }
+
+    /// <summary>Armed iff a fetchable snapshot kind is selected and the ONE global
+    /// busy gate is idle (ADR-005 D4); never touches the provider.</summary>
+    private bool CanRefresh() =>
+        !IsLoading
+        && Snapshot is not null
+        && SelectedDn is { } dn
+        && IsFetchable(Snapshot.GetKind(dn));
+
+    /// <summary>The fetchable kinds (ADR-005 D3): groups plus External — a frontier
+    /// DN missing from the snapshot's Objects resolves to External by contract.</summary>
+    private static bool IsFetchable(AdObjectKind kind) => kind
+        is AdObjectKind.GlobalGroup
+        or AdObjectKind.DomainLocalGroup
+        or AdObjectKind.UniversalGroup
+        or AdObjectKind.External;
+
+    private async Task ExpandAsync(string dn, bool forceFetch, CancellationToken cancellationToken)
     {
         var snapshot = Snapshot!;
         var renderer = GraphRenderer!; // gestures only arrive from a built renderer
         try
         {
-            var kind = snapshot.GetKind(dn);
-            var fetchable = kind
-                is AdObjectKind.GlobalGroup
-                or AdObjectKind.DomainLocalGroup
-                or AdObjectKind.UniversalGroup
-                or AdObjectKind.External;
-            if (!fetchable || snapshot.IsLoaded(dn))
+            var fetchable = IsFetchable(snapshot.GetKind(dn));
+            if (!fetchable || (!forceFetch && snapshot.IsLoaded(dn)))
             {
                 // Cache hit / non-group dbltap: a pure camera move over the node plus
                 // its cached members — NEVER a fabricated SetMembers (null ≠ empty; the

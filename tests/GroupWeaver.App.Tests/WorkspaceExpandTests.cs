@@ -28,6 +28,10 @@ namespace GroupWeaver.App.Tests;
 /// propagates via the observable <see cref="WorkspaceViewModel.Expansion"/> task
 /// (Initialization pattern — never fire-and-forget). The GG_Circle_A ↔ GG_Circle_B
 /// cycle mirrors the seeded lab fixture: every path over it must terminate.
+/// AP 2.3 S4 (section k) adds the Refresh button's command (ADR-005 D4): a FORCED
+/// expand of <see cref="WorkspaceViewModel.SelectedDn"/> — armed iff a fetchable
+/// snapshot kind is selected and the busy gate is idle, cache bypassed even when
+/// IsLoaded, <c>SetMembers</c> REPLACES (refresh semantics, data-model rule).
 /// VM-only behavior — plain facts, no visual tree.
 /// </summary>
 public sealed class WorkspaceExpandTests
@@ -40,6 +44,8 @@ public sealed class WorkspaceExpandTests
     private const string SalesDn = "CN=GG_Sales,OU=Lab,DC=stub,DC=lab";
     private const string VertriebDn = "CN=GG_Vertrieb,OU=Lab,DC=stub,DC=lab";
     private const string OpsDn = "CN=GG_Ops,OU=Lab,DC=stub,DC=lab";
+    private const string DlDn = "CN=DL_App_RO,OU=Lab,DC=stub,DC=lab";
+    private const string UgDn = "CN=UG_All,OU=Lab,DC=stub,DC=lab";
     private const string ExternalDn = "CN=Ext,DC=elsewhere,DC=lab";
     private const string RemoteDn = "CN=Remote,DC=elsewhere,DC=lab";
 
@@ -552,6 +558,213 @@ public sealed class WorkspaceExpandTests
         Assert.Empty(fake.FocusCalls);
     }
 
+    // --- (k) Refresh = forced expand of SelectedDn (ADR-005 D4) ------------------------
+
+    [Theory]
+    [InlineData(null, false)] // no selection — nothing to refresh
+    [InlineData(CircleADn, true)] // GlobalGroup, already LOADED — refresh exists FOR loaded nodes
+    [InlineData(DlDn, true)] // DomainLocalGroup
+    [InlineData(UgDn, true)] // UniversalGroup
+    [InlineData(ExternalDn, true)] // frontier DN not in Objects: snapshot kind External
+    [InlineData(RootDn, false)] // OrganizationalUnit — not fetchable
+    [InlineData(AdaDn, false)] // User — not fetchable
+    [InlineData(PcDn, false)] // Computer — not fetchable
+    public async Task RefreshCanExecute_RequiresAFetchableSnapshotKindSelection_WhileIdle(
+        string? selectedDn, bool expected)
+    {
+        var snapshot = KindScope();
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // The decision reads the SNAPSHOT kind off SelectedDn (ADR-005 D3/D4) — no
+        // renderer kind string exists on this path at all.
+        vm.SelectedDn = selectedDn;
+
+        Assert.Equal(expected, vm.RefreshCommand.CanExecute(null));
+        Assert.Equal(0, provider.GetObjectCalls); // arming must never touch the provider
+        Assert.Equal(0, provider.GetMembersCalls);
+    }
+
+    [Fact]
+    public async Task RefreshCanExecute_IsFalseWhileBusy_AndCanExecuteChangedTracksIsLoading()
+    {
+        var loadGate = new TaskCompletionSource<DirectorySnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = Provider(new DirectorySnapshot());
+        provider.LoadScopeResult = loadGate.Task;
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+
+        // Even a fetchable selection cannot arm Refresh while the initial scope load
+        // holds the ONE global busy gate (IsLoading, ADR-005 D3).
+        vm.SelectedDn = CircleADn;
+        Assert.True(vm.IsLoading);
+        Assert.False(vm.RefreshCommand.CanExecute(null));
+
+        loadGate.SetResult(CircleScope());
+        await vm.Initialization;
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+
+        var raised = 0;
+        vm.RefreshCommand.CanExecuteChanged += (_, _) => raised++;
+
+        // Gate a forced fetch: Refresh on the LOADED GG_Circle_A must hit the provider
+        // (cache bypassed, D4) and flip the busy gate while in flight.
+        var fetchGate = new TaskCompletionSource<IReadOnlyList<AdObject>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.GetMembersHandler = (_, _) => fetchGate.Task;
+        vm.RefreshCommand.Execute(null);
+
+        Assert.Equal(1, provider.GetMembersCalls);
+        Assert.True(vm.IsLoading);
+        Assert.False(
+            vm.Expansion.IsCompleted,
+            "the refresh pipeline must be observable through Expansion — never fire-and-forget");
+        Assert.False(vm.RefreshCommand.CanExecute(null));
+        Assert.True(raised >= 1, "CanExecuteChanged must fire when IsLoading turns on");
+
+        var raisedWhileBusy = raised;
+        fetchGate.SetResult([]);
+        await vm.Expansion;
+
+        Assert.False(vm.IsLoading);
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+        Assert.True(raised > raisedWhileBusy, "CanExecuteChanged must fire when IsLoading turns off");
+    }
+
+    [Fact]
+    public async Task RefreshCanExecuteChanged_FiresOnSelectionChanges_ViaTheNodeClickPath()
+    {
+        var snapshot = CircleScope();
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        Assert.False(vm.RefreshCommand.CanExecute(null)); // nothing selected yet
+
+        var raised = 0;
+        vm.RefreshCommand.CanExecuteChanged += (_, _) => raised++;
+
+        fake.RaiseNodeClicked(CircleADn, "GlobalGroup");
+        Assert.Equal(CircleADn, vm.SelectedDn);
+        Assert.True(raised >= 1, "selecting a node must re-arm the command");
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+
+        var afterGroupClick = raised;
+        fake.RaiseNodeClicked(AdaDn, "User");
+        Assert.True(raised > afterGroupClick, "changing the selection must re-evaluate");
+        Assert.False(vm.RefreshCommand.CanExecute(null)); // a user is not fetchable
+    }
+
+    [Fact]
+    public async Task Refresh_ForcesTheFetch_SetMembersReplaces_EdgeGoneButExMemberNodeStaysDrawn()
+    {
+        var snapshot = CircleScope(); // GG_Circle_A LOADED with [B, Ada, Ext]
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        var graphBefore = vm.Graph;
+
+        // Between the scope load and this refresh, Ada and the external member left
+        // the group: the directory now answers with GG_Circle_B alone.
+        provider.GetMembersHandler = (_, _) => Task.FromResult<IReadOnlyList<AdObject>>(
+            [Obj("GG_Circle_B", CircleBDn)]);
+
+        fake.RaiseNodeClicked(CircleADn, "GlobalGroup");
+        vm.RefreshCommand.Execute(null);
+        await vm.Expansion;
+
+        // FORCED fetch (D4): IsLoaded was true, the cache is bypassed anyway — and the
+        // DN is already in Snapshot.Objects, so no GetObjectAsync round-trip.
+        Assert.Equal(CircleADn, Assert.Single(provider.GetMembersDns), Dn.Comparer);
+        Assert.Equal(0, provider.GetObjectCalls);
+
+        // SetMembers REPLACES (refresh semantics, data-model rule): exactly the fresh
+        // member list — Ada and the external DN are gone, never merged.
+        Assert.Equal(new[] { CircleBDn }, snapshot.GetMembers(CircleADn));
+
+        // Replace-in-place rebuild: ONE UpdateGraphAsync, never a second ShowGraphAsync.
+        Assert.NotSame(graphBefore, vm.Graph);
+        var updated = Assert.Single(fake.UpdatedGraphs);
+        Assert.Same(updated, vm.Graph);
+        Assert.Single(fake.ShownGraphs);
+
+        // D4 pinned: the stale membership edge A→Ada vanished from the rebuilt model …
+        Assert.DoesNotContain(updated.Edges, e =>
+            e.Kind == GraphEdgeKind.Membership
+            && Dn.Comparer.Equals(e.ParentDn, CircleADn)
+            && Dn.Comparer.Equals(e.ChildDn, AdaDn));
+
+        // … but the ex-member NODE is still drawn: the snapshot never removes objects
+        // and GraphBuilder is total over Snapshot.Objects — in-scope Ada keeps her
+        // (still-true) containment edge under the root.
+        Assert.Contains(updated.Nodes, n =>
+            Dn.Comparer.Equals(n.Dn, AdaDn) && n.Kind == AdObjectKind.User);
+        Assert.Contains(updated.Edges, e =>
+            e.Kind == GraphEdgeKind.Containment
+            && Dn.Comparer.Equals(e.ChildDn, AdaDn));
+
+        // The cycle's surviving membership edges are intact in both directions.
+        Assert.Contains(updated.Edges, e =>
+            e.Kind == GraphEdgeKind.Membership
+            && Dn.Comparer.Equals(e.ParentDn, CircleADn)
+            && Dn.Comparer.Equals(e.ChildDn, CircleBDn));
+        Assert.Contains(updated.Edges, e =>
+            e.Kind == GraphEdgeKind.Membership
+            && Dn.Comparer.Equals(e.ParentDn, CircleBDn)
+            && Dn.Comparer.Equals(e.ChildDn, CircleADn));
+
+        // The ex-member EXTERNAL endpoint was never a snapshot object — External nodes
+        // exist only as materialized edge endpoints (ADR-004 D1), so it vanishes whole.
+        Assert.DoesNotContain(updated.Nodes, n => Dn.Comparer.Equals(n.Dn, ExternalDn));
+
+        // 5 nodes (root, A, B, Ada, PC-01); 2 membership + 4 containment edges.
+        Assert.Equal(5, updated.Nodes.Count);
+        Assert.Equal(6, updated.Edges.Count);
+        Assert.Equal("5 objects, 6 edges", vm.GraphSummary);
+
+        AssertFocusSet(Assert.Single(fake.FocusCalls), CircleADn, CircleBDn);
+        Assert.Null(vm.LoadError);
+        Assert.False(vm.IsLoading);
+    }
+
+    [Fact]
+    public async Task RefreshExecute_WhileAnotherFetchIsInFlight_IsDropped_NotQueued()
+    {
+        var snapshot = GroupScope(SalesDn, VertriebDn);
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        var fetchGate = new TaskCompletionSource<IReadOnlyList<AdObject>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.GetMembersHandler = (_, _) => fetchGate.Task;
+
+        fake.RaiseNodeExpandRequested(SalesDn, "GlobalGroup");
+        var inFlight = vm.Expansion;
+        Assert.Equal(1, provider.GetMembersCalls);
+
+        // The disabled button blocks this in the UI; a stale-armed Execute must still
+        // be dropped, never queued (ADR-005 D3) — and Expansion stays untouched.
+        vm.SelectedDn = VertriebDn;
+        vm.RefreshCommand.Execute(null);
+
+        Assert.Same(inFlight, vm.Expansion);
+        Assert.Equal(1, provider.GetMembersCalls);
+
+        fetchGate.SetResult([]);
+        await inFlight;
+
+        Assert.Equal(1, provider.GetMembersCalls);
+        Assert.False(
+            snapshot.IsLoaded(VertriebDn),
+            "a dropped refresh must never replay after the in-flight fetch completes");
+    }
+
     // --- helpers ------------------------------------------------------------------------
 
     private static AdObject Obj(
@@ -574,6 +787,16 @@ public sealed class WorkspaceExpandTests
         snapshot.AddObject(Obj("PC-01", PcDn, AdObjectKind.Computer));
         snapshot.SetMembers(CircleADn, [CircleBDn, AdaDn, ExternalDn]);
         snapshot.SetMembers(CircleBDn, [CircleADn]); // closes the A→B→A cycle
+        return snapshot;
+    }
+
+    /// <summary>The CanExecute-matrix fixture: <see cref="CircleScope"/> plus one
+    /// DomainLocal and one Universal group, so every fetchable kind is selectable.</summary>
+    private static DirectorySnapshot KindScope()
+    {
+        var snapshot = CircleScope();
+        snapshot.AddObject(Obj("DL_App_RO", DlDn, AdObjectKind.DomainLocalGroup));
+        snapshot.AddObject(Obj("UG_All", UgDn, AdObjectKind.UniversalGroup));
         return snapshot;
     }
 

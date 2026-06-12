@@ -31,6 +31,8 @@ namespace GroupWeaver.App.Tests;
 /// terminate — plus one out-of-scope member DN so the drawn graph differs from the
 /// snapshot object list (the summary pins the DRAWN counts, not the snapshot's).
 /// VM-only behavior uses plain facts; visual-tree pins use Avalonia.Headless.
+/// AP 2.3 S4 adds the Refresh button's view pins (ADR-005 D4) — its command matrix
+/// lives in <c>WorkspaceExpandTests</c>.
 /// </summary>
 public sealed class WorkspaceLoadTests
 {
@@ -378,6 +380,66 @@ public sealed class WorkspaceLoadTests
         Assert.Empty(fake.UpdatedGraphs);
         var focusedDn = Assert.Single(Assert.Single(fake.FocusCalls));
         Assert.Equal(AdaDn, focusedDn, Dn.Comparer);
+
+        window.Close();
+    }
+
+    // --- the Refresh button (AP 2.3 S4, ADR-005 D4) ---------------------------------------
+
+    [AvaloniaFact]
+    public async Task RefreshButton_TopsTheDetailColumn_DisabledUntilAGroupIsSelected_WithTooltip()
+    {
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(Provider(SmallSnapshot()), () => fake);
+        var (window, view) = ShowWorkspace(vm);
+        await vm.Initialization;
+        Dispatcher.UIThread.RunJobs();
+
+        // The named header button (a seam-name pin like GraphHost/DetailPanelRegion),
+        // labelled "Refresh" — shipped UI strings are English (ADR-005 D4).
+        var refresh = Assert.Single(
+            view.GetVisualDescendants().OfType<Button>(), b => b.Name == "RefreshButton");
+        Assert.True(refresh.IsEffectivelyVisible);
+        Assert.Contains("Refresh", VisibleTexts(refresh));
+
+        // Native chrome at the TOP of the right detail column: inside the column,
+        // ABOVE the AP 2.5 DetailPanelRegion seam (a future detail panel must not be
+        // able to evict it), and never over GraphHost (ADR-001 airspace guardrail 5).
+        var detailRegion = Region(view, "DetailPanelRegion");
+        Assert.DoesNotContain(refresh, Region(view, "GraphHost").GetVisualDescendants());
+        Assert.DoesNotContain(refresh, detailRegion.GetVisualDescendants());
+
+        var buttonTop = refresh.TranslatePoint(new Point(0, 0), view);
+        var regionTop = detailRegion.TranslatePoint(new Point(0, 0), view);
+        Assert.NotNull(buttonTop);
+        Assert.NotNull(regionTop);
+        Assert.True(
+            buttonTop.Value.X >= view.Bounds.Width - 320,
+            $"the Refresh button belongs in the right detail column (was at X={buttonTop.Value.X})");
+        Assert.True(
+            buttonTop.Value.Y <= 150,
+            $"the Refresh button belongs at the top of the detail column (was at Y={buttonTop.Value.Y})");
+        Assert.True(
+            buttonTop.Value.Y + refresh.Bounds.Height <= regionTop.Value.Y + 0.5,
+            "the Refresh button belongs ABOVE the DetailPanelRegion seam");
+
+        // Tooltip: pinned present and non-empty; the wording is the implementer's.
+        var tip = Assert.IsType<string>(ToolTip.GetTip(refresh));
+        Assert.False(string.IsNullOrWhiteSpace(tip), "the Refresh tooltip must say something");
+
+        // Disabled without a selection (RefreshCommand.CanExecute drives the button) …
+        Assert.Null(vm.SelectedDn);
+        Assert.False(
+            refresh.IsEffectivelyEnabled,
+            "without a selection there is nothing to refresh");
+
+        // … and armed by a group click arriving over the renderer seam — even though
+        // GG_Circle_A is already members-loaded (refresh exists FOR loaded nodes, D4).
+        fake.RaiseNodeClicked(CircleADn, "GlobalGroup");
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(
+            refresh.IsEffectivelyEnabled,
+            "a selected (even already-loaded) group must enable Refresh");
 
         window.Close();
     }

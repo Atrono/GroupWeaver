@@ -45,17 +45,26 @@
       </ContentControl>
 
       <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
-        <Grid RowDefinitions="Auto,*">
+        <Grid RowDefinitions="Auto,Auto,*">
+
+          <!-- Detail-column header (AP 2.3 S4, ADR-005 D4): per-node Refresh, a
+               forced re-fetch of the selected node. Native chrome BESIDE the graph,
+               ABOVE the AP 2.5 DetailPanelRegion seam - never over GraphHost
+               (ADR-001 airspace guardrail 5). -->
+          <Button Grid.Row="0" Name="RefreshButton" Content="Refresh"
+                  Margin="12,12,12,0" HorizontalAlignment="Right"
+                  ToolTip.Tip="Re-fetch members of the selected node"
+                  Command="{Binding RefreshCommand}" />
 
           <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
                demo hint - a connection already succeeded). Top of the detail column,
                never over GraphHost (ADR-001 airspace guardrail 5). -->
-          <TextBlock Grid.Row="0" Margin="12,12,12,0"
+          <TextBlock Grid.Row="1" Margin="12,12,12,0"
                      Text="{Binding LoadError}"
                      IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"
                      Foreground="#C42B1C" TextWrapping="Wrap" />
 
-          <ContentControl Grid.Row="1" Name="DetailPanelRegion">
+          <ContentControl Grid.Row="2" Name="DetailPanelRegion">
             <Panel>
               <TextBlock Text="Detail panel arrives in AP 2.5"
                          IsVisible="{Binding SelectedDn, Converter={x:Static ObjectConverters.IsNull}}"
