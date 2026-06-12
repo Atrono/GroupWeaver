@@ -6,7 +6,8 @@
 // Plain Node + the playwright LIBRARY on purpose (@playwright/test rejected in
 // ADR-004: extra surface for one sequential spec). Sequential, event-driven,
 // zero sleeps/retries/FPS - every wait is a bridge-message promise with a
-// 60 s timeout. Any failed assert => nonzero exit.
+// 60 s timeout, and a global watchdog (GRAPH_BUNDLE_TIMEOUT_MS, default 5 min)
+// bounds the whole run. Any failed assert => nonzero exit.
 //
 // Usage: node verify.mjs <demo-graph.json> <screenshot-dir>
 //   <demo-graph.json>  flat {nodes,edges} dump produced by
@@ -49,6 +50,34 @@ function assert(condition, message) {
   }
   assertCount += 1;
 }
+
+// ---------------------------------------------------------------------------
+// Global watchdog (CI incident 2026-06-12, run 27409858814: a renderer stall
+// on the 2-core windows-latest runner turned `await page.evaluate(...)` into a
+// 3 h silent hang). Await-boundedness inventory for this file: awaitMessage()
+// waits are bounded (MESSAGE_TIMEOUT_MS, 60 s each); page.goto and
+// page.screenshot carry Playwright's 30 s defaults; chromium.launch defaults
+// to 180 s. page.evaluate has NO default timeout in Playwright, and
+// newPage/exposeFunction/addInitScript/browser.close are plain protocol calls
+// - those bare awaits stay acceptable ONLY because this watchdog bounds the
+// whole run. A pending await does NOT block the Node event loop (protocol
+// calls are async I/O), so this timer always fires; the explicit
+// process.exit() on success/failure means a ref'd timer never delays a
+// finished run.
+// ---------------------------------------------------------------------------
+const WATCHDOG_MS = Number(process.env.GRAPH_BUNDLE_TIMEOUT_MS) > 0
+  ? Number(process.env.GRAPH_BUNDLE_TIMEOUT_MS)
+  : 5 * 60_000;
+let lastPhase = 'startup (no phase completed)';
+function phase(name) {
+  lastPhase = name;
+  console.log(`[verify] ${name}`);
+}
+setTimeout(() => {
+  console.error(
+    `FAILED watchdog: run exceeded ${WATCHDOG_MS} ms; last completed phase: ${lastPhase}`);
+  process.exit(1);
+}, WATCHDOG_MS);
 
 // ---------------------------------------------------------------------------
 // Bridge message plumbing: every window.__bridgeSendShim(text) call lands in
@@ -131,9 +160,30 @@ async function main() {
   const here = dirname(fileURLToPath(import.meta.url));
   const indexHtml = resolve(here, '..', '..', 'src', 'App', 'web', 'index.html');
 
-  const browser = await chromium.launch();
+  // --disable-gpu: the product is Canvas-2D-only (ADR-001 guardrail 1) and
+  // software rendering is the documented target-audience floor, so this
+  // changes nothing we claim - and it removes the GPU-process crash surface on
+  // software-rendering CI runners (windows-latest has no GPU).
+  const browser = await chromium.launch({ args: ['--disable-gpu'] });
+  // A dead browser/renderer leaves every pending protocol call (page.evaluate
+  // above all) hanging forever in Playwright - exactly the 3 h CI hang. Fail
+  // fast and loudly instead of waiting for the watchdog.
+  let expectedShutdown = false;
+  browser.on('disconnected', () => {
+    if (expectedShutdown) {
+      return;
+    }
+    console.error(
+      `FAILED browser-disconnected: Chromium exited mid-run; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
   try {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    page.on('crash', () => {
+      console.error(
+        `FAILED page-crash: renderer crashed; last completed phase: ${lastPhase}`);
+      process.exit(1);
+    });
 
     // exposeFunction installs the binding BEFORE any page script runs on goto,
     // so bridge.js's rawSend finds window.__bridgeSendShim already on its very
@@ -171,6 +221,7 @@ async function main() {
     const ready = await awaitMessage('ready', 'bundle startup after goto - bridge/graph script init');
     assert(typeof ready.userAgent === 'string' && ready.userAgent.length > 0,
       `'ready' must carry a userAgent, got: ${JSON.stringify(ready)}`);
+    phase('ready');
 
     // --- feed the fixture through the chunked accumulator path ---------------
     // Same chunk shape the app sends (GraphChunker greedy fill):
@@ -191,6 +242,7 @@ async function main() {
       await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
     }
     await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+    phase(`chunks fed (${chunks.length} graphChunk + graphCommit)`);
 
     // --- loaded: counts ------------------------------------------------------
     const loaded = await awaitMessage('loaded', 'graphCommit -> first cytoscape render');
@@ -200,9 +252,11 @@ async function main() {
       `edgeCount: rendered ${loaded.edgeCount} != fixture ${fixture.edges.length}`);
     assert(loaded.nodeCount >= 190,
       `anti-vacuous floor: demo graph must have >= 190 nodes, got ${loaded.nodeCount}`);
+    phase(`loaded (${loaded.nodeCount} nodes, ${loaded.edgeCount} edges)`);
 
     // --- screenshot 1: overview (initGraph already ran cy.fit()) -------------
     await page.screenshot({ path: join(screenshotDir, 'graph-overview.png') });
+    phase('overview screenshot');
 
     // --- preset layout honored: 5 sampled DNs at exact fixture positions -----
     const rootNode = fixture.nodes.find((n) => n.root === true);
@@ -258,6 +312,7 @@ async function main() {
     }
     assert(minDistance >= MIN_CENTER_DISTANCE,
       `min pairwise center distance ${minDistance.toFixed(2)} < ${MIN_CENTER_DISTANCE} (D=44 no-overlap floor, ADR-004 D3) between '${closestPair[0]}' and '${closestPair[1]}'`);
+    phase('geometry (preset positions + no-overlap)');
 
     // --- palette parity C# <-> JS ---------------------------------------------
     const kindsPresent = new Set(fixture.nodes.map((x) => x.kind));
@@ -276,6 +331,7 @@ async function main() {
       assert(toHex(renderedColor) === expectedHex.toUpperCase(),
         `palette parity for ${kind} ('${sample.id}'): rendered '${renderedColor}' (${toHex(renderedColor)}) != AdObjectKindConverters ${expectedHex}`);
     }
+    phase(`palette parity (${kindsPresent.size}/7 kinds)`);
 
     // --- click roundtrip on a comma-containing DN (byte-identical id) --------
     const clickDn = samples.find((s) => s.id.includes(',')).id;
@@ -283,12 +339,14 @@ async function main() {
     const click = await awaitMessage('nodeClick', `clickTest dispatch on '${clickDn}'`);
     assert(click.id === clickDn,
       `nodeClick id roundtrip not byte-identical: got '${click.id}', sent '${clickDn}'`);
+    phase('click roundtrip');
 
     // --- expand protocol (dbltap -> nodeExpand, AP 2.3's wire) ----------------
     await page.evaluate((id) => window.__cy.getElementById(id).emit('dbltap'), clickDn);
     const expand = await awaitMessage('nodeExpand', `dbltap emit on '${clickDn}'`);
     assert(expand.id === clickDn,
       `nodeExpand id roundtrip not byte-identical: got '${expand.id}', sent '${clickDn}'`);
+    phase('expand roundtrip (dbltap)');
 
     // --- screenshot 2: focus on root + its ring-1 containment children -------
     const ring1 = fixture.edges
@@ -298,6 +356,7 @@ async function main() {
     await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), [rootNode.id, ...ring1]);
     await awaitMessage('focused', `focus on root + ${ring1.length} ring-1 children`);
     await page.screenshot({ path: join(screenshotDir, 'graph-focus.png') });
+    phase('focus screenshot');
 
     // --- screenshot 3: the seeded A<->B membership cycle ----------------------
     // Auto-detect the antiparallel member-edge pair: (s,t) and (t,s) both rel=member.
@@ -312,11 +371,13 @@ async function main() {
     await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), cycleIds);
     await awaitMessage('focused', `focus on cycle pair ${cycleIds.join(' <-> ')}`);
     await page.screenshot({ path: join(screenshotDir, 'graph-cycle.png') });
+    phase('cycle screenshot');
 
     // --- final audit: ZERO jsError across the whole run (ADR-004 D6) ---------
     const jsErrors = allMessages.filter((m) => m.type === 'jsError');
     assert(jsErrors.length === 0,
       `jsError messages were reported during the run: ${JSON.stringify(jsErrors, null, 2)}`);
+    phase('audit (zero jsError)');
 
     console.log(
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges, `
@@ -324,6 +385,7 @@ async function main() {
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `3 screenshots -> ${screenshotDir}`);
   } finally {
+    expectedShutdown = true;
     await browser.close();
   }
 }

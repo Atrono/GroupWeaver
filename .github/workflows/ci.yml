@@ -16,6 +16,9 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    # Defense in depth vs the 360-minute GitHub default: a hung step once
+    # burned 3 h of runner time before manual cancellation (run 27409858814).
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -44,8 +47,11 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('tests/graph-bundle/package-lock.json') }}
 
       # Verifies the literal shipped web bundle against the literal GraphBuilder
-      # output (ADR-004 Consequences) - same gate as locally.
+      # output (ADR-004 Consequences) - same gate as locally. timeout-minutes
+      # plus verify.mjs's own 5-min watchdog: a renderer stall can no longer
+      # hang the job silently (incident: run 27409858814).
       - name: Graph bundle verification
+        timeout-minutes: 12
         run: pwsh tools/test-graph-bundle.ps1
 
       - name: Upload graph screenshots
