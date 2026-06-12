@@ -359,12 +359,13 @@ public sealed class WorkspaceLoadTests
 
         Assert.Equal(clickedDn, vm.SelectedDn);
 
-        // Placeholder binding — THE AP 2.5 seam: the detail region shows the DN text.
+        // AP 2.5 changed this pin DELIBERATELY (was: the raw-DN placeholder binding):
+        // the DetailPanelView carries the clicked DN VERBATIM as its own text element.
         var detailRegion = Region(view, "DetailPanelRegion");
         Assert.Contains(
             detailRegion.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible),
-            t => t.Text?.Contains(clickedDn, StringComparison.Ordinal) == true);
+            t => string.Equals(t.Text, clickedDn, StringComparison.Ordinal));
 
         // AP 2.3 deliberately changed this pin (was: expand ignored, ADR-004 D5): a
         // dbltap on a USER node is not fetchable (ADR-005 D3) — pure focus, no provider
