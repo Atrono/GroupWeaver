@@ -1,3 +1,4 @@
+using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 
@@ -5,8 +6,9 @@ namespace GroupWeaver.Tests.Core.Providers;
 
 /// <summary>
 /// Minimal in-memory <see cref="IDirectoryProvider"/> for contract tests; pre-validates
-/// the DemoProvider shape (AP 1.4). Scope membership is a case-insensitive DN-suffix
-/// match on the base DN. Unresolvable DNs are values, never exceptions.
+/// the DemoProvider shape (AP 1.4). Scope membership is the escape-aware
+/// descendant-or-self match via <see cref="DnPath"/> (#29 — one scope definition,
+/// no drift). Unresolvable DNs are values, never exceptions.
 /// </summary>
 internal sealed class FakeDirectoryProvider : IDirectoryProvider
 {
@@ -72,8 +74,7 @@ internal sealed class FakeDirectoryProvider : IDirectoryProvider
         kind is AdObjectKind.GlobalGroup or AdObjectKind.DomainLocalGroup or AdObjectKind.UniversalGroup;
 
     private static bool IsInScope(string dn, string baseDn) =>
-        Dn.Comparer.Equals(dn, baseDn) ||
-        dn.EndsWith("," + baseDn, StringComparison.OrdinalIgnoreCase);
+        DnPath.RelativeDepth(dn, baseDn) >= 0;
 
     private static AdObject MakeExternal(string dn) => new()
     {
