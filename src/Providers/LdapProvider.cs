@@ -52,7 +52,7 @@ public sealed class LdapProvider : IDirectoryProvider
 
     /// <inheritdoc />
     public Task<DirectoryConnection> ConnectAsync(CancellationToken cancellationToken = default) =>
-        RunAsync("connect", notFoundFallback: null, cancellationToken, () =>
+        RunAsync("connect", cancellationToken, () =>
         {
             try
             {
@@ -87,7 +87,7 @@ public sealed class LdapProvider : IDirectoryProvider
     public Task<IReadOnlyList<AdObject>> GetRootCandidatesAsync(
         CancellationToken cancellationToken = default) =>
         RunAsync<IReadOnlyList<AdObject>>(
-            "enumerate root candidates", notFoundFallback: null, cancellationToken, () =>
+            "enumerate root candidates", cancellationToken, () =>
         {
             var candidates = new List<AdObject>();
             using var root = new DirectoryEntry(PathFor(EffectiveBaseDn()));
@@ -113,9 +113,18 @@ public sealed class LdapProvider : IDirectoryProvider
     /// <inheritdoc />
     public Task<DirectorySnapshot> LoadScopeAsync(
         string baseDn, CancellationToken cancellationToken = default) =>
-        RunAsync($"load scope '{baseDn}'", () => new DirectorySnapshot(), cancellationToken, () =>
+        RunAsync($"load scope '{baseDn}'", cancellationToken, () =>
         {
             var snapshot = new DirectorySnapshot();
+            if (FindEntry(baseDn) is null)
+            {
+                // Unknown/vanished/garbage base → empty snapshot, the documented
+                // value. After this successful probe, a NotFound from the paged
+                // search itself is unexpected and surfaces as
+                // DirectoryUnavailableException — never as an empty result.
+                return snapshot;
+            }
+
             using var root = new DirectoryEntry(PathFor(baseDn));
             using var searcher = CreateSearcher(
                 root, SearchScope.Subtree, AnyObjectFilter, AttributeWhitelist.FetchProperties);
@@ -128,9 +137,20 @@ public sealed class LdapProvider : IDirectoryProvider
                 snapshot.AddObject(obj);
                 if (IsGroupKind(obj.Kind))
                 {
-                    // Every in-scope group is marked loaded — including empty ones
-                    // (which return no member key at all, → empty list).
-                    snapshot.SetMembers(obj.Dn, CollectMembers(obj.Dn, entry.Properties, cancellationToken));
+                    try
+                    {
+                        // Every in-scope group is marked loaded — including empty ones
+                        // (which return no member key at all, → empty list).
+                        snapshot.SetMembers(obj.Dn, CollectMembers(obj.Dn, entry.Properties, cancellationToken));
+                    }
+                    catch (COMException ex) when (
+                        LdapErrors.ClassifyHResult(ex.HResult) == LdapErrorKind.NotFound)
+                    {
+                        // Group vanished between the paged search and its ranged
+                        // member fetch: leave its members UNLOADED — null = "never
+                        // loaded" is the honest value (data-model rule: null ≠ empty;
+                        // an empty list would claim "loaded and genuinely empty").
+                    }
                 }
             }
 
@@ -139,21 +159,33 @@ public sealed class LdapProvider : IDirectoryProvider
 
     /// <inheritdoc />
     public Task<AdObject?> GetObjectAsync(string dn, CancellationToken cancellationToken = default) =>
-        RunAsync<AdObject?>($"get object '{dn}'", notFoundFallback: null, cancellationToken, () =>
+        RunAsync<AdObject?>($"get object '{dn}'", cancellationToken, () =>
             FindEntry(dn) is { } entry ? LdapEntry.Map(entry) : null);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<AdObject>> GetMembersAsync(
         string groupDn, CancellationToken cancellationToken = default) =>
         RunAsync<IReadOnlyList<AdObject>>(
-            $"get members of '{groupDn}'", notFoundFallback: null, cancellationToken, () =>
+            $"get members of '{groupDn}'", cancellationToken, () =>
         {
             if (FindEntry(groupDn) is not { } group)
             {
                 return []; // unknown/vanished parent → empty list, never an exception
             }
 
-            var memberDns = CollectMembers(groupDn, group.Properties, cancellationToken);
+            IReadOnlyList<string> memberDns;
+            try
+            {
+                memberDns = CollectMembers(groupDn, group.Properties, cancellationToken);
+            }
+            catch (COMException ex) when (
+                LdapErrors.ClassifyHResult(ex.HResult) == LdapErrorKind.NotFound)
+            {
+                // Group vanished between FindEntry and the ranged follow-up fetch
+                // → the documented vanished-parent value.
+                return [];
+            }
+
             var members = new List<AdObject>(memberDns.Count);
             foreach (string memberDn in memberDns)
             {
@@ -168,25 +200,21 @@ public sealed class LdapProvider : IDirectoryProvider
 
     /// <summary>
     /// Wraps a synchronous ADSI body: runs it on the thread pool and maps failures
-    /// onto the provider error model. A COM failure classifying as
-    /// <see cref="LdapErrorKind.NotFound"/> returns <paramref name="notFoundFallback"/>
-    /// (when supplied); every other COM failure — and, conservatively, any unexpected
-    /// non-COM failure from the ADSI plumbing — becomes
-    /// <see cref="DirectoryUnavailableException"/>. Cancellation flows through.
+    /// onto the provider error model. Every COM failure — and, conservatively, any
+    /// unexpected non-COM failure from the ADSI plumbing — becomes
+    /// <see cref="DirectoryUnavailableException"/>; the expected
+    /// <see cref="LdapErrorKind.NotFound"/> cases are handled where they arise
+    /// (the body knows which value the contract demands), never wholesale.
+    /// Cancellation flows through.
     /// </summary>
     private static Task<T> RunAsync<T>(
-        string operation, Func<T>? notFoundFallback, CancellationToken cancellationToken, Func<T> body) =>
+        string operation, CancellationToken cancellationToken, Func<T> body) =>
         Task.Run(
             () =>
             {
                 try
                 {
                     return body();
-                }
-                catch (COMException ex) when (notFoundFallback is not null &&
-                    LdapErrors.ClassifyHResult(ex.HResult) == LdapErrorKind.NotFound)
-                {
-                    return notFoundFallback();
                 }
                 catch (COMException ex)
                 {
@@ -285,8 +313,7 @@ public sealed class LdapProvider : IDirectoryProvider
     private string RootDsePath() =>
         _server is null ? "LDAP://RootDSE" : $"LDAP://{_server}/RootDSE";
 
-    private string PathFor(string dn) =>
-        _server is null ? $"LDAP://{dn}" : $"LDAP://{_server}/{dn}";
+    private string PathFor(string dn) => AdsPath.For(_server, dn);
 
     private DirectorySearcher CreateSearcher(
         DirectoryEntry searchRoot, SearchScope scope, string filter, IEnumerable<string> propertiesToLoad)
