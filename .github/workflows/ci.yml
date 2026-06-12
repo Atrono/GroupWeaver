@@ -37,8 +37,46 @@ jobs:
       - name: Build gate
         run: pwsh tools/build.ps1 -SkipAdTests
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/graph-bundle/package-lock.json') }}
+
+      # Verifies the literal shipped web bundle against the literal GraphBuilder
+      # output (ADR-004 Consequences) - same gate as locally.
+      - name: Graph bundle verification
+        run: pwsh tools/test-graph-bundle.ps1
+
+      - name: Upload graph screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: graph-ui
+          path: artifacts/ui/graph-*.png
+          retention-days: 7
+
       - name: Publish win-x64 (self-contained, single file)
         run: dotnet publish src/App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o artifacts/publish/win-x64
+
+      # The web bundle must survive single-file publish as LOOSE files next to the
+      # exe (ExcludeFromSingleFile, ADR-004 D6) - a silent drop would only surface
+      # at app runtime.
+      - name: Verify web bundle survives publish
+        run: |
+          $web = 'artifacts/publish/win-x64/web'
+          foreach ($f in 'index.html', 'bridge.js', 'graph.js', 'vendor/cytoscape.min.js') {
+            if (-not (Test-Path (Join-Path $web $f))) {
+              Write-Host "MISSING from publish output: $web/$f"
+              exit 1
+            }
+          }
+          $cyto = Get-Item (Join-Path $web 'vendor/cytoscape.min.js')
+          if ($cyto.Length -le 500KB) {
+            Write-Host "vendor/cytoscape.min.js suspiciously small: $($cyto.Length) bytes"
+            exit 1
+          }
+          Write-Host "web bundle intact (cytoscape.min.js: $($cyto.Length) bytes)."
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
