@@ -18,7 +18,8 @@ namespace GroupWeaver.App.Tests.Screenshots;
 
 /// <summary>
 /// The ui-verifier fixture (AP 2.1 S8, CLAUDE.md DoD step 2b): renders every shipped
-/// AP 2.1 shell state through the REAL pipeline — real <see cref="DemoProvider"/>, real
+/// shell state (AP 2.1 + the AP 2.5 detail panel) through the REAL pipeline — real
+/// <see cref="DemoProvider"/>, real
 /// views, real Skia rasterization on the headless platform — and writes the frames to
 /// <c>artifacts/ui/&lt;view&gt;-&lt;W&gt;x&lt;H&gt;.png</c> (gitignored) at both checklist
 /// sizes, 1280x720 and 1920x1080. The ui-verifier judges these PNGs against
@@ -30,6 +31,10 @@ public sealed class ShellScreenshotTests
 {
     private static readonly WebView2RuntimeStatus Present = new(IsInstalled: true, Version: "x");
     private static readonly WebView2RuntimeStatus Missing = new(IsInstalled: false, Version: null);
+
+    /// <summary>The AP 2.5 detail-panel subject: the demo dataset's first user.</summary>
+    private const string DemoUserDn =
+        "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example";
 
     /// <summary><c>artifacts/ui</c> under the repo root, created on first use.</summary>
     private static readonly Lazy<string> ArtifactsUiDir = new(() =>
@@ -134,6 +139,98 @@ public sealed class ShellScreenshotTests
         window.Close();
     }
 
+    /// <summary>
+    /// AP 2.5 (ADR-007): a selected demo USER at the 5-row MAXIMUM of the user display
+    /// set — description, whenCreated, department, title, primaryGroupID. The demo
+    /// dataset gives its users only department + title, so the subject is upserted in
+    /// the EXACT live-LDAP shape (all five whitelisted attributes, whenCreated in
+    /// LdapEntry's normalized invariant-UTC form) through the same public AddObject
+    /// upsert the expand pipeline uses — the sentinel approach of ConnectionError:
+    /// the state is staged, the rendering path is the real one (snapshot →
+    /// DetailPanelModel.Build → DetailPanelView).
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceDetail(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        var snapshot = workspace.Snapshot;
+        Assert.NotNull(snapshot);
+
+        Assert.True(snapshot.TryGetObject(DemoUserDn, out var demoUser));
+        snapshot.AddObject(new AdObject
+        {
+            Dn = demoUser!.Dn,
+            Kind = demoUser.Kind,
+            Name = demoUser.Name,
+            SamAccountName = demoUser.SamAccountName,
+            Attributes = new Dictionary<string, string>(
+                demoUser.Attributes, StringComparer.OrdinalIgnoreCase)
+            {
+                ["description"] = "Sales department staff account (screenshot sentinel).",
+                ["whenCreated"] = "2024-03-18T09:30:00Z",
+                ["primaryGroupID"] = "513",
+            },
+        });
+
+        // Selection through the declared AP 2.5 seam (renderer-less workspace:
+        // the public SelectedDn setter IS the click).
+        workspace.SelectedDn = DemoUserDn;
+
+        // Fixture soundness: the frame must show the 5-row maximum case in whitelist
+        // declaration order (ADR-007 D4) — never the dataset's 2-row shape.
+        var model = workspace.DetailPanel;
+        Assert.NotNull(model);
+        Assert.Equal(DetailPanelState.Loaded, model.State);
+        Assert.Equal(AdObjectKind.User, model.Kind);
+        Assert.Equal(
+            new[] { "description", "whenCreated", "department", "title", "primaryGroupID" },
+            model.Rows.Select(r => r.Label));
+
+        CapturePng(window, "workspace-detail", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// AP 2.5 (ADR-007 D3): the NOT-LOADED panel state, staged the honest way — a
+    /// group-rooted scope puts ONLY the group in Objects, so every member DN is a
+    /// genuine frontier endpoint; selecting one renders the External badge, the DN
+    /// verbatim, the "not loaded yet" hint, and zero attribute rows.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceDetailFrontier(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(
+            shell, c => c.Name == "GG_Sales_Staff"); // 20 members, all out of scope
+        var snapshot = workspace.Snapshot;
+        Assert.NotNull(snapshot);
+
+        var members = snapshot.GetMembers(workspace.RootDn);
+        Assert.NotNull(members); // the group root itself is loaded by LoadScopeAsync
+        Assert.NotEmpty(members);
+        var frontierDn = members[0];
+        Assert.False(
+            snapshot.TryGetObject(frontierDn, out _),
+            $"'{frontierDn}' is in Objects — not a frontier DN; the capture would lie");
+
+        workspace.SelectedDn = frontierDn;
+
+        // Fixture soundness: the frame must show the honest NotLoaded projection.
+        var model = workspace.DetailPanel;
+        Assert.NotNull(model);
+        Assert.Equal(DetailPanelState.NotLoaded, model.State);
+        Assert.Equal(AdObjectKind.External, model.Kind);
+        Assert.Empty(model.Rows);
+
+        CapturePng(window, "workspace-detail-frontier", width, height);
+        window.Close();
+    }
+
     // --- capture core ---------------------------------------------------------------------------
 
     /// <summary>
@@ -219,14 +316,18 @@ public sealed class ShellScreenshotTests
         return picker;
     }
 
-    private static async Task DriveToWorkspaceAsync(ShellViewModel shell)
+    /// <summary>Connect → pick → load, landing on the SETTLED workspace, which is
+    /// returned for the AP 2.5 captures. <paramref name="pickRoot"/> chooses the root
+    /// candidate; default: the first OU of the demo dataset — deterministic and
+    /// representative.</summary>
+    private static async Task<WorkspaceViewModel> DriveToWorkspaceAsync(
+        ShellViewModel shell, Func<AdObject, bool>? pickRoot = null)
     {
         var picker = await ConnectIntoPickerAsync(shell);
         Dispatcher.UIThread.RunJobs();
 
-        // A deterministic, representative root: the first OU of the demo dataset.
         picker.SelectedCandidate = picker.Candidates
-            .First(c => c.Kind == AdObjectKind.OrganizationalUnit);
+            .First(pickRoot ?? (c => c.Kind == AdObjectKind.OrganizationalUnit));
         picker.LoadRootCommand.Execute(null);
         var workspace = Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
 
@@ -235,5 +336,6 @@ public sealed class ShellScreenshotTests
         // lag, not load timing, so the load itself is awaited here; the real
         // DemoProvider behind the shell makes this the genuine demo-mode truth.
         await workspace.Initialization;
+        return workspace;
     }
 }
