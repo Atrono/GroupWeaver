@@ -4,6 +4,7 @@ using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
+using GroupWeaver.Providers;
 
 using Xunit;
 
@@ -763,6 +764,75 @@ public sealed class WorkspaceExpandTests
         Assert.False(
             snapshot.IsLoaded(VertriebDn),
             "a dropped refresh must never replay after the in-flight fetch completes");
+    }
+
+    // --- (l) end-to-end over the REAL DemoProvider (AP 2.3 S5) -------------------------
+
+    [Fact]
+    public async Task ExpandOverTheRealDemoProvider_GroupRootedScope_GrowsTheGraph_AndResolvesTheFrontierKind()
+    {
+        // The embedded demo dataset, no stubs: a GROUP-rooted scope contains only
+        // the group itself (a group has no DN children), so BOTH its members —
+        // GG_Sales_Staff and the AGDLP-violation direct user u001 — lie outside the
+        // loaded scope and surface as External frontier nodes after the scope load.
+        const string dlDn = "CN=DL_FS-Sales_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+        const string ggDn = "CN=GG_Sales_Staff,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+        const string u001Dn = "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+
+        var provider = new DemoProvider();
+        var root = await provider.GetObjectAsync(dlDn);
+        Assert.NotNull(root);
+        Assert.Equal(AdObjectKind.DomainLocalGroup, root.Kind);
+        var fake = new FakeGraphRenderer();
+        var vm = new WorkspaceViewModel(
+            provider, root, await provider.ConnectAsync(), webView2Missing: false, () => fake);
+        await vm.Initialization;
+
+        var snapshot = vm.Snapshot;
+        Assert.NotNull(snapshot);
+        var dl = Assert.Single(snapshot.Objects);
+        Assert.True(Dn.Comparer.Equals(dlDn, dl.Dn), $"unexpected object in scope: '{dl.Dn}'");
+        Assert.False(snapshot.TryGetObject(ggDn, out _));
+        Assert.Equal(AdObjectKind.External, snapshot.GetKind(ggDn));
+        Assert.False(snapshot.IsLoaded(ggDn));
+
+        var before = vm.Graph;
+        Assert.NotNull(before);
+        Assert.Equal(3, before.Nodes.Count); // DL root + 2 materialized frontier nodes
+        var frontier = Assert.Single(before.Nodes, n => Dn.Comparer.Equals(n.Dn, ggDn));
+        Assert.Equal(AdObjectKind.External, frontier.Kind);
+
+        // Expand the GG frontier member — the full pipeline against the REAL provider.
+        fake.RaiseNodeExpandRequested(ggDn, "External");
+        await vm.Expansion;
+
+        // The frontier resolved from External to its TRUE kind (ADR-005 D5) and is
+        // now members-loaded with the dataset's 20 sales-staff users.
+        Assert.True(snapshot.TryGetObject(ggDn, out var resolved));
+        Assert.Equal(AdObjectKind.GlobalGroup, resolved!.Kind);
+        Assert.True(snapshot.IsLoaded(ggDn));
+        Assert.Equal(20, snapshot.GetMembers(ggDn)!.Count);
+
+        // The graph GREW, replace-in-place: 22 nodes (DL + GG + 20 users — u001 is
+        // one of the 20, so its own frontier node resolved to a real User too),
+        // 22 membership + 21 containment edges.
+        var updated = Assert.Single(fake.UpdatedGraphs);
+        Assert.Same(updated, vm.Graph);
+        Assert.Single(fake.ShownGraphs);
+        Assert.True(updated.Nodes.Count > before.Nodes.Count, "the expand must grow the graph");
+        Assert.Equal(22, updated.Nodes.Count);
+        var ggNode = Assert.Single(updated.Nodes, n => Dn.Comparer.Equals(n.Dn, ggDn));
+        Assert.Equal(AdObjectKind.GlobalGroup, ggNode.Kind);
+        var annaNode = Assert.Single(updated.Nodes, n => Dn.Comparer.Equals(n.Dn, u001Dn));
+        Assert.Equal(AdObjectKind.User, annaNode.Kind);
+        Assert.Contains(updated.Edges, e =>
+            e.Kind == GraphEdgeKind.Membership
+            && Dn.Comparer.Equals(e.ParentDn, ggDn)
+            && Dn.Comparer.Equals(e.ChildDn, u001Dn));
+        Assert.Equal("22 objects, 43 edges", vm.GraphSummary);
+
+        Assert.Null(vm.LoadError);
+        Assert.False(vm.IsLoading);
     }
 
     // --- helpers ------------------------------------------------------------------------
