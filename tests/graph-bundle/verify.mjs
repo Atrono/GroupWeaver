@@ -342,7 +342,10 @@ async function main() {
     phase('click roundtrip');
 
     // --- expand protocol (dbltap -> nodeExpand, AP 2.3's wire) ----------------
-    await page.evaluate((id) => window.__cy.getElementById(id).emit('dbltap'), clickDn);
+    // Braces matter: emit() returns the cytoscape collection - returning it makes
+    // Playwright serialize a huge cyclic object graph (renderer caches included),
+    // which wedged the 2-core CI runner (runs 27409858814 / 27419366522).
+    await page.evaluate((id) => { window.__cy.getElementById(id).emit('dbltap'); }, clickDn);
     const expand = await awaitMessage('nodeExpand', `dbltap emit on '${clickDn}'`);
     assert(expand.id === clickDn,
       `nodeExpand id roundtrip not byte-identical: got '${expand.id}', sent '${clickDn}'`);
@@ -360,11 +363,15 @@ async function main() {
 
     // --- screenshot 3: the seeded A<->B membership cycle ----------------------
     // Auto-detect the antiparallel member-edge pair: (s,t) and (t,s) both rel=member.
+    // NUL (String.fromCharCode(0)) as the composite-key separator: it cannot
+    // appear in a DN, unlike space. Built in code - a literal NUL byte in this
+    // file makes it binary for grep/diff tooling.
+    const SEP = String.fromCharCode(0);
     const memberKeys = new Set(fixture.edges
       .filter((e) => e.rel === 'member')
-      .map((e) => `${e.s} ${e.t}`));
+      .map((e) => `${e.s}${SEP}${e.t}`));
     const cycleEdge = fixture.edges.find((e) =>
-      e.rel === 'member' && e.s !== e.t && memberKeys.has(`${e.t} ${e.s}`));
+      e.rel === 'member' && e.s !== e.t && memberKeys.has(`${e.t}${SEP}${e.s}`));
     assert(cycleEdge !== undefined,
       'demo fixture must contain an antiparallel membership pair (the seeded A<->B cycle)');
     const cycleIds = [cycleEdge.s, cycleEdge.t];
