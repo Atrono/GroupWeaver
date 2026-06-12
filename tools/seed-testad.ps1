@@ -72,15 +72,34 @@ function Ensure-Computer([string]$name, [string]$path) {
 function Ensure-Member([string]$group, [string]$member) {
     # Resolve BOTH sides inside the lab OU so this write path is pinned to
     # OU=AGDLP-Lab regardless of call order or sAMAccountName collisions.
-    $g = Get-ADGroup -Filter "sAMAccountName -eq '$group'" -SearchBase $labDN
+    $g = Get-ADGroup -Filter "sAMAccountName -eq '$group'" -SearchBase $labDN -Properties member
     if (-not $g) { throw "Ensure-Member: group '$group' not found under $labDN" }
     $m = Get-ADObject -Filter "sAMAccountName -eq '$member'" -SearchBase $labDN
     if (-not $m) { throw "Ensure-Member: member '$member' not found under $labDN" }
     Assert-LabPath $g.DistinguishedName
     Assert-LabPath $m.DistinguishedName
-    $existing = Get-ADGroupMember -Identity $g | Where-Object DistinguishedName -eq $m.DistinguishedName
-    if ($existing) { $script:skipped++ }
+    # Pre-check via the raw member attribute, NOT Get-ADGroupMember: that cmdlet
+    # resolves every member to a principal and throws an unspecified error on
+    # groups containing an unresolvable (dangling) FSP - which DL_App-ERP_RW
+    # deliberately does (see Ensure-ForeignSidMember below).
+    if (@($g.member) -contains $m.DistinguishedName) { $script:skipped++ }
     else { Add-ADGroupMember -Identity $g -Members $m; $script:created++ }
+}
+
+function Ensure-ForeignSidMember([string]$group, [string]$sid) {
+    # Adds a foreign-domain SID to an in-OU group's member attribute via the
+    # <SID=...> binding form. The ONLY object this function writes is the group
+    # itself (Assert-LabPath enforced below); see the call site for the
+    # ForeignSecurityPrincipals side effect.
+    $g = Get-ADGroup -Filter "sAMAccountName -eq '$group'" -SearchBase $labDN -Properties member
+    if (-not $g) { throw "Ensure-ForeignSidMember: group '$group' not found under $labDN" }
+    Assert-LabPath $g.DistinguishedName
+    # Once the DC resolves the binding, the member attribute stores the FSP DN
+    # (not the <SID=...> form) - pre-check against that DN for idempotency.
+    $fspDn = "CN=$sid,CN=ForeignSecurityPrincipals,$baseDN"
+    if ($g.member | Where-Object { $_ -eq $fspDn }) { $script:skipped++; return }
+    Set-ADGroup -Identity $g.DistinguishedName -Add @{ member = "<SID=$sid>" }
+    $script:created++
 }
 
 # --- OU structure --------------------------------------------------------------
@@ -140,6 +159,15 @@ Ensure-Member 'DL_App-ERP_RW'  'UG_Managers'
 Ensure-Member 'DL_App-CRM_RW'  'UG_AllStaff'
 Ensure-Member 'DL_Print-HQ_RW' 'GG_IT_Helpdesk'
 Ensure-Member 'GG_IT_Admins'   'GG_IT_Backup'      # GG-in-GG: allowed, matrix decides
+
+# --- Cross-forest FSP member (canonical AGDLP cross-domain scenario) --------------
+# Fixed, deterministic SID from a NONEXISTENT foreign domain - exactly what a
+# dangling cross-forest FSP looks like once the trusted forest is gone. The write
+# below targets ONLY the in-OU group DL_App-ERP_RW; the DC system-creates
+# CN=<sid>,CN=ForeignSecurityPrincipals,DC=agdlp,DC=lab as a side effect of the
+# <SID=...> binding form. Documented tension with the lab-OU-only rule; reviewer
+# signs off in the PR. (Well-known SIDs like S-1-5-11 were refused by the DC, #9.)
+Ensure-ForeignSidMember 'DL_App-ERP_RW' 'S-1-5-21-1100000001-2200000002-3300000003-1106'
 
 # --- Deliberate AGDLP violations (allowed by AD, flagged by GroupWeaver) --------
 Ensure-Member 'DL_FS-Sales_RW' 'u001'               # user directly in a DL
