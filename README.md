@@ -9,6 +9,12 @@ conventions. Where security-path tools like BloodHound or Adalanche show attack
 paths, GroupWeaver shows structural cleanliness and convention adherence — a
 governance perspective, not a security one.
 
+![Exploring the bundled demo directory: picking a group as the graph root, selecting a node to inspect it, lazy-expanding the membership frontier, zooming in](docs/media/m2-explore.gif)
+
+*Exploring in demo mode: pick a group as the root, click a node to inspect it in
+the detail panel, double-click the dashed frontier node to lazy-expand its
+members — all against the bundled fictional dataset.*
+
 > **Pre-release.** GroupWeaver is in active early development; there is no
 > release yet. See [Status](#status).
 

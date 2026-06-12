@@ -20,6 +20,12 @@
   — POSIX env-var form, and `-File` propagates the script's `exit n` natively
   (the old `-Command "& …"; exit ($LASTEXITCODE ?? 1)` wrapper is obsolete).
   Claude Code only blocks on exit code 2.
+- **Cytoscape wheel-zoom driving (found during M2 GIF):** after 4 wheel events
+  cytoscape switches to discrete-wheel mode and normalizes EVERY detent to
+  ~×1.0055 zoom (`h = 3/250 × wheelSensitivity 0.2`) — the `wParam` delta
+  magnitude is ignored. Inflating deltas does nothing; post ONE `WM_MOUSEWHEEL`
+  per detent (~25 ms apart) and scale by detent COUNT. Pointer-anchored zoom:
+  aim the message coordinates at the target cluster.
 - **GraphSpike gotchas (bind Phase 2):** exe needs `app.manifest` with
   `<supportedOS>` for NativeControlHost; perf harnesses must drive DOM-level
   gestures (programmatic `cy.zoom()/cy.pan()` bypasses cytoscape's viewport
