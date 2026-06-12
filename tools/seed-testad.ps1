@@ -6,10 +6,11 @@
   ad-fixture-admin subagent. Idempotent. Writes ONLY beneath
   OU=AGDLP-Lab,DC=agdlp,DC=lab and aborts on any other domain.
 .DESCRIPTION
-  ~200 objects mirroring the DemoProvider dataset spec (PLANNING.md AP 1.4 -
-  the DemoProvider JSON is a separate deliverable): users, GG/DL/UG groups,
-  nested memberships, deliberate AGDLP violations, naming violations, one
-  circular nesting (A->B->A), empty groups.
+  195 objects (5 OUs) mirroring the DemoProvider dataset spec (PLANNING.md
+  AP 1.4 - the DemoProvider JSON is a separate deliverable): users, GG/DL/UG
+  groups, nested memberships, deliberate AGDLP violations, naming violations,
+  one circular nesting (A->B->A), empty groups, and an OU with '/' in its RDN
+  (issue #16 ADsPath-escaping regression fixture).
 .NOTES
   Cleanup caveat: the foreign-SID fixture (Ensure-ForeignSidMember) makes the
   DC system-create CN=S-1-5-21-...-1106,CN=ForeignSecurityPrincipals,$baseDN
@@ -194,6 +195,13 @@ Ensure-Member 'GG_Circle_B' 'GG_Circle_A'   # AD permits GG<->GG cycles; abort o
 # --- Empty groups ------------------------------------------------------------------
 Ensure-Group 'GG_Empty_Marketing' Global      $ouGroups
 Ensure-Group 'DL_FS-Legacy_RO'    DomainLocal $ouGroups
+
+# --- Issue #16 regression fixture: '/' in an RDN ------------------------------------
+# '/' is legal in RDNs and LDAP stores/returns it UNESCAPED, but ADSI ADsPaths
+# treat '/' as a path separator - LdapProvider must escape it when building
+# ADsPaths (issue #16). Deliberately an EMPTY OU (no children, no members) to
+# keep pinned-count churn minimal: lab grows 194 -> 195 objects, 4 -> 5 OUs.
+$null = Ensure-OU 'Research/Development' $labDN
 
 # --- Summary ------------------------------------------------------------------------
 $total = (Get-ADObject -SearchBase $labDN -Filter * | Measure-Object).Count

@@ -17,7 +17,9 @@ public interface IDirectoryProvider
     Task<IReadOnlyList<AdObject>> GetRootCandidatesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Eagerly loads the subtree under <paramref name="baseDn"/> (paged) into a snapshot:
-    /// objects + membership edges; every group found in scope is marked members-loaded.</summary>
+    /// objects + membership edges; every group found in scope is marked members-loaded
+    /// (rare exception: a group vanishing mid-load stays unloaded — <c>null</c>,
+    /// never a fabricated empty list).</summary>
     Task<DirectorySnapshot> LoadScopeAsync(string baseDn, CancellationToken cancellationToken = default);
 
     /// <summary>Single object by DN; <c>null</c> if unresolvable (not an exception).</summary>

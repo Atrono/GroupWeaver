@@ -45,10 +45,12 @@ public sealed class LdapLabFixture : IAsyncLifetime
 
 /// <summary>
 /// Integration tests for <see cref="LdapProvider"/> against the live
-/// <c>OU=AGDLP-Lab</c> fixtures seeded by <c>tools/seed-testad.ps1</c> (194
-/// objects: 140 users, 18 GG + 19 DL + 3 UG groups, 10 computers, 4 OUs; 140
-/// membership edges — one targets the foreign-domain FSP outside the OU; 12
-/// empty groups; the GG_Circle_A↔GG_Circle_B circular nesting). Excluded in
+/// <c>OU=AGDLP-Lab</c> fixtures seeded by <c>tools/seed-testad.ps1</c> (195
+/// objects: 140 users, 18 GG + 19 DL + 3 UG groups, 10 computers, 5 OUs — one
+/// of them the empty slash-RDN OU <c>OU=Research/Development</c>, the issue-#16
+/// ADsPath-escaping regression fixture; 140 membership edges — one targets the
+/// foreign-domain FSP outside the OU; 12 empty groups; the
+/// GG_Circle_A↔GG_Circle_B circular nesting). Excluded in
 /// CI via the class-level <c>Category=RequiresAd</c>
 /// trait; skipped with a loud warning off the lab DC via <see cref="AdFactAttribute"/>.
 /// If one of these tests fails, suspect the provider or a drifted fixture
@@ -60,6 +62,11 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
 {
     private const string LabDn = LdapLabFixture.LabDn;
     private const string GroupsOuDn = "OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    /// <summary>The issue-#16 regression fixture: an empty OU whose RDN contains a raw
+    /// '/' exactly as AD returns it (`name` = <c>Research/Development</c>). Resolvable
+    /// only with ADsPath '/'-escaping — pre-fix it silently degraded to not-found.</summary>
+    private const string SlashOuDn = "OU=Research/Development,OU=AGDLP-Lab,DC=agdlp,DC=lab";
 
     private const string CircleADn = "CN=GG_Circle_A,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
     private const string CircleBDn = "CN=GG_Circle_B,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
@@ -108,20 +115,22 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
     // --- T2/T3: full-scope load ----------------------------------------------
 
     [AdFact]
-    public void LoadScope_Lab_Loads194Objects_WithExpectedKindBreakdown()
+    public void LoadScope_Lab_Loads195Objects_WithExpectedKindBreakdown()
     {
         var snapshot = _fixture.FullSnapshot;
         var byKind = snapshot.Objects
             .GroupBy(o => o.Kind)
             .ToDictionary(g => g.Key, g => g.Count());
 
-        Assert.Equal(194, snapshot.Objects.Count);
+        // 195/5 (was 194/4) since the empty slash-RDN OU regression fixture
+        // landed with issue #16; everything else is unchanged.
+        Assert.Equal(195, snapshot.Objects.Count);
         Assert.Equal(140, byKind[AdObjectKind.User]);
         Assert.Equal(18, byKind[AdObjectKind.GlobalGroup]);
         Assert.Equal(19, byKind[AdObjectKind.DomainLocalGroup]);
         Assert.Equal(3, byKind[AdObjectKind.UniversalGroup]);
         Assert.Equal(10, byKind[AdObjectKind.Computer]);
-        Assert.Equal(4, byKind[AdObjectKind.OrganizationalUnit]);
+        Assert.Equal(5, byKind[AdObjectKind.OrganizationalUnit]);
         Assert.Equal(6, byKind.Count); // nothing unclassified / External in scope
     }
 
@@ -179,14 +188,15 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
     // --- T6: paging -------------------------------------------------------------
 
     [AdFact]
-    public async Task LoadScope_PageSize50_YieldsIdentical194Objects()
+    public async Task LoadScope_PageSize50_YieldsIdentical195Objects()
     {
-        // 194 objects / page size 50 forces 4 server pages (RFC 2696).
+        // 195 objects (194 + the issue-#16 slash-OU fixture) / page size 50
+        // forces 4 server pages (RFC 2696).
         var provider = new LdapProvider(LdapLabFixture.Server, LabDn, pageSize: 50);
 
         var snapshot = await provider.LoadScopeAsync(LabDn);
 
-        Assert.Equal(194, snapshot.Objects.Count);
+        Assert.Equal(195, snapshot.Objects.Count);
     }
 
     // --- T7: attribute whitelist enforcement -------------------------------------
@@ -243,16 +253,54 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
         Assert.Contains(new MembershipEdge(GgSalesStaffDn, User001Dn), edges);
     }
 
+    // --- Scope-base probe semantics (issues #16/#17) ---------------------------------
+
+    [AdFact]
+    public async Task LoadScope_SlashRdnOuAsBase_ReturnsExactlyThatOu()
+    {
+        // The AP 2.1 picker scenario: the user picks the slash-named OU itself as
+        // scope root. Pre-#16 the base probe could not even resolve it; post-fix
+        // the (deliberately empty) OU is the snapshot's single object.
+        var snapshot = await _fixture.Provider.LoadScopeAsync(SlashOuDn);
+
+        var only = Assert.Single(snapshot.Objects);
+        Assert.Equal(AdObjectKind.OrganizationalUnit, only.Kind);
+        Assert.True(Dn.Comparer.Equals(SlashOuDn, only.Dn), $"unexpected object in scope: '{only.Dn}'");
+    }
+
+    [AdFact]
+    public async Task LoadScope_NonexistentBase_ReturnsEmptySnapshot()
+    {
+        // #17's preserved base-probe semantics: an unknown/vanished base is a
+        // value (empty snapshot), never an exception — probed up front, no
+        // whole-operation NotFound fallback anymore.
+        var snapshot = await _fixture.Provider.LoadScopeAsync(
+            "OU=DoesNotExist,OU=AGDLP-Lab,DC=agdlp,DC=lab");
+
+        Assert.Empty(snapshot.Objects);
+    }
+
+    [AdFact]
+    public async Task LoadScope_GarbageBase_ReturnsEmptySnapshot_DoesNotThrow()
+    {
+        // "not a dn" is server-rejected with ERROR_DS_INVALID_DN_SYNTAX — a name
+        // that can never denote an object, i.e. "absent", not "unavailable".
+        var snapshot = await _fixture.Provider.LoadScopeAsync("not a dn");
+
+        Assert.Empty(snapshot.Objects);
+    }
+
     // --- T10: root candidates ------------------------------------------------------
 
     [AdFact]
-    public async Task GetRootCandidates_Returns44_OnlyOusAndGroups()
+    public async Task GetRootCandidates_Returns45_OnlyOusAndGroups()
     {
         var candidates = await _fixture.Provider.GetRootCandidatesAsync();
 
-        Assert.Equal(44, candidates.Count);
-        Assert.Equal(4, candidates.Count(c => c.Kind == AdObjectKind.OrganizationalUnit));
-        Assert.Equal(40, candidates.Count(c => IsGroup(c.Kind))); // 4 + 40 = 44: no other kinds
+        // 5 OUs (4 + the issue-#16 slash-OU fixture) + 40 groups.
+        Assert.Equal(45, candidates.Count);
+        Assert.Equal(5, candidates.Count(c => c.Kind == AdObjectKind.OrganizationalUnit));
+        Assert.Equal(40, candidates.Count(c => IsGroup(c.Kind))); // 5 + 40 = 45: no other kinds
     }
 
     // --- T11: GetObjectAsync ---------------------------------------------------------
@@ -266,6 +314,22 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
         Assert.Equal(AdObjectKind.GlobalGroup, obj.Kind);
         Assert.Equal("GG_Sales_Staff", obj.Name);
         Assert.Equal("GG_Sales_Staff", obj.SamAccountName);
+    }
+
+    [AdFact]
+    public async Task GetObject_SlashRdnOu_Resolves_DnRoundTripsAsGiven()
+    {
+        // Issue #16 regression proof: AD returns the '/' in this DN unescaped, and
+        // pre-fix the raw ADsPath interpolation made the object come back null.
+        var obj = await _fixture.Provider.GetObjectAsync(SlashOuDn);
+
+        Assert.NotNull(obj);
+        Assert.Equal(AdObjectKind.OrganizationalUnit, obj.Kind);
+        Assert.Equal("Research/Development", obj.Name);
+
+        // DNs are stored and passed as-given, never canonicalized (data-model
+        // rule) — the ADsPath escaping must not leak into the returned DN.
+        Assert.True(Dn.Comparer.Equals(SlashOuDn, obj.Dn), $"DN did not round-trip: '{obj.Dn}'");
     }
 
     [AdFact]
@@ -355,7 +419,7 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
         var snapshot = _fixture.FullSnapshot;
 
         // The FSP lives in CN=ForeignSecurityPrincipals — outside OU=AGDLP-Lab — so
-        // it is never an object of the scoped snapshot (194 stays 194) and GetKind
+        // it is never an object of the scoped snapshot (195 stays 195) and GetKind
         // falls back to External; the membership edge pointing at it must survive.
         Assert.False(snapshot.TryGetObject(ForeignFspDn, out _));
         Assert.Equal(AdObjectKind.External, snapshot.GetKind(ForeignFspDn));

@@ -11,4 +11,8 @@ imitating built-ins (`Domain Admins`, `Print Operators`) for the External path a
 AP 3.1 ignore-list test. Edge-count divergence vs. the lab fixture: the two built-in
 edges exist only here, while the lab instead has one foreign-domain FSP edge
 (`DL_App-ERP_RW` → dangling cross-forest SID) — 141 edges in this dataset vs. 140 in
-the lab. All public screenshots/GIFs use exactly this dataset (demo mode only).
+the lab. Object-count divergence: the lab additionally has the empty OU
+`OU=Research/Development,OU=AGDLP-Lab,DC=agdlp,DC=lab` (regression fixture for issue
+#16's ADsPath-'/'-escaping; lab total 195 objects / 5 OUs), deliberately NOT mirrored
+here — DemoProvider never builds ADsPaths, so the fixture has no demo-side value.
+All public screenshots/GIFs use exactly this dataset (demo mode only).
