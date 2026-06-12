@@ -341,7 +341,7 @@ public sealed class WorkspaceLoadTests
     // --- renderer events ----------------------------------------------------------------------
 
     [AvaloniaFact]
-    public async Task NodeClicked_UpdatesSelectedDn_AndTheDetailRegionShowsIt_ExpandIsIgnored()
+    public async Task NodeClicked_UpdatesSelectedDn_AndTheDetailRegionShowsIt_ExpandOnAUserFocusesOnly()
     {
         // Escaped-comma DN on purpose: DN strings flow verbatim (data-model rule —
         // never canonicalized), so the escape must survive into SelectedDn untouched.
@@ -364,15 +364,20 @@ public sealed class WorkspaceLoadTests
                 .Where(t => t.IsEffectivelyVisible),
             t => t.Text?.Contains(clickedDn, StringComparison.Ordinal) == true);
 
-        // Expand is part of the seam but deliberately ignored until AP 2.3 (ADR-004
-        // D5): no crash, no state change.
-        fake.RaiseNodeExpandRequested(clickedDn, "User");
+        // AP 2.3 deliberately changed this pin (was: expand ignored, ADR-004 D5): a
+        // dbltap on a USER node is not fetchable (ADR-005 D3) — pure focus, no provider
+        // call (the stub would throw loudly), no SetMembers, no rebuild, no selection.
+        fake.RaiseNodeExpandRequested(AdaDn, "User");
         Dispatcher.UIThread.RunJobs();
+        await vm.Expansion;
 
         Assert.Equal(clickedDn, vm.SelectedDn);
         Assert.Null(vm.LoadError);
         Assert.False(vm.IsLoading);
         Assert.Single(fake.ShownGraphs);
+        Assert.Empty(fake.UpdatedGraphs);
+        var focusedDn = Assert.Single(Assert.Single(fake.FocusCalls));
+        Assert.Equal(AdaDn, focusedDn, Dn.Comparer);
 
         window.Close();
     }

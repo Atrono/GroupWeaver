@@ -35,8 +35,8 @@ public interface IGraphRenderer
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
-    /// <summary>A node was double-tapped for expansion — part of the interface now,
-    /// ignored by the VM until AP 2.3 (ADR-004 D5).</summary>
+    /// <summary>A node was double-tapped for expansion — drives the AP 2.3 lazy-expand
+    /// pipeline in the workspace VM (ADR-005 D3).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeExpandRequested;
 
     /// <summary>The renderer failed (ready timeout, JS error, …) — surfaced as an

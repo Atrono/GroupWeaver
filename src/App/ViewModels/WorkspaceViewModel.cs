@@ -16,14 +16,18 @@ namespace GroupWeaver.App.ViewModels;
 /// surfaces inline via <see cref="LoadError"/> WITHOUT the Connect step's demo hint
 /// (a connection already succeeded); cancellation (<see cref="Dispose"/>) settles
 /// <see cref="Initialization"/> quietly; everything else propagates (crash = bug).
-/// Contract pinned by <c>tests/GroupWeaver.App.Tests/WorkspaceLoadTests.cs</c>.
+/// AP 2.3 adds the lazy-expand pipeline (ADR-005 D3) behind
+/// <see cref="IGraphRenderer.NodeExpandRequested"/>, observable via <see cref="Expansion"/>
+/// under the same error policy. Contract pinned by
+/// <c>tests/GroupWeaver.App.Tests/WorkspaceLoadTests.cs</c> and <c>WorkspaceExpandTests.cs</c>.
 /// </summary>
 public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
     private bool _disposed;
 
-    /// <summary>True while the scope load + first render are in flight.</summary>
+    /// <summary>True while the scope load + first render — or an expand fetch
+    /// (AP 2.3) — are in flight; the ONE global busy gate (ADR-005 D3).</summary>
     [ObservableProperty]
     private bool _isLoading;
 
@@ -62,8 +66,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             // Pinned decision: renderer failures reuse the ONE inline error surface
             // instead of growing a parallel property; IsLoading stays untouched.
             GraphRenderer.RendererError += (_, e) => LoadError = $"{e.Source}: {e.Message}";
-            // NodeExpandRequested ships with the seam but stays deliberately
-            // unsubscribed until lazy expand lands (AP 2.3, ADR-004 D5).
+            // AP 2.3 (ADR-005 D3): the expand decision is made from the SNAPSHOT
+            // (kind + load state), never the event's Kind string — only the DN flows.
+            GraphRenderer.NodeExpandRequested += (_, e) => OnNodeExpandRequested(e.Dn);
         }
 
         Initialization = LoadAsync(_cts.Token);
@@ -105,6 +110,14 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// </summary>
     public Task Initialization { get; }
 
+    /// <summary>
+    /// The lazy-expand pipeline of the most recent ACCEPTED expand gesture (ADR-005 D3)
+    /// — the same observable-task pattern as <see cref="Initialization"/>, never
+    /// fire-and-forget. Completed from construction (safe to await before any gesture);
+    /// left reference-unchanged when a gesture is dropped by the busy gate.
+    /// </summary>
+    public Task Expansion { get; private set; } = Task.CompletedTask;
+
     /// <summary>Renderer built from the ctor factory; <c>null</c> when the factory is
     /// null or the WebView2 Runtime is missing — the view then keeps its placeholder.</summary>
     public IGraphRenderer? GraphRenderer { get; }
@@ -144,7 +157,94 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Cancels an in-flight scope load; idempotent.</summary>
+    private void OnNodeExpandRequested(string dn)
+    {
+        // ADR-005 D3: ONE global busy gate (IsLoading) — a gesture during the initial
+        // scope load or another in-flight expand is silently dropped, never queued, and
+        // Expansion stays reference-unchanged (replacing it would lie to observers).
+        if (_disposed || IsLoading || Snapshot is null)
+        {
+            return;
+        }
+
+        Expansion = ExpandAsync(dn, _cts.Token);
+    }
+
+    private async Task ExpandAsync(string dn, CancellationToken cancellationToken)
+    {
+        var snapshot = Snapshot!;
+        var renderer = GraphRenderer!; // gestures only arrive from a built renderer
+        try
+        {
+            var kind = snapshot.GetKind(dn);
+            var fetchable = kind
+                is AdObjectKind.GlobalGroup
+                or AdObjectKind.DomainLocalGroup
+                or AdObjectKind.UniversalGroup
+                or AdObjectKind.External;
+            if (!fetchable || snapshot.IsLoaded(dn))
+            {
+                // Cache hit / non-group dbltap: a pure camera move over the node plus
+                // its cached members — NEVER a fabricated SetMembers (null ≠ empty; the
+                // AP 3.2/3.4 checks read exactly this load state).
+                var cached = snapshot.GetMembers(dn);
+                IReadOnlyCollection<string> focus = cached is null ? [dn] : [dn, .. cached];
+                await renderer.FocusAsync(focus, cancellationToken);
+                return;
+            }
+
+            IsLoading = true;
+            LoadError = null; // every new attempt clears the inline error (load policy)
+
+            // Transactional fetch (ADR-005 D3): resolve the parent object only when its
+            // DN is missing from the snapshot (External frontier node → true kind), then
+            // fetch the members; NOTHING is applied until both provider calls came back.
+            AdObject? resolved = null;
+            if (!snapshot.TryGetObject(dn, out _))
+            {
+                resolved = await Provider.GetObjectAsync(dn, cancellationToken);
+            }
+
+            var fetched = await Provider.GetMembersAsync(dn, cancellationToken);
+            var memberDns = fetched.Select(m => m.Dn).ToList();
+
+            if (resolved is not null)
+            {
+                snapshot.AddObject(resolved);
+            }
+
+            foreach (var member in fetched)
+            {
+                snapshot.AddObject(member);
+            }
+
+            // SetMembers LAST: marks the parent loaded (possibly loaded-and-empty),
+            // member DNs in fetch order.
+            snapshot.SetMembers(dn, memberDns);
+
+            Graph = GraphBuilder.Build(snapshot, RootDn);
+            // Replace-in-place (ADR-005 D1/D2): exactly ONE UpdateGraphAsync — never a
+            // second ShowGraphAsync (destroy + fit would lose the viewport).
+            await renderer.UpdateGraphAsync(Graph, cancellationToken);
+            GraphSummary = $"{Graph.Nodes.Count} objects, {Graph.Edges.Count} edges";
+            await renderer.FocusAsync([dn, .. memberDns], cancellationToken);
+        }
+        catch (DirectoryUnavailableException ex)
+        {
+            // Same inline surface as the scope load; snapshot/graph/renderer untouched.
+            LoadError = ex.Message;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Our own Dispose cancelled the expand — settle Expansion quietly.
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>Cancels an in-flight scope load or expand fetch; idempotent.</summary>
     public void Dispose()
     {
         if (_disposed)
