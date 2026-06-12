@@ -16,8 +16,10 @@ namespace GroupWeaver.App.Tests.Graph;
 /// verbatim (never camel-cased), <c>"root":true</c> emitted only on the root node
 /// (absent otherwise — never <c>false</c>), per-kind <c>m</c>/<c>c</c> edge-id
 /// counters in model edge order, the membership s/t orientation flip
-/// (s := member, t := group), and invariant '.' decimals — the German-localized
-/// box guard (.claude/rules/lab-environment.md).
+/// (s := member, t := group), invariant '.' decimals — the German-localized
+/// box guard (.claude/rules/lab-environment.md) — and the default-STJ-encoder
+/// all-ASCII wire guarantee that keeps InvokeScript JS-literal embedding safe
+/// (issue #28).
 /// </summary>
 public sealed class GraphJsonTests
 {
@@ -194,5 +196,38 @@ public sealed class GraphJsonTests
         Assert.Equal("Müller, Jörg", root.GetProperty("nodes")[0].GetProperty("label").GetString());
         Assert.Equal(ParentDn, root.GetProperty("edges")[0].GetProperty("s").GetString());
         Assert.Equal(Dn, root.GetProperty("edges")[0].GetProperty("t").GetString());
+    }
+
+    [Fact]
+    public void SerializeFlat_LabelWithLineSeparatorsAndUmlaut_WireStringIsAllAscii()
+    {
+        // CytoscapeGraphRenderer embeds every wire string verbatim as a JS object
+        // literal inside InvokeScript. That is only safe while GraphJson keeps the
+        // DEFAULT STJ encoder, which escapes ALL non-ASCII to \uXXXX - including
+        // U+2028/U+2029 (legal in JSON strings, fatal inside a JS string literal).
+        // This pins the encoder (reviewer finding, PR #27 / issue #28): switching
+        // WireOptions to UnsafeRelaxedJsonEscaping lets raw non-ASCII like 'ü'
+        // through (it does still escape U+2028/U+2029 on .NET 8 - the umlaut is
+        // what trips the pin there), and JavaScriptEncoder.Create(...) encoders
+        // stop escaping the separators themselves. Either way the wire is no
+        // longer all-ASCII and this test fails in CI instead of InvokeScript
+        // failing at runtime.
+        const string Label = "Vertrieb\u2028Süd\u2029Team";
+        var model = new GraphModel(
+            [new GraphNode("CN=GG_VertriebSüd,OU=Gruppen,DC=x", Label, AdObjectKind.GlobalGroup, 1d, 2d, 1, IsRoot: false)],
+            []);
+
+        var json = GraphJson.SerializeFlat(model);
+
+        Assert.All(json, c => Assert.True(
+            c < 0x80,
+            $"non-ASCII char U+{(int)c:X4} reached the wire - JS-literal embedding in InvokeScript is no longer safe"));
+
+        // Escaped as data, not dropped: the separators and the umlaut must still
+        // round-trip - the pin forbids raw bytes on the wire, not the characters.
+        Assert.Contains("\\u2028", json, StringComparison.Ordinal);
+        Assert.Contains("\\u2029", json, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(Label, document.RootElement.GetProperty("nodes")[0].GetProperty("label").GetString());
     }
 }
