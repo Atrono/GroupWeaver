@@ -94,6 +94,17 @@ public sealed class ShellScreenshotTests
         Assert.True(picker.LoadRootCommand.CanExecute(null));
 
         CapturePng(window, "rootpicker-demo", width, height);
+
+        // Tail frame: the name-sorted list puts every GG_*/UG_* row below the scroll
+        // fold, so the head frame above can never evidence those two badge kinds.
+        // Selecting the LAST UniversalGroup makes the ListBox (AutoScrollToSelectedItem
+        // is on by default) scroll the tail into view: GG and UG badges both in frame,
+        // plus the selection highlight re-evidenced on a UG row.
+        picker.SelectedCandidate = picker.Candidates
+            .Last(c => c.Kind == AdObjectKind.UniversalGroup);
+        Assert.True(picker.LoadRootCommand.CanExecute(null));
+
+        CapturePng(window, "rootpicker-demo-tail", width, height);
         window.Close();
     }
 

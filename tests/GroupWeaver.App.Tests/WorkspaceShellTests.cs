@@ -3,6 +3,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using GroupWeaver.App.Startup;
 using GroupWeaver.App.Tests.Fakes;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
@@ -34,7 +35,7 @@ public sealed class WorkspaceShellTests
                 Obj("Users", "OU=Users,DC=stub,DC=lab", AdObjectKind.OrganizationalUnit),
             ]),
         };
-        var shell = new ShellViewModel(_ => provider, new StartupOptions(Demo: false));
+        var shell = Shell(provider);
         var window = new MainWindow { DataContext = shell };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -84,7 +85,7 @@ public sealed class WorkspaceShellTests
                 Obj("Users", "OU=Users,DC=stub,DC=lab", AdObjectKind.OrganizationalUnit),
             ]),
         };
-        var shell = new ShellViewModel(_ => provider, new StartupOptions(Demo: false));
+        var shell = Shell(provider);
 
         // A virtualizing panel realizes zero containers in a zero-sized viewport: give the
         // window an explicit size BEFORE showing so the ListBox measures against real space.
@@ -123,4 +124,16 @@ public sealed class WorkspaceShellTests
     private static AdObject Obj(
         string name, string dn, AdObjectKind kind = AdObjectKind.GlobalGroup) =>
         new() { Dn = dn, Kind = kind, Name = name };
+
+    /// <summary>
+    /// Explicit WebView2 status: the ctor default falls back to
+    /// <see cref="WebView2Runtime.Probe"/>, which reads the LIVE registry — per-machine
+    /// flakiness (and a machine-dependent banner in the visual tree) these view-level
+    /// pins must never inherit.
+    /// </summary>
+    private static ShellViewModel Shell(StubDirectoryProvider provider) =>
+        new(
+            _ => provider,
+            new StartupOptions(Demo: false),
+            new WebView2RuntimeStatus(IsInstalled: true, Version: "test"));
 }

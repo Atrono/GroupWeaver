@@ -1,3 +1,4 @@
+using GroupWeaver.App.Startup;
 using GroupWeaver.App.Tests.Fakes;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Model;
@@ -252,8 +253,16 @@ public sealed class RootPickerTests
     private static RootPickerViewModel Picker(StubDirectoryProvider provider) =>
         new(provider, new DirectoryConnection("stub directory", 5), () => { }, _ => { });
 
+    /// <summary>
+    /// Explicit WebView2 status: the ctor default falls back to
+    /// <see cref="WebView2Runtime.Probe"/>, which reads the LIVE registry — per-machine
+    /// flakiness a picker test must never inherit.
+    /// </summary>
     private static ShellViewModel Shell(StubDirectoryProvider provider) =>
-        new(_ => provider, new StartupOptions(Demo: false));
+        new(
+            _ => provider,
+            new StartupOptions(Demo: false),
+            new WebView2RuntimeStatus(IsInstalled: true, Version: "test"));
 
     private static bool IsGroupKind(AdObjectKind kind) =>
         kind is AdObjectKind.GlobalGroup or AdObjectKind.DomainLocalGroup or AdObjectKind.UniversalGroup;

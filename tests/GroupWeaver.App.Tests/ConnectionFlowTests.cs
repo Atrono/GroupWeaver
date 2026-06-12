@@ -3,6 +3,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using GroupWeaver.App.Startup;
 using GroupWeaver.App.Tests.Fakes;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
@@ -273,6 +274,9 @@ public sealed class ConnectionFlowTests
     /// <summary>
     /// Builds a shell around <paramref name="provider"/>; <c>FactoryArgs</c> records every
     /// demo/live bool the factory receives, so tests pin which path was requested.
+    /// The explicit WebView2 status matters: the ctor default falls back to
+    /// <see cref="WebView2Runtime.Probe"/>, which reads the LIVE registry — per-machine
+    /// flakiness a connection-flow test must never inherit.
     /// </summary>
     private static (ShellViewModel Shell, List<bool> FactoryArgs) CreateShell(
         StubDirectoryProvider provider, bool demo)
@@ -284,7 +288,8 @@ public sealed class ConnectionFlowTests
                 factoryArgs.Add(d);
                 return provider;
             },
-            new StartupOptions(Demo: demo));
+            new StartupOptions(Demo: demo),
+            new WebView2RuntimeStatus(IsInstalled: true, Version: "test"));
         return (shell, factoryArgs);
     }
 }
