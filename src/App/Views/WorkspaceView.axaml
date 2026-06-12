@@ -80,6 +80,12 @@
                    FontSize="12" Opacity="0.7" />
         <ProgressBar DockPanel.Dock="Right" Margin="24,0,0,0" Width="120"
                      IsIndeterminate="True" IsVisible="{Binding IsLoading}" />
+        <!-- Drawn-graph summary ("n objects, m edges", AP 2.2 S6) between the
+             connection summary and the root DN; null until the load completed. -->
+        <TextBlock DockPanel.Dock="Right" Margin="24,0,0,0"
+                   Text="{Binding GraphSummary}"
+                   IsVisible="{Binding GraphSummary, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   FontSize="12" Opacity="0.7" />
         <TextBlock Text="{Binding ConnectionSummary}"
                    FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis" />
       </DockPanel>
