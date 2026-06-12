@@ -10,6 +10,11 @@
   the DemoProvider JSON is a separate deliverable): users, GG/DL/UG groups,
   nested memberships, deliberate AGDLP violations, naming violations, one
   circular nesting (A->B->A), empty groups.
+.NOTES
+  Cleanup caveat: the foreign-SID fixture (Ensure-ForeignSidMember) makes the
+  DC system-create CN=S-1-5-21-...-1106,CN=ForeignSecurityPrincipals,$baseDN
+  OUTSIDE the lab OU - a "wipe the lab OU" teardown misses it; delete that FSP
+  object too when rebuilding fixtures from scratch.
 #>
 [CmdletBinding()]
 param()
