@@ -1,0 +1,12 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="GroupWeaver.App.Views.MainWindow"
+        Title="GroupWeaver"
+        Width="1280" Height="720"
+        MinWidth="960" MinHeight="600">
+
+  <!-- Empty shell: the step-switched content (Connect → PickRoot → Workspace,
+       ADR-003 D5) lands in the following AP 2.1 slices. -->
+  <Panel />
+
+</Window>

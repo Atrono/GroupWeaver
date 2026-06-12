@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 using GroupWeaver.Providers;
@@ -37,6 +35,11 @@ public sealed class DemoProviderFixture : IAsyncLifetime
 /// RuleEngine test bed and must not silently change. If one of these tests fails,
 /// suspect the dataset/implementation first, not the expectation.
 /// </summary>
+/// <remarks>
+/// The M1 <c>--check</c> stdout process test that used to live here was deliberately
+/// relocated to <c>tests/GroupWeaver.App.Tests/AppCliTests.cs</c> (AP 2.1 S2): it pins
+/// the App executable's console contract (ADR-003 D4), not the provider contract.
+/// </remarks>
 public class DemoProviderTests : IClassFixture<DemoProviderFixture>
 {
     private const string RootDn = DemoProviderFixture.RootDn;
@@ -77,68 +80,6 @@ public class DemoProviderTests : IClassFixture<DemoProviderFixture>
         var connection = await _fixture.Provider.ConnectAsync();
 
         Assert.Contains("demo", connection.Description, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task App_DemoMode_PrintsM1DoDLineAndExitsZero()
-    {
-        // End-to-end M1 DoD check: execute the already-built App binary (no
-        // nested `dotnet run`/build — tools/build.ps1 builds the full solution
-        // before testing) and pin the literal DoD line on real stdout.
-        var appDll = FindAppBinary();
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            WorkingDirectory = Path.GetDirectoryName(appDll),
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        startInfo.ArgumentList.Add(appDll);
-        startInfo.ArgumentList.Add("--demo");
-
-        using var process = Process.Start(startInfo);
-        Assert.NotNull(process);
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        await process.WaitForExitAsync(timeout.Token);
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        Assert.True(
-            process.ExitCode == 0,
-            $"app exited with {process.ExitCode}; stderr: {stderr}");
-        Assert.Contains("connected, 40 groups loaded", stdout, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Locates the App assembly built in the same configuration as this test run
-    /// by walking up from the test output directory to the repo root (where
-    /// <c>GroupWeaver.sln</c> lives).
-    /// </summary>
-    private static string FindAppBinary()
-    {
-#if DEBUG
-        const string configuration = "Debug";
-#else
-        const string configuration = "Release";
-#endif
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "GroupWeaver.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        Assert.NotNull(dir);
-        var appDll = Path.Combine(
-            dir.FullName, "src", "App", "bin", configuration, "net8.0", "GroupWeaver.App.dll");
-        Assert.True(
-            File.Exists(appDll),
-            $"'{appDll}' not found — build the full solution first (pwsh tools/build.ps1).");
-        return appDll;
     }
 
     // --- GetRootCandidatesAsync -------------------------------------------
