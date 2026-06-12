@@ -101,6 +101,13 @@ public sealed class WebBundleTests
         Assert.Contains("graphCommit", text, StringComparison.Ordinal);
         Assert.Contains("nodeClick", text, StringComparison.Ordinal);
         Assert.Contains("nodeExpand", text, StringComparison.Ordinal);
+
+        // ADR-005 D1/D2 wire delta (AP 2.3): replace-in-place commit verb, focus
+        // command, focused confirmation. 'focus' is quoted because the bare word
+        // is a substring of 'focused' and would match trivially.
+        Assert.Contains("graphUpdate", text, StringComparison.Ordinal);
+        Assert.Contains("'focus'", text, StringComparison.Ordinal);
+        Assert.Contains("focused", text, StringComparison.Ordinal);
     }
 
     [Fact]

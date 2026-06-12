@@ -19,6 +19,9 @@ public sealed record NodeClickMessage(string Id, string Kind) : GraphMessage;
 /// <summary>A node was double-tapped for expansion (<c>{"type":"nodeExpand"}</c>).</summary>
 public sealed record NodeExpandMessage(string Id) : GraphMessage;
 
+/// <summary>The focus camera move finished rendering (<c>{"type":"focused"}</c>, ADR-005 D2).</summary>
+public sealed record FocusedMessage : GraphMessage;
+
 /// <summary>A JS-side error report (<c>{"type":"jsError"}</c>, ADR-004 D6).</summary>
 public sealed record JsErrorMessage(string Source, string Message) : GraphMessage;
 

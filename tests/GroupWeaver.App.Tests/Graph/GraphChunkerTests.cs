@@ -16,6 +16,10 @@ namespace GroupWeaver.App.Tests.Graph;
 /// commands before it, edge ids unique across the whole transfer, and every emitted
 /// string parses as JSON with a <c>type</c> field. Nodes and edges MAY share a chunk
 /// — tests never pin their separation.
+/// AP 2.3 (ADR-005 D1) adds the update mode, <c>GraphChunker.ToUpdateCommands</c>:
+/// ONE shared slicing path — the <c>graphChunk</c> commands are string-identical to
+/// show mode for the same model and caps; only the trailing commit verb differs
+/// (<c>{"type":"graphUpdate"}</c> instead of <c>graphCommit</c>).
 /// </summary>
 public sealed class GraphChunkerTests
 {
@@ -105,12 +109,7 @@ public sealed class GraphChunkerTests
     [Fact]
     public void ToChunkCommands_MixedModel_EveryElementExactlyOnce_CapsHold_EdgeIdsUnique()
     {
-        var model = new GraphModel(
-            [.. Enumerable.Range(0, 501).Select(NodeAt)],
-            [
-                .. Enumerable.Range(0, 600).Select(MembershipAt),
-                .. Enumerable.Range(0, 401).Select(ContainmentAt),
-            ]);
+        var model = MixedOverCapModel();
 
         var chunks = ChunksOf(GraphChunker.ToChunkCommands(model));
 
@@ -127,6 +126,92 @@ public sealed class GraphChunkerTests
 
         // Edge ids unique across the WHOLE transfer (m/c counters must not collide).
         Assert.Distinct(edges.Select(e => e.Id));
+    }
+
+    // --- update mode (AP 2.3, ADR-005 D1) -------------------------------------------------
+
+    [Fact]
+    public void ToUpdateCommands_LastCommandIsGraphUpdate_AllOthersAreGraphChunk()
+    {
+        var commands = GraphChunker.ToUpdateCommands(SmallModel());
+
+        var parsed = ParseAll(commands);
+
+        Assert.Equal("graphUpdate", CommandType(parsed[^1]));
+        Assert.All(parsed.SkipLast(1), c => Assert.Equal("graphChunk", CommandType(c)));
+        Assert.Single(parsed, c => CommandType(c) == "graphUpdate");
+        Assert.DoesNotContain(parsed, c => CommandType(c) == "graphCommit");
+    }
+
+    [Fact]
+    public void ToUpdateCommands_EmptyModel_IsSingleGraphUpdate()
+    {
+        var commands = GraphChunker.ToUpdateCommands(new GraphModel([], []));
+
+        var command = Assert.Single(commands);
+        Assert.Equal("graphUpdate", CommandType(ParseCommand(command)));
+    }
+
+    [Fact]
+    public void ToUpdateCommands_DefaultCaps_ChunksAreStringIdenticalToShowMode()
+    {
+        var model = MixedOverCapModel(); // forces multiple chunks under the default caps
+
+        AssertUpdateMatchesShowExceptTrailingVerb(
+            GraphChunker.ToChunkCommands(model),
+            GraphChunker.ToUpdateCommands(model));
+    }
+
+    [Fact]
+    public void ToUpdateCommands_CustomCaps_ChunkSizesBehaveExactlyLikeShowMode()
+    {
+        var model = new GraphModel(
+            [.. Enumerable.Range(0, 5).Select(NodeAt)],
+            [.. Enumerable.Range(0, 5).Select(MembershipAt)]);
+
+        var chunks = ChunksOf(
+            GraphChunker.ToUpdateCommands(model, maxNodesPerChunk: 2, maxEdgesPerChunk: 2),
+            commitVerb: "graphUpdate");
+
+        Assert.Equal(new[] { 2, 2, 1 }, NodeChunkSizes(chunks));
+        Assert.Equal(new[] { 2, 2, 1 }, EdgeChunkSizes(chunks));
+        AssertUpdateMatchesShowExceptTrailingVerb(
+            GraphChunker.ToChunkCommands(model, maxNodesPerChunk: 2, maxEdgesPerChunk: 2),
+            GraphChunker.ToUpdateCommands(model, maxNodesPerChunk: 2, maxEdgesPerChunk: 2));
+    }
+
+    [Fact]
+    public void ToUpdateCommands_MixedModel_EveryElementExactlyOnce_CapsHold_EdgeIdsUnique()
+    {
+        // The direct totality pin for update mode — survives even if the
+        // string-identity pin is ever deliberately relaxed in review.
+        var model = MixedOverCapModel();
+
+        var chunks = ChunksOf(GraphChunker.ToUpdateCommands(model), commitVerb: "graphUpdate");
+
+        foreach (var chunk in chunks)
+        {
+            Assert.InRange((chunk["nodes"] as JsonArray)?.Count ?? 0, 0, 500);
+            Assert.InRange((chunk["edges"] as JsonArray)?.Count ?? 0, 0, 1000);
+        }
+
+        Assert.Equal(model.Nodes.Select(n => n.Dn), NodeIds(chunks));
+        var edges = Edges(chunks);
+        Assert.Equal(model.Edges.Select(Wire), edges.Select(e => (e.S, e.T, e.Rel)));
+        Assert.Distinct(edges.Select(e => e.Id));
+    }
+
+    /// <summary>Pins ADR-005 D1's "one shared slicing path": for the same model and
+    /// caps, update mode emits the EXACT same command strings as show mode except
+    /// for the trailing commit verb — the two outputs may never drift apart.</summary>
+    private static void AssertUpdateMatchesShowExceptTrailingVerb(
+        IReadOnlyList<string> showCommands,
+        IReadOnlyList<string> updateCommands)
+    {
+        Assert.Equal(showCommands.Count, updateCommands.Count);
+        Assert.Equal(showCommands.SkipLast(1), updateCommands.SkipLast(1));
+        Assert.Equal("graphCommit", CommandType(ParseCommand(showCommands[^1])));
+        Assert.Equal("graphUpdate", CommandType(ParseCommand(updateCommands[^1])));
     }
 
     // --- model factories ------------------------------------------------------------------
@@ -150,6 +235,15 @@ public sealed class GraphChunkerTests
         new(
             [NodeAt(0), NodeAt(1), NodeAt(2)],
             [MembershipAt(0), ContainmentAt(0)]);
+
+    /// <summary>501 nodes + 1001 mixed edges: every default cap forces a split.</summary>
+    private static GraphModel MixedOverCapModel() =>
+        new(
+            [.. Enumerable.Range(0, 501).Select(NodeAt)],
+            [
+                .. Enumerable.Range(0, 600).Select(MembershipAt),
+                .. Enumerable.Range(0, 401).Select(ContainmentAt),
+            ]);
 
     /// <summary>The wire (s, t, rel) triple for a model edge: membership is flipped
     /// (s := member, t := group), containment is not (ADR-004 D4).</summary>
@@ -177,12 +271,14 @@ public sealed class GraphChunkerTests
     private static string CommandType(JsonObject command) => command["type"]!.GetValue<string>();
 
     /// <summary>Parses all commands, asserts the trailing-commit shape (last command
-    /// <c>graphCommit</c>, everything before it <c>graphChunk</c>), and returns the chunks.</summary>
-    private static List<JsonObject> ChunksOf(IReadOnlyList<string> commands)
+    /// = <paramref name="commitVerb"/> — <c>graphCommit</c> for show mode, <c>graphUpdate</c>
+    /// for update mode — everything before it <c>graphChunk</c>), and returns the chunks.</summary>
+    private static List<JsonObject> ChunksOf(
+        IReadOnlyList<string> commands, string commitVerb = "graphCommit")
     {
         var parsed = ParseAll(commands);
         Assert.NotEmpty(parsed);
-        Assert.Equal("graphCommit", CommandType(parsed[^1]));
+        Assert.Equal(commitVerb, CommandType(parsed[^1]));
         var chunks = parsed.Take(parsed.Count - 1).ToList();
         Assert.All(chunks, c => Assert.Equal("graphChunk", CommandType(c)));
         return chunks;

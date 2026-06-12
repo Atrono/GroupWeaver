@@ -5,16 +5,17 @@ using Xunit;
 namespace GroupWeaver.App.Tests.Graph;
 
 /// <summary>
-/// Pins <see cref="GraphMessageParser.Parse"/> (AP 2.2 S4, ADR-004 D4/D5): each
-/// bridge message type parses from realistic graph.js JSON (which sends extra
-/// fields like <c>userAgent</c> and <c>label</c> — tolerated, never fatal), and
-/// the parser is TOTAL: malformed JSON, unknown types, and missing/invalid
-/// required fields all map to <see cref="UnknownMessage"/>. Parse never throws —
-/// the WebView bridge callback has no sane place to catch.
+/// Pins <see cref="GraphMessageParser.Parse"/> (AP 2.2 S4, ADR-004 D4/D5; grown by
+/// ADR-005 D2 with <c>focused</c> for AP 2.3): each bridge message type parses from
+/// realistic graph.js JSON (which sends extra fields like <c>userAgent</c> and
+/// <c>label</c> — tolerated, never fatal), and the parser is TOTAL: malformed JSON,
+/// unknown types, and missing/invalid required fields all map to
+/// <see cref="UnknownMessage"/>. Parse never throws — the WebView bridge callback
+/// has no sane place to catch.
 /// </summary>
 public sealed class GraphMessageParserTests
 {
-    // --- the five known message types, as graph.js actually sends them ---------------
+    // --- the six known message types, as graph.js actually sends them ---------------
 
     [Fact]
     public void Parse_Ready_FromRealisticBridgeJson()
@@ -68,6 +69,28 @@ public sealed class GraphMessageParserTests
         var error = Assert.IsType<JsErrorMessage>(message);
         Assert.Equal("handler:graphCommit", error.Source);
         Assert.Equal("TypeError: cy is undefined", error.Message);
+    }
+
+    [Fact]
+    public void Parse_Focused_FromRealisticBridgeJson()
+    {
+        // graph.js focus handler (ADR-005 D2), verbatim:
+        //   cy.one('render', function () { window.bridge.send({ type: 'focused' }); });
+        // — the type field is ALL it sends; FocusAsync only needs the confirmation.
+        var message = GraphMessageParser.Parse("""{"type":"focused"}""");
+
+        Assert.IsType<FocusedMessage>(message);
+    }
+
+    [Fact]
+    public void Parse_Focused_ExtraFieldsAreTolerated()
+    {
+        // Forward-compatible like every other message: a later graph.js may attach
+        // diagnostics (e.g. the resulting viewport) without breaking the parser.
+        var message = GraphMessageParser.Parse(
+            """{"type":"focused","seq":3,"viewport":{"zoom":1.5,"pan":[10,-4]}}""");
+
+        Assert.IsType<FocusedMessage>(message);
     }
 
     [Fact]
