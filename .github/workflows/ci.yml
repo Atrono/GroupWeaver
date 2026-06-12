@@ -77,12 +77,18 @@ jobs:
               exit 1
             }
           }
-          $cyto = Get-Item (Join-Path $web 'vendor/cytoscape.min.js')
-          if ($cyto.Length -le 500KB) {
-            Write-Host "vendor/cytoscape.min.js suspiciously small: $($cyto.Length) bytes"
-            exit 1
+          # Strongest possible integrity check: every published bundle file must be
+          # byte-identical to its vendored source in the checkout (no magic-number
+          # size floor - cytoscape.min.js 3.34.0 is ~425 KB and failed a 500KB one).
+          foreach ($f in 'index.html', 'bridge.js', 'graph.js', 'vendor/cytoscape.min.js') {
+            $published = (Get-FileHash (Join-Path $web $f) -Algorithm SHA256).Hash
+            $source = (Get-FileHash (Join-Path 'src/App/web' $f) -Algorithm SHA256).Hash
+            if ($published -ne $source) {
+              Write-Host "CORRUPTED in publish output: $web/$f (hash $published != source $source)"
+              exit 1
+            }
           }
-          Write-Host "web bundle intact (cytoscape.min.js: $($cyto.Length) bytes)."
+          Write-Host "web bundle intact: all 4 files byte-identical to src/App/web."
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
