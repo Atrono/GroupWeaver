@@ -19,3 +19,11 @@
   gestures (programmatic `cy.zoom()/cy.pan()` bypasses cytoscape's viewport
   optimizations); `invokeCSharpAction` is injected async (bridge queues);
   file:// = opaque origin mutes `window.onerror` details.
+- **AD quirks (found during AP 1.5):** SAM rejects well-known special-identity
+  SIDs (S-1-5-11 etc.) as members of *account-domain* groups — only BUILTIN
+  aliases may hold them; lab FSP fixture therefore uses a fabricated
+  foreign-domain SID via the `<SID=...>` binding form. `Get-ADGroupMember`
+  throws "unspecified error" on any group containing an unresolvable FSP —
+  always read the raw `member` attribute instead. The DC is German-localized
+  (localized group names, German `dotnet` output) — never depend on localized
+  names; well-known container names (`CN=ForeignSecurityPrincipals`) are safe.
