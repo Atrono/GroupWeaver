@@ -70,11 +70,13 @@ public sealed class LiveLabWorkspaceFixture : IAsyncLifetime
 /// leak-detection pin. Fixture facts (the u001 header, the groupType raw value, the
 /// DL_App-ERP_RW member list, the FSP DN and its whenCreated) were verified READ-ONLY
 /// against the live DC (<c>Get-ADUser/Get-ADGroup/Get-ADObject -Server localhost</c>,
-/// 2026-06-12) before pinning. NOTE: <c>seed-testad.ps1</c>'s <c>Ensure-User</c> sets NO
-/// <c>department</c>/<c>title</c>/<c>description</c> (verified across all 140 lab users),
-/// so those user rows cannot be pinned PRESENT until the fixture set is extended via the
-/// <c>ad-fixture-admin</c> agent; the subset pin is fixture-independent and is the
-/// enforceable live guarantee. Excluded in CI via the class-level
+/// 2026-06-12) before pinning. <c>seed-testad.ps1</c>'s <c>Ensure-User</c> now seeds
+/// <c>department</c> (cycling Sales/IT/HR/Finance/Ops by user index) and <c>title</c>
+/// (Team Lead for u101–u110, Staff otherwise) — the earlier fixture gap (0/140 users
+/// carried them) is closed via the <c>ad-fixture-admin</c> reseed (140 updated,
+/// idempotent re-run 0 updated, 195 objects), so PRESENCE with exact values is pinned
+/// here; only <c>description</c> remains unseeded. The subset pin stays the
+/// fixture-independent enforceable live guarantee. Excluded in CI via the class-level
 /// <c>Category=RequiresAd</c> trait; skipped with a loud warning off the lab DC via
 /// <see cref="AdFactAttribute"/>.
 /// </summary>
@@ -82,6 +84,7 @@ public sealed class LiveLabWorkspaceFixture : IAsyncLifetime
 public sealed class WorkspaceDetailLiveAdTests : IClassFixture<LiveLabWorkspaceFixture>
 {
     private const string User001Dn = "CN=Anna Acker (u001),OU=Users,OU=AGDLP-Lab,DC=agdlp,DC=lab";
+    private const string User101Dn = "CN=Anna Falk (u101),OU=Users,OU=AGDLP-Lab,DC=agdlp,DC=lab";
     private const string GgSalesStaffDn = "CN=GG_Sales_Staff,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
     private const string DlAppErpRwDn = "CN=DL_App-ERP_RW,OU=Groups,OU=AGDLP-Lab,DC=agdlp,DC=lab";
 
@@ -102,7 +105,7 @@ public sealed class WorkspaceDetailLiveAdTests : IClassFixture<LiveLabWorkspaceF
     // --- (a) seeded user: rows present AND every label inside the USER display set -------
 
     [AdFact]
-    public void SelectSeededUser_WhenCreatedAndPrimaryGroupIdRowsPresent_EveryLabelWithinTheUserDisplaySet()
+    public void SelectSeededUser_DepartmentTitleWhenCreatedPrimaryGroupIdRowsPresent_EveryLabelWithinTheUserDisplaySet()
     {
         var vm = _fixture.Workspace;
         Assert.Null(vm.LoadError);
@@ -117,8 +120,14 @@ public sealed class WorkspaceDetailLiveAdTests : IClassFixture<LiveLabWorkspaceF
         Assert.Equal("Anna Acker (u001)", model.Name);
         Assert.Equal("u001", model.SamAccountName);
 
-        // The user attributes the fixture genuinely carries (verified live; Ensure-User
-        // seeds no department/title/description — see the class doc for the gap report).
+        // The user attributes the fixture genuinely carries (verified live). department/
+        // title come from Ensure-User's seed cycle: u001 → Sales ((1-1) % 5 = 0) and
+        // Staff (outside the u101–u110 Team Lead band) — pinned PRESENT with exact
+        // values now the fixture gap is closed; missing rows are a failure, deliberately.
+        var department = Assert.Single(model.Rows, r => r.Label == "department");
+        Assert.Equal("Sales", department.Value);
+        var title = Assert.Single(model.Rows, r => r.Label == "title");
+        Assert.Equal("Staff", title.Value);
         var whenCreated = Assert.Single(model.Rows, r => r.Label == "whenCreated");
         Assert.Matches(WhenCreatedUtcPattern, whenCreated.Value);
         var primaryGroupId = Assert.Single(model.Rows, r => r.Label == "primaryGroupID");
@@ -129,6 +138,34 @@ public sealed class WorkspaceDetailLiveAdTests : IClassFixture<LiveLabWorkspaceF
         AssertLabelsWithinDisplaySet(AdObjectKind.User, model.Rows);
         AssertRowsMirrorTheSnapshotObject(vm, User001Dn, model.Rows);
         Assert.False(vm.IsLoading, "a selection must never engage the busy gate (ADR-007 D1)");
+    }
+
+    // --- (a2) the Team Lead band: the seed cycle's OTHER title value, pinned live --------
+
+    [AdFact]
+    public void SelectSeededTeamLead_DepartmentAndTitleRowsCarryTheSeedCycleValues()
+    {
+        var vm = _fixture.Workspace;
+        Assert.Null(vm.LoadError);
+
+        vm.SelectedDn = User101Dn;
+
+        var model = vm.DetailPanel;
+        Assert.NotNull(model);
+        Assert.Equal(DetailPanelState.Loaded, model.State);
+        Assert.Equal(User101Dn, model.Dn);
+        Assert.Equal(AdObjectKind.User, model.Kind);
+        Assert.Equal("u101", model.SamAccountName);
+
+        // u101: department Sales ((101-1) % 5 = 0), title Team Lead (u101–u110 band) —
+        // exercises the title value test (a)'s Staff user cannot.
+        var department = Assert.Single(model.Rows, r => r.Label == "department");
+        Assert.Equal("Sales", department.Value);
+        var title = Assert.Single(model.Rows, r => r.Label == "title");
+        Assert.Equal("Team Lead", title.Value);
+
+        AssertLabelsWithinDisplaySet(AdObjectKind.User, model.Rows);
+        AssertRowsMirrorTheSnapshotObject(vm, User101Dn, model.Rows);
     }
 
     // --- (b) seeded group: groupType present, labels subset of the GROUP display set -----
