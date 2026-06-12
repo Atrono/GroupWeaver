@@ -1,0 +1,104 @@
+{
+  // EXAMPLE: pure AGDLP - the universal-group lane (G->U->DL) is BANNED.
+  // Demonstrates: matrix cell flips, a per-cell severity override, nesting
+  // exceptions with endpoint narrowing, and a per-rule naming exception.
+  //
+  // GroupWeaver uses exactly one ruleset file at a time (whole-file replacement,
+  // no merging): place this file at %APPDATA%\GroupWeaver\ruleset.jsonc and it
+  // fully replaces the built-in default - including the ignore list, so copy
+  // over every default ignore entry you still want (trimmed here for brevity;
+  // the full list is in default-strict-agdlp.jsonc next to this file).
+  "schemaVersion": 1,
+  "name": "Pure AGDLP (no universal lane)",
+  "description": "Like the GroupWeaver default, but the G->U->DL lane is denied: accounts -> GG -> DL only. UG usage is being phased out.",
+  "author": "GroupWeaver examples",
+
+  "nesting": {
+    "enabled": true,
+    "severity": "error",
+    "unlisted": "deny",
+    "matrix": {
+      "GlobalGroup": {
+        "User": "allow",
+        "Computer": "allow",
+        "GlobalGroup": "warning",   // per-cell severity override: GG nesting is legal
+                                    // but flagged yellow while we flatten role groups
+        "DomainLocalGroup": "deny",
+        "UniversalGroup": "deny",
+        "External": "allow"
+      },
+      "DomainLocalGroup": {
+        "User": "deny",
+        "Computer": "deny",
+        "GlobalGroup": "allow",     // G -> DL stays the only resource lane
+        "DomainLocalGroup": "deny",
+        "UniversalGroup": "deny",   // FLIPPED vs. default: the U lane is banned
+        "External": "info"
+      },
+      "UniversalGroup": {
+        "User": "deny",
+        "Computer": "deny",
+        "GlobalGroup": "deny",      // FLIPPED vs. default: nothing feeds a UG anymore
+        "DomainLocalGroup": "deny",
+        "UniversalGroup": "deny",
+        "External": "allow"
+      }
+    },
+    "exceptions": [
+      { "name": "UG_AllStaff",
+        "endpoint": "member",
+        "note": "Migration grace: UG_AllStaff is still wired into resource DLs; remove this entry once ticket OPS-1234 lands." },
+      { "dn": "CN=UG_Managers,OU=Groups,*",
+        "endpoint": "parent",
+        "note": "UG_Managers may still CONTAIN global groups during the phase-out; edges where it is the member are judged normally." }
+    ]
+  },
+
+  "naming": [
+    {
+      "id": "naming-gg",
+      "enabled": true,
+      "severity": "warning",
+      "kind": "GlobalGroup",
+      "pattern": "^GG_([A-Z][A-Za-z0-9]*)(_[A-Z][A-Za-z0-9]*)+$",
+      "description": "GG_<Token>_<Token>...: at least two PascalCase tokens after the GG_ prefix.",
+      "exceptions": [
+        { "name": "SalesTeamGlobal",
+          "note": "Grandfathered pre-2019 name; rename tracked in ticket OPS-1234." }
+      ]
+    },
+    {
+      "id": "naming-dl",
+      "enabled": true,
+      "severity": "warning",
+      "kind": "DomainLocalGroup",
+      "pattern": "^DL_[A-Z][A-Za-z0-9]*(-[A-Za-z0-9]+)*_(RW|RO)$",
+      "description": "DL_<Resource>_<RW|RO>; the resource may contain hyphens (FS-Sales, Print-HQ).",
+      "exceptions": []
+    },
+    {
+      "id": "naming-ug",
+      "enabled": true,
+      "severity": "error",        // stricter than default: UGs are on the way out,
+      "kind": "UniversalGroup",   // any new nonconforming UG is a hard error
+      "pattern": "^UG_[A-Z][A-Za-z0-9]*$",
+      "description": "UG_<Token>.",
+      "exceptions": []
+    }
+  ],
+
+  "circular":   { "enabled": true, "severity": "error",   "exceptions": [] },
+  "emptyGroup": { "enabled": true, "severity": "warning", "exceptions": [
+      { "name": "UG_ProjectX",
+        "note": "Deliberately kept empty as a placeholder for the ProjectX rollout." }
+  ] },
+
+  "ignore": [
+    { "dn": "*,CN=Builtin,*",
+      "note": "Built-in groups; the Builtin container name is never localized." },
+    { "dn": "*,CN=ForeignSecurityPrincipals,*",
+      "note": "Well-known SIDs and cross-forest members." },
+    { "dn": "CN=Domain Admins,CN=Users,*",
+      "note": "Protected default group. Copy the remaining well-known entries from default-strict-agdlp.jsonc." }
+  ]
+}
