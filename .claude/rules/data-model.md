@@ -31,3 +31,8 @@ PR that updates the tests deliberately.
   SamAccountName).
 - **Perf note:** `DirectorySnapshot.Edges` is recomputed O(E) per access —
   GraphBuilder (AP 2.2) must read it once per build, never in a per-node loop.
+- **`MembershipTraversal.Walk` (AP 2.4) is the ONLY sanctioned transitive
+  membership walk:** iterative DFS, `Dn.Comparer`-keyed visited/gray sets, reads
+  `GetMembers` per node (NEVER `Edges`), cycles and frontier are result values
+  (no throw, no depth bound); frontier kind set = ADR-005 fetchable kinds.
+  AP 3.2/3.4 must consume it, not re-roll a walk.
