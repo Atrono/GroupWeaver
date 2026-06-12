@@ -15,7 +15,11 @@ concurrency:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned (issue #32): windows-latest redirects to windows-2025-vs2026 from
+    # 2026-06-15. windows-2022 matches the Server-2022 dev box (RequiresAd tests
+    # run there); adopt a newer image deliberately, with the graph-bundle gate
+    # (Playwright/Chromium) and .NET 8 SDK verified - never via silent redirect.
+    runs-on: windows-2022
     # Defense in depth vs the 360-minute GitHub default: a hung step once
     # burned 3 h of runner time before manual cancellation (run 27409858814).
     timeout-minutes: 30
