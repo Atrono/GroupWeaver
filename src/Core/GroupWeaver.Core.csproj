@@ -3,4 +3,11 @@
   <!-- UI-free core: AdObject model, GraphBuilder, RuleEngine (data model lands in AP 1.3). -->
   <!-- Shared settings live in Directory.Build.props. -->
 
+  <ItemGroup>
+    <!-- The internal ruleset DTO layer (RulesetDocument and friends, AP 3.1) is pinned by unit tests. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>GroupWeaver.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>
