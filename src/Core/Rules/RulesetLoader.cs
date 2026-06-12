@@ -43,6 +43,27 @@ public static class RulesetLoader
         return new RulesetLoadResult(errors.Count == 0 ? ruleset : null, errors, []);
     }
 
+    /// <summary>Loads the embedded strict-AGDLP default ruleset (ADR-008).
+    /// A missing or invalid resource is a build defect, not user input, so —
+    /// unlike <see cref="Load"/> — this throws <see cref="InvalidDataException"/>.</summary>
+    public static Ruleset LoadDefault()
+    {
+        const string resourceName = "GroupWeaver.Core.Rules.DefaultRuleset.jsonc";
+        using var stream = typeof(RulesetLoader).Assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidDataException($"embedded resource '{resourceName}' is missing from GroupWeaver.Core.");
+        using var reader = new StreamReader(stream);
+
+        var result = Load(reader.ReadToEnd());
+        if (!result.Success)
+        {
+            throw new InvalidDataException(
+                $"the embedded default ruleset '{resourceName}' is corrupt: "
+                + string.Join(" | ", result.Errors.Select(e => $"{e.Path}: {e.Message}")));
+        }
+
+        return result.Ruleset;
+    }
+
     /// <summary>The phase-1 error message: System.Text.Json already appends
     /// <c>LineNumber</c>/<c>BytePositionInLine</c>; this only backfills when a
     /// future runtime stops doing so.</summary>
