@@ -1,10 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Phase 1: console app (M1 DoD is log output only). The Avalonia shell arrives in Phase 2 (AP 2.1). -->
+  <!-- Phase 2: Avalonia app shell (AP 2.1, ADR-003). The permanent "check" flag keeps
+       the headless M1 console contract alive (ADR-003 D4). -->
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
+    <!-- Overrides Directory.Build.props' net8.0: WebView2 hosting (AP 2.2) requires the Windows TFM (ADR-003 D2). -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- supportedOS manifest: NativeControlHost cannot create the WebView child HWND without it (ADR-001 spike evidence). -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Versions pinned EXACTLY per ADR-001/ADR-003 D2 - upgrades are deliberate, reviewed events.
+         Avalonia.Controls.WebView (pinned 11.4.0) arrives in AP 2.2, not here. -->
+    <PackageReference Include="Avalonia" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17" Condition="'$(Configuration)' == 'Debug'" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Core\GroupWeaver.Core.csproj" />

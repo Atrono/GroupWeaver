@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:cm="using:GroupWeaver.Core.Model"
+             xmlns:views="using:GroupWeaver.App.Views"
+             x:Class="GroupWeaver.App.Views.RootPickerView"
+             x:DataType="vm:RootPickerViewModel">
+
+  <!-- PickRoot step (AP 2.1): the mandatory entry filter. Load stays disabled until a
+       candidate is selected. Flat virtualized list by design (no TreeView): real
+       directories return thousands of candidates, the text filter narrows them. -->
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+        MaxWidth="760" Margin="24">
+
+    <TextBlock Grid.Row="0" Text="Choose a root — OU or group"
+               FontSize="24" FontWeight="SemiBold" />
+
+    <TextBox Grid.Row="1" Margin="0,12,0,0"
+             Watermark="Filter by name or DN"
+             Text="{Binding Filter}" />
+
+    <ProgressBar Grid.Row="2" IsIndeterminate="True" Margin="0,8,0,0"
+                 IsVisible="{Binding IsLoading}" />
+
+    <!-- Default ItemsPanel is a VirtualizingStackPanel - never disable it here. -->
+    <ListBox Grid.Row="3" Margin="0,8,0,0"
+             ItemsSource="{Binding FilteredCandidates}"
+             SelectedItem="{Binding SelectedCandidate}">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="cm:AdObject">
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Grid.Column="0" MinWidth="34" VerticalAlignment="Center"
+                    CornerRadius="3" Padding="5,2"
+                    Background="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+              <TextBlock Text="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                         Foreground="White" FontSize="11" FontWeight="SemiBold"
+                         HorizontalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+              <TextBlock Text="{Binding Name}" />
+              <TextBlock Text="{Binding Dn}" FontSize="11" Opacity="0.6"
+                         TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <TextBlock Grid.Row="4" Margin="0,8,0,0"
+               Text="{Binding ErrorMessage}"
+               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+               Foreground="#C42B1C" TextWrapping="Wrap" />
+
+    <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="0,12,0,0">
+      <Button Grid.Column="0" Content="Back" Command="{Binding BackCommand}" />
+      <Button Grid.Column="2" Content="Load" Command="{Binding LoadRootCommand}" />
+    </Grid>
+
+  </Grid>
+
+</UserControl>

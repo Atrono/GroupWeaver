@@ -1,0 +1,42 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             x:Class="GroupWeaver.App.Views.ConnectionView"
+             x:DataType="vm:ConnectionViewModel">
+
+  <!-- Connect step (AP 2.1): sparse centered card. There is no success state here -
+       on success the shell switches this view out for the PickRoot step. -->
+  <StackPanel Width="420" Spacing="12"
+              HorizontalAlignment="Center" VerticalAlignment="Center">
+
+    <TextBlock Text="GroupWeaver"
+               FontSize="34" FontWeight="SemiBold"
+               HorizontalAlignment="Center" />
+    <TextBlock Text="Visualize and audit Active Directory group structure — strictly read-only."
+               Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
+               Margin="0,0,0,16" />
+
+    <Button Content="Connect to domain"
+            Command="{Binding ConnectCommand}"
+            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+    <TextBlock Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
+               FontSize="12" Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+
+    <Button Content="Demo mode"
+            Command="{Binding ConnectDemoCommand}"
+            Margin="0,8,0,0"
+            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+    <TextBlock Text="Explores the embedded demo directory — no domain needed."
+               FontSize="12" Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+
+    <ProgressBar IsIndeterminate="True" Margin="0,8,0,0"
+                 IsVisible="{Binding IsConnecting}" />
+
+    <TextBlock Text="{Binding ErrorMessage}"
+               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+               Foreground="#C42B1C" TextWrapping="Wrap"
+               Margin="0,8,0,0" />
+
+  </StackPanel>
+
+</UserControl>

@@ -25,6 +25,12 @@
   gestures (programmatic `cy.zoom()/cy.pan()` bypasses cytoscape's viewport
   optimizations); `invokeCSharpAction` is injected async (bridge queues);
   file:// = opaque origin mutes `window.onerror` details.
+- **Screenshot gotchas (found during AP 2.1):** the desktop runs at >100% DPI
+  scale — PrintWindow captures of live windows need
+  `SetThreadDpiAwarenessContext(-4)` first or `GetWindowRect` crops the right
+  edge. Headless: `CaptureRenderedFrame` lags one compositor batch — the first
+  capture after a VM mutation returns the *previous* frame; capture-and-discard
+  then capture (no sleeps; see `tests/GroupWeaver.App.Tests/Screenshots/`).
 - **AD quirks (found during AP 1.5):** SAM rejects well-known special-identity
   SIDs (S-1-5-11 etc.) as members of *account-domain* groups — only BUILTIN
   aliases may hold them; lab FSP fixture therefore uses a fabricated
