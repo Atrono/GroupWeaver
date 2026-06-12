@@ -5,6 +5,8 @@
 // Wire contract (ADR-004 D4): node {id, label, kind, x, y, root?:true},
 // edge {id, s, t, rel: 'member'|'contains'}; positions are .NET-precomputed
 // (preset layout), kind strings are AdObjectKind enum names verbatim.
+// Commit verbs: graphCommit = full init (destroy + fit), graphUpdate =
+// replace-in-place on the live instance (ADR-005 D1, lazy expand AP 2.3).
 (function () {
   'use strict';
 
@@ -12,8 +14,11 @@
   var pendingNodes = [];
   var pendingEdges = [];
 
-  function initGraph() {
-    if (cy !== null) { cy.destroy(); cy = null; }
+  // Builds cytoscape element descriptors from the accumulated chunks and CLEARS
+  // the accumulator: each chunk+commit cycle starts from scratch, never re-feeds
+  // the accumulated union (duplicate-id errors). Shared by both commit verbs
+  // (graphCommit = full init, graphUpdate = replace-in-place, ADR-005 D1).
+  function takePendingElements() {
     var elements = [];
     var i, n, e, data;
     for (i = 0; i < pendingNodes.length; i++) {
@@ -26,10 +31,22 @@
       e = pendingEdges[i];
       elements.push({ group: 'edges', data: { id: e.id, source: e.s, target: e.t, rel: e.rel } });
     }
-    // A second chunk+commit cycle must start from scratch, not re-init over the
-    // accumulated union (duplicate-id errors). Unreachable today, trap for AP 2.3+.
     pendingNodes = [];
     pendingEdges = [];
+    return elements;
+  }
+
+  function sendLoaded() {
+    window.bridge.send({
+      type: 'loaded',
+      nodeCount: cy.nodes().length,
+      edgeCount: cy.edges().length
+    });
+  }
+
+  function initGraph() {
+    if (cy !== null) { cy.destroy(); cy = null; }
+    var elements = takePendingElements();
 
     cy = cytoscape({
       container: document.getElementById('cy'),
@@ -134,12 +151,23 @@
     });
 
     cy.fit();
-    cy.one('render', function () {
-      window.bridge.send({
-        type: 'loaded',
-        nodeCount: cy.nodes().length,
-        edgeCount: cy.edges().length
-      });
+    cy.one('render', sendLoaded);
+  }
+
+  // Replace-in-place on the LIVE instance (ADR-005 D1): no destroy, no fit -
+  // viewport and the core-bound tap/dbltap handlers survive, so they cover the
+  // newly added elements via delegation. One batch removes everything and adds
+  // the accumulated set at its preset positions.
+  function updateGraph() {
+    var elements = takePendingElements();
+    // Register BEFORE mutating: the batched mutation schedules the redraw (no
+    // fit() forces one on this path), and a listener attached after a render
+    // already fired would leave 'loaded' unsent. Same synchronous turn, so no
+    // stale pre-update render can slip in between.
+    cy.one('render', sendLoaded);
+    cy.batch(function () {
+      cy.elements().remove();
+      cy.add(elements);
     });
   }
 
@@ -163,6 +191,19 @@
           break;
         case 'graphCommit':
           initGraph();
+          break;
+        case 'graphUpdate':
+          // ADR-005 D1: graphUpdate before any graphCommit has no live
+          // instance to update - report instead of crashing.
+          if (cy === null) {
+            window.bridge.send({
+              type: 'jsError',
+              source: 'handler:graphUpdate',
+              message: 'graphUpdate before graphCommit: no live cytoscape instance'
+            });
+            break;
+          }
+          updateGraph();
           break;
         case 'clickTest':
           // Synthetic tap; same handler path as a human click on the node.

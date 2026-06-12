@@ -12,7 +12,8 @@
 // Usage: node verify.mjs <demo-graph.json> <screenshot-dir>
 //   <demo-graph.json>  flat {nodes,edges} dump produced by
 //                      GroupWeaver.App --demo --dump-graph (tools/test-graph-bundle.ps1)
-//   <screenshot-dir>   receives graph-overview.png / graph-focus.png / graph-cycle.png
+//   <screenshot-dir>   receives graph-overview.png / graph-focus.png /
+//                      graph-cycle.png / graph-expanded.png
 
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -126,6 +127,24 @@ function awaitMessage(type, context) {
   });
 }
 
+// Harness-side chunker - same SHAPE as GraphChunker (greedy fill, nodes and
+// edges may share a chunk, ADR-004 D4); the trailing commit verb is the
+// caller's choice: graphCommit = full init, graphUpdate = replace-in-place on
+// the live instance (ADR-005 D1).
+function toChunks(nodes, edges) {
+  const chunks = [];
+  let nodeIndex = 0;
+  let edgeIndex = 0;
+  while (nodeIndex < nodes.length || edgeIndex < edges.length) {
+    const chunkNodes = nodes.slice(nodeIndex, nodeIndex + MAX_NODES_PER_CHUNK);
+    const chunkEdges = edges.slice(edgeIndex, edgeIndex + MAX_EDGES_PER_CHUNK);
+    chunks.push({ type: 'graphChunk', nodes: chunkNodes, edges: chunkEdges });
+    nodeIndex += chunkNodes.length;
+    edgeIndex += chunkEdges.length;
+  }
+  return chunks;
+}
+
 // cytoscape's canvas renderer reports colors as rgb(...)/rgba(...); normalize to
 // uppercase #RRGGBB for comparison against the C# hex literals.
 function toHex(cssColor) {
@@ -226,16 +245,7 @@ async function main() {
     // --- feed the fixture through the chunked accumulator path ---------------
     // Same chunk shape the app sends (GraphChunker greedy fill):
     // {type:'graphChunk', nodes:[...], edges:[...]} then a final graphCommit.
-    const chunks = [];
-    let nodeIndex = 0;
-    let edgeIndex = 0;
-    while (nodeIndex < fixture.nodes.length || edgeIndex < fixture.edges.length) {
-      const nodes = fixture.nodes.slice(nodeIndex, nodeIndex + MAX_NODES_PER_CHUNK);
-      const edges = fixture.edges.slice(edgeIndex, edgeIndex + MAX_EDGES_PER_CHUNK);
-      chunks.push({ type: 'graphChunk', nodes, edges });
-      nodeIndex += nodes.length;
-      edgeIndex += edges.length;
-    }
+    const chunks = toChunks(fixture.nodes, fixture.edges);
     assert(chunks.length >= 3,
       `accumulator path must be exercised across >= 3 graphChunk dispatches, got ${chunks.length}`);
     for (const chunk of chunks) {
@@ -380,6 +390,114 @@ async function main() {
     await page.screenshot({ path: join(screenshotDir, 'graph-cycle.png') });
     phase('cycle screenshot');
 
+    // --- graphUpdate: replace-in-place on the LIVE instance (ADR-005 D1) -----
+    // AP 2.3 wire pin: a mutated dataset re-fed through the graphChunk
+    // accumulator and committed with the NEW verb {type:'graphUpdate'} must be
+    // applied to the EXISTING cytoscape instance - no destroy, no fit. The
+    // instance identity, the viewport, and the core-bound gesture handlers all
+    // survive; confirmation reuses 'loaded' with post-update totals.
+    //
+    // Pre-state probe: an expando on the live cy instance is the identity
+    // marker - the rejected destroy+recreate path publishes a NEW instance to
+    // window.__cy which cannot carry it. Recorded AFTER the cycle focus so the
+    // viewport numbers are the deliberate non-fit camera state graphUpdate
+    // must leave untouched. Primitives only out of evaluate (CI moral).
+    const preUpdate = await page.evaluate(() => {
+      window.__cy.__gwUpdateMarker = 'live-instance-ap23';
+      const pan = window.__cy.pan();
+      return { zoom: window.__cy.zoom(), panX: pan.x, panY: pan.y };
+    });
+
+    // Mutation = one lazy-expand step (ADR-005 D3/D4): +1 discovered node at a
+    // fresh exact preset position, -1 membership edge (SetMembers REPLACE:
+    // stale membership edges vanish, both endpoint NODES remain), rest kept.
+    // N+1 nodes / E-1 edges also makes the post-update 'loaded' totals
+    // distinguishable from a vacuous re-send of the pre-update counts.
+    const maxAbs = fixture.nodes.reduce(
+      (acc, x) => Math.max(acc, Math.abs(x.x), Math.abs(x.y)), 0);
+    const newNode = {
+      id: 'CN=Update Probe,OU=LazyExpand,DC=groupweaver,DC=invalid',
+      label: 'Update Probe',
+      kind: 'User',
+      // Fractional, exactly-representable doubles outside every existing ring:
+      // the 1e-9 position assert below only bites if the coordinates are not
+      // round numbers a layout fallback could coincidentally reproduce.
+      x: maxAbs + 217.3125,
+      y: -(maxAbs + 133.6875),
+    };
+    // Drop a membership edge that is NOT part of the seeded antiparallel
+    // cycle pair (memberKeys/SEP from the cycle phase above): the A<->B cycle
+    // must stay intact - it is the permanent traversal guard.
+    const droppedEdge = fixture.edges.find((e) =>
+      e.rel === 'member' && !memberKeys.has(`${e.t}${SEP}${e.s}`));
+    assert(droppedEdge !== undefined,
+      'fixture must contain a non-cycle membership edge for the update phase to drop');
+    const updatedNodes = [...fixture.nodes, newNode];
+    const updatedEdges = fixture.edges.filter((e) => e !== droppedEdge);
+
+    for (const chunk of toChunks(updatedNodes, updatedEdges)) {
+      await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+    }
+    await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+    const updated = await awaitMessage('loaded',
+      'graphUpdate commit -> replace-in-place re-render (new verb, ADR-005 D1)');
+    assert(updated.nodeCount === updatedNodes.length,
+      `post-update nodeCount: rendered ${updated.nodeCount} != mutated fixture ${updatedNodes.length}`);
+    assert(updated.edgeCount === updatedEdges.length,
+      `post-update edgeCount: rendered ${updated.edgeCount} != mutated fixture ${updatedEdges.length}`);
+
+    const postUpdate = await page.evaluate(() => {
+      const pan = window.__cy.pan();
+      return {
+        markerSurvived: window.__cy.__gwUpdateMarker === 'live-instance-ap23',
+        zoom: window.__cy.zoom(),
+        panX: pan.x,
+        panY: pan.y,
+      };
+    });
+    assert(postUpdate.markerSurvived,
+      'cy instance identity lost across graphUpdate - the bundle destroyed/recreated instead of replacing in place (ADR-005 D1)');
+    assert(Math.abs(postUpdate.zoom - preUpdate.zoom) < 1e-9
+      && Math.abs(postUpdate.panX - preUpdate.panX) < 1e-9
+      && Math.abs(postUpdate.panY - preUpdate.panY) < 1e-9,
+      `viewport must survive graphUpdate (no fit, ADR-005 D1): zoom/pan (${postUpdate.zoom}, ${postUpdate.panX}, ${postUpdate.panY}) != pre-update (${preUpdate.zoom}, ${preUpdate.panX}, ${preUpdate.panY})`);
+
+    // cy.getElementById ONLY (ADR-004 D5); position() guarded behind the
+    // found-check so a missing node fails the assert, not the evaluate.
+    const elements = await page.evaluate((args) => {
+      const dropped = window.__cy.getElementById(args.droppedEdgeId);
+      const added = window.__cy.getElementById(args.newNodeId);
+      const result = { droppedCount: dropped.length, addedCount: added.length, x: null, y: null };
+      if (added.length === 1) {
+        const p = added.position();
+        result.x = p.x;
+        result.y = p.y;
+      }
+      return result;
+    }, { droppedEdgeId: droppedEdge.id, newNodeId: newNode.id });
+    assert(elements.droppedCount === 0,
+      `dropped membership edge '${droppedEdge.id}' (${droppedEdge.s} -> ${droppedEdge.t}) must vanish after graphUpdate; still rendered`);
+    assert(elements.addedCount === 1,
+      `new node '${newNode.id}' must be rendered after graphUpdate, found ${elements.addedCount} elements`);
+    assert(Math.abs(elements.x - newNode.x) < 1e-9 && Math.abs(elements.y - newNode.y) < 1e-9,
+      `preset position not honored for post-update node '${newNode.id}': rendered (${elements.x}, ${elements.y}) != mutated fixture (${newNode.x}, ${newNode.y})`);
+
+    // Handler survival: dbltap on the NEWLY ADDED node (comma DN) must still
+    // round-trip nodeExpand - the delegated handler is bound on the cy core,
+    // so it covers post-update elements iff the instance truly survived.
+    await page.evaluate((id) => { window.__cy.getElementById(id).emit('dbltap'); }, newNode.id);
+    const postExpand = await awaitMessage('nodeExpand', `dbltap emit on post-update node '${newNode.id}'`);
+    assert(postExpand.id === newNode.id,
+      `post-update nodeExpand id roundtrip not byte-identical: got '${postExpand.id}', sent '${newNode.id}'`);
+
+    // --- screenshot 4: focus on the freshly expanded node ---------------------
+    // Deliberate camera move AFTER the viewport-untouched assert; also pins
+    // that the focus verb still works against the post-update element set.
+    await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), [newNode.id]);
+    await awaitMessage('focused', `focus on post-update node '${newNode.id}'`);
+    await page.screenshot({ path: join(screenshotDir, 'graph-expanded.png') });
+    phase('graphUpdate replace-in-place (instance, viewport, handlers survive)');
+
     // --- final audit: ZERO jsError across the whole run (ADR-004 D6) ---------
     const jsErrors = allMessages.filter((m) => m.type === 'jsError');
     assert(jsErrors.length === 0,
@@ -387,10 +505,11 @@ async function main() {
     phase('audit (zero jsError)');
 
     console.log(
-      `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges, `
+      `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
+      + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
       + `${chunks.length} chunks, ${kindsPresent.size}/7 kinds, `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
-      + `3 screenshots -> ${screenshotDir}`);
+      + `4 screenshots -> ${screenshotDir}`);
   } finally {
     expectedShutdown = true;
     await browser.close();
