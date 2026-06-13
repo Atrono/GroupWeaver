@@ -192,3 +192,35 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
       versa), and highlights matching findings rows [I — PlanModeEditorTests]
 - [ ] No AD-write affordance anywhere in Plan Mode; export is a separate, explicit action
       (AP 4.2.4) — this slice has no Export button yet [I — design rule / CLAUDE.md]
+
+### Gap mode view (AP / ADR-015)
+
+`gap-view` is captured by the Gap view screenshot fixture (a `GapViewModel` seeded with a
+representative hand-built diff — a couple of Added objects, a Removed object, a Common node,
+and a known-but-unloaded Ist area — `RefreshAsync` run, rendered through the `GapView`
+DataTemplate, both 1280×720 and 1920×1080). Gap mode is a sibling shell step (ADR-014/ADR-015)
+reached from Plan Mode via the "Gap analysis" button and returning to the SAME plan via
+"← Back to explore". It shows the Plan-vs-Ist DIFF, never rule severity. The headless fixture
+has no renderer, so GraphHost shows its placeholder — the right-hand chrome is the judged surface.
+
+- [ ] Airspace held: GraphHost (the diff preview, left) is the reserved region; the gap chrome
+      sits BESIDE it in its own column, never floating/layering over the graph (ADR-001
+      guardrail 5) [S:gap-view]
+- [ ] Header: "Gap" title + "← Back to explore" button (Back returns to the same plan, never a
+      reload); the chrome column has no clipped or overlapping controls at both sizes [S:gap-view]
+- [ ] Gap-summary line: a single legible line of node deltas / membership deltas / unchecked
+      tally ("+a / −b objects · +c / −d memberships · e unchecked"); hidden until the first
+      refresh computes a summary [S:gap-view]
+- [ ] Changes list ("Changes (n)"): each row a GapKind glyph badge in the DIFF palette
+      (Added/EdgeAdded green #2FAE4E "+", Removed/EdgeRemoved red-orange #E0503A "−",
+      UnverifiableArea gray #8A8F98 "?" — parity with the graph diff cues) + wrapping message +
+      dimmed subject name; the colors match the slice-5 graph diff overlay [S:gap-view]
+- [ ] Row tap jumps: the whole row is a flat command button focusing + selecting the finding's
+      anchor; the active row carries the selection-highlight band (SelectionHighlightConverters
+      parity) [I — GapModeTests]
+- [ ] Unchecked banner: an amber honesty note containing the word "unexpanded" visible whenever
+      the diff has a known-but-unloaded Ist parent (HasUncheckedAreas) [S:gap-view]
+- [ ] All-clear: "No differences — the plan matches the current structure." when the diff has no
+      findings (HasFindings false) [I — GapModeTests]
+- [ ] No AD-write affordance anywhere in Gap mode; the borrowed Ist is read-only (ADR-015 D3)
+      [I — design rule / CLAUDE.md]

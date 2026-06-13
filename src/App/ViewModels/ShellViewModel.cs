@@ -7,6 +7,7 @@ using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.Views;
+using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 using GroupWeaver.Core.Rules;
 
@@ -207,8 +208,49 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             _graphRendererFactory,
             WebView2Missing,
             onBackToExplore: () => CurrentStep = current);
+        // Arm the plan's "Gap analysis" button (ADR-015 / #66) — exactly like the workspace's
+        // Design-plan callback is installed in OnRootChosen, so the PlanView button is live once
+        // Plan mode is reached. The BaseOuDn == RootDn + snapshot-null gate lives in OnGapAnalysis.
+        plan.UseGapAnalysisCallback(() => OnGapAnalysis(plan, current));
         Track(plan);
         CurrentStep = plan;
+    }
+
+    /// <summary>
+    /// The Plan→Gap switch (ADR-015 / #66): makes <see cref="CurrentStep"/> a fresh
+    /// <see cref="GapViewModel"/> that diffs the borrowed live Ist (<paramref name="workspace"/>'s
+    /// <see cref="WorkspaceViewModel.Snapshot"/>) against <paramref name="plan"/>'s
+    /// <see cref="PlanViewModel.Plan"/>, at the workspace root, carrying the same renderer factory
+    /// (the gap builds its OWN renderer instance). Back returns the SAME <paramref name="plan"/>
+    /// instance — never disposed on the switch, so the authored model survives. The gap step is
+    /// tracked and disposed only at shell teardown (Workspace + Plan + Gap each once).
+    ///
+    /// <para>GATE (ADR-015 D7): a no-op unless the workspace has a loaded Ist whose root equals the
+    /// plan's base OU. <c>BaseOuDn == RootDn</c> holds by construction (OnDesignPlan seeds the
+    /// plan's base OU = the workspace root); the snapshot-null arm is the honest no-op for the
+    /// pre-load edge case (a gap is meaningful only against a loaded Ist).</para>
+    /// </summary>
+    public void OnGapAnalysis(PlanViewModel plan, WorkspaceViewModel workspace)
+    {
+        if (workspace.Snapshot is not { } ist
+            || !Dn.Comparer.Equals(plan.Plan.BaseOuDn, workspace.RootDn))
+        {
+            return;
+        }
+
+        var gap = new GapViewModel(
+            ist,
+            plan.Plan,
+            workspace.RootDn,
+            _graphRendererFactory,
+            WebView2Missing,
+            onBack: () => CurrentStep = plan);
+        Track(gap);
+        CurrentStep = gap;
+
+        // Fire-and-forget compute + push (it awaits renderer-ready internally, so the GapView mount
+        // race is handled) — mirrors the workspace/plan observable-compute hand-off.
+        _ = gap.RefreshAsync();
     }
 
     /// <summary>Records a created step for teardown disposal (AP 4.2.2 dispose discipline),

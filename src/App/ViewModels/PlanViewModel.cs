@@ -39,6 +39,14 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     private readonly Action? _onBackToExplore;
     private Ruleset _ruleset;
 
+    /// <summary>The ADR-015 (#66) "Gap analysis" callback: the shell installs it via
+    /// <see cref="UseGapAnalysisCallback"/> when it creates the plan step, so the header button can
+    /// switch into Gap mode. <c>null</c> until installed — <see cref="GapAnalysisCommand"/> then
+    /// stays disarmed (<see cref="CanGapAnalysis"/>), keeping every pre-Slice-8 test on the default.
+    /// Mirrors <see cref="WorkspaceViewModel"/>'s <c>_onDesignPlan</c> exactly; the
+    /// <c>BaseOuDn == RootDn</c> + snapshot-null gate lives in the shell seam, not here.</summary>
+    private Action? _onGapAnalysis;
+
     /// <summary>The injected, deterministic generation clock (AP 4.2.4 / ADR-014): the plan
     /// export builds its <see cref="PlanScriptHeader.GeneratedAt"/> from this, never the wall
     /// clock — so two exports of the same plan are byte-identical. Defaults to
@@ -237,6 +245,25 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     /// which restores the SAME workspace instance — never a reload, never a dispose.</summary>
     [RelayCommand]
     private void Back() => _onBackToExplore?.Invoke();
+
+    /// <summary>The "Gap analysis" header button (ADR-015 / #66): switches the shell into Gap mode
+    /// via the installed callback. Armed iff the callback is installed (the shell installs it when
+    /// it creates the plan step); a stale-armed Execute with no callback is a silent no-op. Mirrors
+    /// <see cref="WorkspaceViewModel"/>'s <c>DesignPlan</c> exactly.</summary>
+    [RelayCommand(CanExecute = nameof(CanGapAnalysis))]
+    private void GapAnalysis() => _onGapAnalysis?.Invoke();
+
+    private bool CanGapAnalysis() => _onGapAnalysis is not null;
+
+    /// <summary>Installs the shell's Gap-mode switch callback (ADR-015 / #66) and re-arms
+    /// <see cref="GapAnalysisCommand"/>. Called by the shell when it creates the plan step (in
+    /// <c>OnDesignPlan</c>); headless tests reach it through the live shell's <c>OnDesignPlan</c>.
+    /// Mirrors <see cref="WorkspaceViewModel.UseDesignPlanCallback"/>.</summary>
+    public void UseGapAnalysisCallback(Action onGapAnalysis)
+    {
+        _onGapAnalysis = onGapAnalysis;
+        GapAnalysisCommand.NotifyCanExecuteChanged();
+    }
 
     /// <summary>Installs the real export save-picker seam (AP 4.2.4 / ADR-014; mirrors
     /// <see cref="WorkspaceViewModel.UseExportFileDialogs"/>): the production <c>MainWindow</c>

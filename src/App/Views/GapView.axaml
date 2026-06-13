@@ -1,0 +1,125 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:views="using:GroupWeaver.App.Views"
+             x:Class="GroupWeaver.App.Views.GapView"
+             x:DataType="vm:GapViewModel">
+
+  <!-- Gap mode view (ADR-015 / #66): the Plan-vs-Ist DIFF, never rule severity. The SAME
+       airspace-shaped layout as PlanView/WorkspaceView (ADR-001 guardrail 5): GraphHost
+       (col 0) is the reserved center region the gap's OWN renderer mounts into; the gap
+       chrome lives BESIDE it in its own grid column. NOTHING floats over GraphHost. -->
+  <Grid ColumnDefinitions="*,360">
+
+    <ContentControl Grid.Column="0" Name="GraphHost">
+      <!-- Placeholder while no renderer surface (null factory / missing WebView2 / headless
+           fakes); the code-behind swaps in the gap renderer's surface when one exists. The
+           headless fixture has no renderer, so this placeholder is what GraphHost shows. -->
+      <Panel>
+
+        <StackPanel IsVisible="{Binding !WebView2Missing}" Spacing="8"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+          <TextBlock Text="Gap preview is unavailable in this environment."
+                     FontSize="20" HorizontalAlignment="Center" />
+          <TextBlock Text="{Binding RootDn}"
+                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding WebView2Missing}" Spacing="8" MaxWidth="520"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+          <TextBlock Text="The Microsoft Edge WebView2 Runtime was not found."
+                     FontSize="20" TextWrapping="Wrap" TextAlignment="Center" />
+          <TextBlock Text="GroupWeaver needs it to display the gap graph (everything else works)."
+                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+
+      </Panel>
+    </ContentControl>
+
+    <!-- The gap chrome (beside GraphHost, never over it - ADR-001 guardrail 5): header + the
+         summary line + the unchecked banner + the changes list. Mirrors ViolationsSidebarView. -->
+    <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,12,12,8">
+
+        <!-- 1. Header: "Gap" title + Back. Both in the chrome column, never over GraphHost. -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+          <TextBlock Grid.Column="0" Text="Gap" FontSize="15" FontWeight="SemiBold"
+                     VerticalAlignment="Center" />
+          <Button Grid.Column="1" Name="BackButton" Content="← Back to explore"
+                  Padding="8,4" FontSize="12"
+                  ToolTip.Tip="Return to the explored Ist structure"
+                  Command="{Binding BackCommand}" />
+        </Grid>
+
+        <!-- 2. The gap-summary line (ADR-015 D6): node deltas, membership deltas, unchecked
+             tally. Null-safe — hidden until the first RefreshAsync computes a Summary. -->
+        <TextBlock Grid.Row="1" Margin="0,8,0,0"
+                   Text="{Binding Summary, Converter={x:Static views:GapSummaryConverter.ToLine}}"
+                   IsVisible="{Binding Summary, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   FontSize="13" Opacity="0.85" TextWrapping="Wrap" />
+
+        <!-- 3. The unchecked-areas honesty banner (ADR-015 D5): visible whenever the diff has a
+             known-but-unloaded Ist parent - the load-state honesty note, mirroring the workspace
+             "unexpanded areas are unchecked" hint (the word "unexpanded" is load-bearing). -->
+        <TextBlock Grid.Row="2" Margin="0,8,0,0"
+                   Text="Some current-structure areas are unexpanded and were not compared — reload or expand the structure for a complete diff."
+                   IsVisible="{Binding HasUncheckedAreas}"
+                   Foreground="#B26B00" Opacity="0.95" FontSize="12" TextWrapping="Wrap" />
+
+        <!-- 4. The changes list (canonical report order, unshuffled - ADR-015 D6). Header
+             "Changes (n)" + the rows: a GapKind glyph badge in the diff palette (color + the
+             redundant +/−/? symbol) + the wrapping message + the dimmed subject name; the whole
+             row is a flat command button jumping to (focusing + selecting) the finding's anchor. -->
+        <Grid Grid.Row="3" RowDefinitions="Auto,*" Margin="0,8,0,0">
+          <TextBlock Grid.Row="0"
+                     Text="{Binding GapRows.Count, StringFormat='Changes ({0})'}"
+                     FontSize="13" FontWeight="SemiBold" />
+          <ListBox Grid.Row="1" Margin="0,6,0,0"
+                   Background="Transparent"
+                   ItemsSource="{Binding GapRows}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:GapRowModel">
+                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Padding="4" BorderThickness="0"
+                        Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}"
+                        ToolTip.Tip="{Binding Kind, Converter={x:Static views:GapKindConverters.ToLabel}}"
+                        Command="{Binding $parent[ListBox].((vm:GapViewModel)DataContext).JumpToCommand}"
+                        CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="Auto,*">
+
+                    <!-- GapKind glyph: colored square (diff-palette parity with the graph) + the
+                         redundant +/−/? symbol - the colorblind-safe channel beside the color. -->
+                    <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                            VerticalAlignment="Top"
+                            Background="{Binding Kind, Converter={x:Static views:GapKindConverters.ToBrush}}">
+                      <TextBlock Text="{Binding Kind, Converter={x:Static views:GapKindConverters.ToGlyph}}"
+                                 Foreground="White" FontSize="13" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <!-- All-clear: shown only when the diff has no findings (the plan matches the Ist). -->
+          <TextBlock Grid.Row="1" Margin="0,6,0,0"
+                     Text="No differences — the plan matches the current structure."
+                     IsVisible="{Binding !HasFindings}"
+                     Opacity="0.7" TextWrapping="Wrap"
+                     VerticalAlignment="Top" />
+        </Grid>
+
+      </Grid>
+    </Border>
+
+  </Grid>
+
+</UserControl>
