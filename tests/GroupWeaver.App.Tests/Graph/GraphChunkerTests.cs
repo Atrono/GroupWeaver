@@ -1,8 +1,11 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using GroupWeaver.App.Graph;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
+using GroupWeaver.Core.Rules;
+using GroupWeaver.Providers;
 
 using Xunit;
 
@@ -199,6 +202,173 @@ public sealed class GraphChunkerTests
         var edges = Edges(chunks);
         Assert.Equal(model.Edges.Select(Wire), edges.Select(e => (e.S, e.T, e.Rel)));
         Assert.Distinct(edges.Select(e => e.Id));
+    }
+
+    // --- severity rides the ONE shared slicing path (AP 3.4 S1, ADR-010) -----------------
+    //
+    // GraphChunker forwards the report + below-map straight into GraphJson.MapNodes (the
+    // single shared node path), so the sev/below/belowSev fields a chunk carries are
+    // STRING-IDENTICAL to the flat dump for the same model — chunked and flat can never
+    // drift. The new public overloads grow exactly a (report, belowMap) pair; the existing
+    // no-report overloads keep emitting the pre-AP wire (covered above).
+
+    /// <summary>The demo dataset root, pinned against demo-directory.json's rootDn.</summary>
+    private const string DemoRootDn = "OU=AGDLP-Demo,DC=weavedemo,DC=example";
+
+    private const string GroupSuffix = ",OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+    private const string UserSuffix = ",OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+
+    // Baseline DNs + their pinned MaxSeverityByDn (RuleEngineDemoBaselineTests).
+    private const string DlFsSalesRwDn = "CN=DL_FS-Sales_RW" + GroupSuffix;   // Error
+    private const string User001Dn = "CN=Anna Acker (u001)" + UserSuffix;    // Error (member endpoint)
+    private const string UgProjectXDn = "CN=UG_ProjectX" + GroupSuffix;      // Info (empty-group only)
+    private const string GgXDn = "CN=GG_X" + GroupSuffix;                    // Warning (naming-gg)
+
+    [Fact]
+    public void ToChunkCommands_WithReport_NodeSevTokensMatchTheBaseline_AcrossChunkSplits()
+    {
+        // Force a split (cap 1 node/chunk) so every flagged node lands in its own chunk:
+        // severity must travel with the node wherever the slicer puts it.
+        var report = DemoDefaultReport();
+        var model = SeverityModel();
+
+        var chunks = ChunksOf(
+            GraphChunker.ToChunkCommands(model, report, belowMap: null, maxNodesPerChunk: 1, maxEdgesPerChunk: 1));
+
+        Assert.Equal("error", SevOf(chunks, DlFsSalesRwDn));
+        Assert.Equal("error", SevOf(chunks, User001Dn)); // both-endpoint attribution survives chunking
+        Assert.Equal("warning", SevOf(chunks, GgXDn));
+        Assert.Equal("info", SevOf(chunks, UgProjectXDn));
+    }
+
+    [Fact]
+    public void ToChunkCommands_ChunkedNodeObjects_AreStringIdenticalToTheFlatDump_ForSevAndBelow()
+    {
+        // The "chunked == flat for sev/below" pin: collect every node object emitted across
+        // all chunks and compare it field-for-field (raw JSON text) against the same node in
+        // the flat SerializeFlat document — sev/below/belowSev included, key order included.
+        var report = DemoDefaultReport();
+        var model = SeverityModel();
+        var belowMap = BelowMap(
+            (DlFsSalesRwDn, 4, RuleSeverity.Error),
+            (GgXDn, 1, RuleSeverity.Warning));
+
+        var flatNodesByDn = FlatNodesByDn(GraphJson.SerializeFlat(model, report, belowMap));
+        var chunkNodes = ChunkNodeJsonByDn(GraphChunker.ToChunkCommands(model, report, belowMap));
+
+        Assert.Equal(flatNodesByDn.Count, chunkNodes.Count);
+        foreach (var (dn, flatNodeJson) in flatNodesByDn)
+        {
+            Assert.True(chunkNodes.TryGetValue(dn, out var chunkNodeJson), $"chunk output dropped node {dn}");
+            Assert.Equal(flatNodeJson, chunkNodeJson);
+        }
+    }
+
+    [Fact]
+    public void ToUpdateCommands_WithReport_CarriesSeverity_IdenticallyToShowMode()
+    {
+        // Update mode shares the slicing path, so the sev/below fields it emits are
+        // string-identical to show mode for the same (model, report, belowMap) — only the
+        // trailing commit verb differs. This is the lazy-expand survival guarantee (ADR-010
+        // D3): after a graphUpdate the re-sent wire fields re-attach the halos.
+        var report = DemoDefaultReport();
+        var model = SeverityModel();
+        var belowMap = BelowMap((DlFsSalesRwDn, 2, RuleSeverity.Error));
+
+        AssertUpdateMatchesShowExceptTrailingVerb(
+            GraphChunker.ToChunkCommands(model, report, belowMap),
+            GraphChunker.ToUpdateCommands(model, report, belowMap));
+    }
+
+    [Fact]
+    public void ToChunkCommands_NoReportOverload_EmitsNoSeverityKeys()
+    {
+        // The pre-AP no-report overload stays byte-clean: a chunk transfer with no report
+        // carries zero sev/below/belowSev keys anywhere.
+        var model = SeverityModel();
+
+        var commands = GraphChunker.ToChunkCommands(model);
+
+        Assert.All(commands, c =>
+        {
+            Assert.DoesNotContain("\"sev\"", c, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"below\"", c, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"belowSev\"", c, StringComparison.Ordinal);
+        });
+    }
+
+    // --- severity helpers ----------------------------------------------------------------
+
+    /// <summary>The live 19-finding baseline report (full demo snapshot, default ruleset).</summary>
+    private static RuleReport DemoDefaultReport()
+    {
+        var snapshot = new DemoProvider().LoadScopeAsync(DemoRootDn).GetAwaiter().GetResult();
+        return RuleEngine.Evaluate(snapshot, RulesetLoader.LoadDefault());
+    }
+
+    /// <summary>A model carrying the four pinned baseline DNs as nodes (kind/coords
+    /// irrelevant to the DN-keyed severity join).</summary>
+    private static GraphModel SeverityModel() =>
+        new(
+            [
+                new GraphNode(DlFsSalesRwDn, "DL_FS-Sales_RW", AdObjectKind.DomainLocalGroup, 1d, 2d, 1, IsRoot: false),
+                new GraphNode(User001Dn, "Anna Acker (u001)", AdObjectKind.User, 3d, 4d, 2, IsRoot: false),
+                new GraphNode(GgXDn, "GG_X", AdObjectKind.GlobalGroup, 5d, 6d, 1, IsRoot: false),
+                new GraphNode(UgProjectXDn, "UG_ProjectX", AdObjectKind.UniversalGroup, 7d, 8d, 1, IsRoot: false),
+            ],
+            []);
+
+    private static IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)> BelowMap(
+        params (string Dn, int Count, RuleSeverity Sev)[] entries)
+    {
+        var map = new Dictionary<string, (int Count, RuleSeverity Sev)>(Dn.Comparer);
+        foreach (var (dn, count, sev) in entries)
+        {
+            map[dn] = (count, sev);
+        }
+
+        return map;
+    }
+
+    /// <summary>The sev token of the node with id <paramref name="dn"/>, gathered across all chunks.</summary>
+    private static string? SevOf(IEnumerable<JsonObject> chunks, string dn)
+    {
+        var node = chunks
+            .SelectMany(c => c["nodes"] as JsonArray ?? new JsonArray())
+            .Single(n => n!["id"]!.GetValue<string>() == dn)!
+            .AsObject();
+        return node.TryGetPropertyValue("sev", out var sev) ? sev!.GetValue<string>() : null;
+    }
+
+    /// <summary>Every flat-document node as JSON text, keyed by id. Normalized through the
+    /// SAME JsonNode round-trip as the chunk side so the comparison is content (fields +
+    /// order + values), never a JsonDocument-vs-JsonNode representation artifact.</summary>
+    private static Dictionary<string, string> FlatNodesByDn(string flatJson)
+    {
+        var byDn = new Dictionary<string, string>(Dn.Comparer);
+        var nodes = JsonNode.Parse(flatJson)!["nodes"]!.AsArray();
+        foreach (var node in nodes)
+        {
+            byDn[node!["id"]!.GetValue<string>()] = node.ToJsonString();
+        }
+
+        return byDn;
+    }
+
+    /// <summary>Every chunk node as its raw JSON text, keyed by id — the chunks parsed via
+    /// the show-mode commit shape (graphCommit trailer).</summary>
+    private static Dictionary<string, string> ChunkNodeJsonByDn(IReadOnlyList<string> commands)
+    {
+        var byDn = new Dictionary<string, string>(Dn.Comparer);
+        foreach (var chunk in ChunksOf(commands))
+        {
+            foreach (var node in (chunk["nodes"] as JsonArray) ?? new JsonArray())
+            {
+                byDn[node!["id"]!.GetValue<string>()] = node.ToJsonString();
+            }
+        }
+
+        return byDn;
     }
 
     /// <summary>Pins ADR-005 D1's "one shared slicing path": for the same model and

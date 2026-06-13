@@ -1,4 +1,5 @@
 using GroupWeaver.Core.Graph;
+using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Graph;
 
@@ -19,24 +20,54 @@ public static class GraphChunker
     private const string UpdateCommand = """{"type":"graphUpdate"}""";
 
     /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a full
-    /// init (<c>graphCommit</c>: destroy + fit).</summary>
+    /// init (<c>graphCommit</c>: destroy + fit) — no severity (pre-AP-3.4 wire).</summary>
     public static IReadOnlyList<string> ToChunkCommands(
         GraphModel model,
         int maxNodesPerChunk = 500,
         int maxEdgesPerChunk = 1000) =>
-        ToCommands(model, maxNodesPerChunk, maxEdgesPerChunk, CommitCommand);
+        ToChunkCommands(model, RuleReport.Empty, belowMap: null, maxNodesPerChunk, maxEdgesPerChunk);
+
+    /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a full
+    /// init (<c>graphCommit</c>: destroy + fit), joining the AP 3.4 severity wire fields
+    /// (ADR-010): <paramref name="report"/> + <paramref name="belowMap"/> are forwarded
+    /// straight into <see cref="GraphJson.MapNodes"/> — the ONE shared node path — so the
+    /// per-chunk <c>sev</c>/<c>below</c>/<c>belowSev</c> are string-identical to the flat
+    /// dump for the same model and can never drift.</summary>
+    public static IReadOnlyList<string> ToChunkCommands(
+        GraphModel model,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        int maxNodesPerChunk = 500,
+        int maxEdgesPerChunk = 1000) =>
+        ToCommands(model, report, belowMap, maxNodesPerChunk, maxEdgesPerChunk, CommitCommand);
 
     /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a
     /// replace-in-place update (<c>graphUpdate</c>: live instance, viewport untouched,
-    /// ADR-005 D1) — same chunks as <see cref="ToChunkCommands"/>, different trailer.</summary>
+    /// ADR-005 D1) — same chunks as <see cref="ToChunkCommands(GraphModel, int, int)"/>,
+    /// different trailer; no severity (pre-AP-3.4 wire).</summary>
     public static IReadOnlyList<string> ToUpdateCommands(
         GraphModel model,
         int maxNodesPerChunk = 500,
         int maxEdgesPerChunk = 1000) =>
-        ToCommands(model, maxNodesPerChunk, maxEdgesPerChunk, UpdateCommand);
+        ToUpdateCommands(model, RuleReport.Empty, belowMap: null, maxNodesPerChunk, maxEdgesPerChunk);
+
+    /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a
+    /// replace-in-place update (<c>graphUpdate</c>), carrying the AP 3.4 severity wire
+    /// fields (ADR-010 D3): the sev/below fields are string-identical to show mode for the
+    /// same <paramref name="report"/> + <paramref name="belowMap"/>, so a re-sent update
+    /// re-attaches the halos on the live instance — only the trailing commit verb differs.</summary>
+    public static IReadOnlyList<string> ToUpdateCommands(
+        GraphModel model,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        int maxNodesPerChunk = 500,
+        int maxEdgesPerChunk = 1000) =>
+        ToCommands(model, report, belowMap, maxNodesPerChunk, maxEdgesPerChunk, UpdateCommand);
 
     private static IReadOnlyList<string> ToCommands(
         GraphModel model,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
         int maxNodesPerChunk,
         int maxEdgesPerChunk,
         string trailingCommand)
@@ -44,9 +75,9 @@ public static class GraphChunker
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxNodesPerChunk);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEdgesPerChunk);
 
-        // GraphJson owns the ONE mapping code path (ids, flip, camelCase) — the
+        // GraphJson owns the ONE mapping code path (ids, flip, camelCase, severity) — the
         // chunker only slices its output, so chunked and flat can never drift.
-        var nodes = GraphJson.MapNodes(model.Nodes);
+        var nodes = GraphJson.MapNodes(model.Nodes, report, belowMap);
         var edges = GraphJson.MapEdges(model.Edges);
 
         var commands = new List<string>();
