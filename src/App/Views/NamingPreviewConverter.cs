@@ -77,7 +77,14 @@ public sealed class NamingPreviewConverter : IMultiValueConverter
         }
 
         var result = NamingPreview.Evaluate(pattern, sample);
-        var severity = parameter is RuleSeverity s ? s : RuleSeverity.Warning;
+
+        // The owning rule's severity drives a Violation chip's color. The tests pin it via
+        // the ConverterParameter (CountForSeverity shape); the XAML MultiBinding can't bind a
+        // ConverterParameter, so it passes severity as an OPTIONAL third value — read the
+        // parameter first, fall back to values[2]. Both paths yield the same visual.
+        var severity = parameter as RuleSeverity?
+            ?? (values.Count > 2 ? values[2] as RuleSeverity? : null)
+            ?? RuleSeverity.Warning;
 
         return result.Kind switch
         {

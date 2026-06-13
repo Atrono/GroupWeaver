@@ -1,0 +1,218 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:settings="using:GroupWeaver.App.Settings"
+        xmlns:views="using:GroupWeaver.App.Views"
+        xmlns:rules="using:GroupWeaver.Core.Rules"
+        xmlns:model="using:GroupWeaver.Core.Model"
+        x:Class="GroupWeaver.App.Views.SettingsWindow"
+        x:DataType="settings:SettingsViewModel"
+        Title="GroupWeaver Settings"
+        Width="900" Height="640"
+        MinWidth="720" MinHeight="520">
+
+  <!-- The modal settings editor (AP 3.3 / ADR-011 §1): a separate top-level Window
+       (ADR-003 D5's sanctioned escape hatch — never layered over the workspace
+       GraphHost, ADR-001 airspace guardrail 5). The editable mirror tree
+       (SettingsViewModel) is the DataContext; RulesetLoader.Load is the single
+       save/import/apply gate behind the footer. This slice (S5) ships the TabControl
+       shell, the persistent validation band + footer (OUTSIDE the tabs), and the
+       Naming tab with live preview; S6/S7 fill the other tabs. -->
+  <DockPanel>
+
+    <!-- Footer (OUTSIDE the TabControl): Apply = live re-thread, no disk write;
+         Save = live + atomic persist; Cancel closes. S8 wires Apply/Save commands
+         and the shell re-thread; this slice ships the affordance. -->
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#33808080"
+            Padding="12,8">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button Content="Apply" MinWidth="84" />
+        <Button Content="Save" MinWidth="84" IsDefault="True" />
+        <Button Content="Cancel" MinWidth="84" IsCancel="True" />
+      </StackPanel>
+    </Border>
+
+    <!-- Persistent validation band (OUTSIDE the TabControl, above the footer): the
+         loader's path-addressed errors from the most recent gate or a rejected
+         user-file-on-open. Path and Message bind to SEPARATE Text targets — Message
+         is STRICTLY plain text (#45: untrusted files may carry control chars), never
+         interpolated into a format template or markup surface. Hidden when clean. -->
+    <Border DockPanel.Dock="Bottom"
+            IsVisible="{Binding ValidationErrors.Count}"
+            Background="#22D13438" BorderBrush="#66D13438" BorderThickness="0,1,0,0"
+            Padding="12,8" MaxHeight="160">
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding ValidationErrors}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="rules:RulesetValidationError">
+              <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                <TextBlock Text="{Binding Path}" FontFamily="Consolas,Menlo,monospace"
+                           Opacity="0.7" VerticalAlignment="Top" />
+                <SelectableTextBlock Text="{Binding Message}" Foreground="#D13438"
+                                     TextWrapping="Wrap" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <!-- Invalid-user-file banner (above the tabs): the app is running on the embedded
+         default because the saved file was rejected; the broken file is left
+         byte-unchanged on disk (ADR-011 open-risk #2). -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding RunningOnDefaultBecauseInvalid}"
+            Background="#2EFFB900" BorderBrush="#66FFB900" BorderThickness="0,0,0,1"
+            Padding="12,8">
+      <TextBlock TextWrapping="Wrap"
+                 Text="Your saved ruleset could not be loaded; GroupWeaver is running on the built-in default. Fix the errors below and Save, or Reset to default." />
+    </Border>
+
+    <TabControl Padding="0">
+
+      <TabItem Header="Rules">
+        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
+                   Text="The rule master grid is added in a later slice." />
+      </TabItem>
+
+      <TabItem Header="Naming">
+        <ScrollViewer>
+          <ItemsControl ItemsSource="{Binding Naming}" Margin="12">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="settings:NamingRuleEditor">
+
+                <!-- One naming-rule card: Id/Enabled/Severity/Kind/Pattern/Description,
+                     a PreviewSample TextBox, and the live-preview chip. -->
+                <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6"
+                        Padding="12" Margin="0,0,0,10">
+                  <StackPanel Spacing="8">
+
+                    <!-- Header row: enabled toggle, id, severity glyph, kind badge. -->
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                      <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                IsChecked="{Binding Enabled}" />
+                      <TextBox Grid.Column="1" Watermark="rule id" Margin="6,0,0,0"
+                               Text="{Binding Id}" VerticalAlignment="Center" />
+
+                      <!-- Severity selector: each item shows the E/W/i glyph square in
+                           the SeverityConverters palette (parity with the sidebar). -->
+                      <ComboBox Grid.Column="2" Margin="8,0,0,0" MinWidth="120"
+                                VerticalAlignment="Center"
+                                SelectedItem="{Binding Severity}">
+                        <ComboBox.Items>
+                          <rules:RuleSeverity>Error</rules:RuleSeverity>
+                          <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                          <rules:RuleSeverity>Info</rules:RuleSeverity>
+                        </ComboBox.Items>
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="rules:RuleSeverity">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <Border Width="18" Height="18" CornerRadius="3"
+                                      Background="{Binding Converter={x:Static views:SeverityConverters.ToBrush}}">
+                                <TextBlock Text="{Binding Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                                           Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                              </Border>
+                              <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                            </StackPanel>
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
+
+                      <!-- Kind selector: the 6 legal kinds (External pre-filtered — the
+                           loader rejects it), each badged via AdObjectKindConverters. -->
+                      <ComboBox Grid.Column="3" Margin="8,0,0,0" MinWidth="120"
+                                VerticalAlignment="Center"
+                                SelectedItem="{Binding Kind}">
+                        <ComboBox.Items>
+                          <model:AdObjectKind>User</model:AdObjectKind>
+                          <model:AdObjectKind>Computer</model:AdObjectKind>
+                          <model:AdObjectKind>GlobalGroup</model:AdObjectKind>
+                          <model:AdObjectKind>DomainLocalGroup</model:AdObjectKind>
+                          <model:AdObjectKind>UniversalGroup</model:AdObjectKind>
+                          <model:AdObjectKind>OrganizationalUnit</model:AdObjectKind>
+                        </ComboBox.Items>
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="model:AdObjectKind">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <Border MinWidth="30" CornerRadius="3" Padding="4,1"
+                                      Background="{Binding Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                                <TextBlock Text="{Binding Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                           Foreground="White" FontSize="10" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                              </Border>
+                            </StackPanel>
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </Grid>
+
+                    <TextBox Watermark="^GG_..._..._$ (regex)" Text="{Binding Pattern}" />
+                    <TextBox Watermark="description" Text="{Binding Description}" />
+
+                    <!-- Live preview: a candidate sample TextBox + the verdict chip.
+                         The chip's DataContext is the NamingPreviewConverter result over
+                         [Pattern, PreviewSample, Severity] (a throwaway, never-interned
+                         NonBacktracking regex — ADR-009); it renders the verdict glyph in
+                         the verdict brush and a plain-text caption. #45: the PatternInvalid
+                         Message binds to SelectableTextBlock.Text, never a markup surface. -->
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBox Grid.Column="0" Watermark="GG_Vertrieb_Lesen"
+                               Text="{Binding PreviewSample}" />
+                      <!-- The chip carries the NamingPreviewVisual on its Tag (NOT DataContext:
+                           a MultiBinding on DataContext would re-root its own [Pattern,
+                           PreviewSample, Severity] children against the result and read null;
+                           Tag is a plain property, so the children resolve against the card).
+                           The converter compiles a throwaway, never-interned NonBacktracking
+                           regex (ADR-009); the inner controls read Glyph/Brush/Message off the
+                           Tag by ElementName. #45: Message binds to SelectableTextBlock.Text. -->
+                      <Border Grid.Column="1" Name="PreviewChip" Margin="8,0,0,0"
+                              CornerRadius="4" Padding="8,4" VerticalAlignment="Center"
+                              BorderThickness="1" BorderBrush="#33808080">
+                        <Border.Tag>
+                          <MultiBinding Converter="{x:Static views:NamingPreviewConverter.Instance}">
+                            <Binding Path="Pattern" />
+                            <Binding Path="PreviewSample" />
+                            <Binding Path="Severity" />
+                          </MultiBinding>
+                        </Border.Tag>
+                        <StackPanel Orientation="Horizontal" Spacing="6"
+                                    x:CompileBindings="False">
+                          <TextBlock Text="{Binding #PreviewChip.Tag.Glyph}"
+                                     Foreground="{Binding #PreviewChip.Tag.Brush}"
+                                     FontWeight="Bold" VerticalAlignment="Center" />
+                          <SelectableTextBlock Text="{Binding #PreviewChip.Tag.Message}"
+                                               IsVisible="{Binding #PreviewChip.Tag.Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Opacity="0.8" VerticalAlignment="Center"
+                                               TextWrapping="Wrap" MaxWidth="220" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="Matrix">
+        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
+                   Text="The nesting matrix editor is added in a later slice." />
+      </TabItem>
+
+      <TabItem Header="Ignore &amp; Exceptions">
+        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
+                   Text="The ignore and exception lists are added in a later slice." />
+      </TabItem>
+
+      <TabItem Header="File">
+        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
+                   Text="Import / Export / Reset are added in a later slice." />
+      </TabItem>
+
+    </TabControl>
+
+  </DockPanel>
+
+</Window>

@@ -39,6 +39,14 @@ public sealed partial class NamingRuleEditor : ObservableObject
     [ObservableProperty]
     private string? _description;
 
+    /// <summary>The live-preview candidate name typed against this card (AP 3.3 /
+    /// ADR-011 §4). UI-only — it is NOT part of the <see cref="NamingRule"/> and is
+    /// never serialized; <see cref="Build"/> ignores it. The Naming-tab chip binds
+    /// it (with <see cref="Pattern"/>) through <c>NamingPreviewConverter</c> to show
+    /// a ✓/✗ verdict per keystroke; an empty sample rests the chip.</summary>
+    [ObservableProperty]
+    private string _previewSample = string.Empty;
+
     /// <summary>Per-rule exceptions (endpoint hidden).</summary>
     public ObservableCollection<MatchEntryEditor> Exceptions { get; } = [];
 

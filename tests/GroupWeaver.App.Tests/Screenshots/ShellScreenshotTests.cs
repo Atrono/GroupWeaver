@@ -9,6 +9,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using GroupWeaver.App.Rules;
+using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
@@ -359,6 +361,195 @@ public sealed class ShellScreenshotTests
 
         CapturePng(window, "workspace-detail-frontier", width, height);
         window.Close();
+    }
+
+    // --- Settings window: Naming tab (AP 3.3 / S5) ----------------------------------------------
+
+    /// <summary>The Naming-tab live-preview chip's success glyph — the ✓ a card shows when
+    /// its <c>PreviewSample</c> matches its pattern (parity with
+    /// <c>NamingPreviewConverter</c>'s Ok glyph; #45 / ADR-011 §4).</summary>
+    private const string OkChipGlyph = "✓";
+
+    /// <summary>
+    /// AP 3.3 / S5 (ADR-011, spec "ui-checklist additions"): the modal
+    /// <see cref="SettingsWindow"/> rendered STANDALONE — exactly the headless seam the spec
+    /// pins (<c>ShowDialog</c> is headless-hostile; open-risk #3), so the fixture constructs
+    /// <c>new SettingsWindow { DataContext = vm }</c>, calls <c>.Show()</c> (NOT
+    /// <c>ShowDialog</c>), pumps the dispatcher, capture-and-discards the lagging compositor
+    /// batch, then captures <c>settings-naming-{W}x{H}.png</c> at both checklist sizes for the
+    /// ui-verifier to judge against the new section-B "Settings / rule editor" rows.
+    ///
+    /// <para>The VM is seeded from <see cref="RulesetLoader.LoadDefault"/> through the mirror
+    /// (<see cref="SettingsViewModel.LoadFrom"/>) — the demo-mode-safe default, never a lab
+    /// file. The Naming tab is selected so the cards (the three default <c>naming-*</c> rules)
+    /// are the captured surface. Two of those cards are given a live <c>PreviewSample</c> so the
+    /// frame evidences BOTH preview verdicts at once: the GG card matches its pattern
+    /// (<c>GG_Vertrieb_Lesen</c> ⇒ a green ✓ "matches"), the DL card does NOT match its
+    /// (<c>^DL_..._(RW|RO)$</c>) pattern (the same sample ⇒ a ✗ "would be flagged" chip in the
+    /// rule's own severity color). Without two seeded samples the frame could show only an idle
+    /// chip and silently lose the ✓/✗ evidence the checklist row demands.</para>
+    ///
+    /// <para>Beyond the PNG, <see cref="AssertNamingPreviewChip"/> pins fixture soundness: the
+    /// two verdict chips are actually present and individually correct (glyph + palette color),
+    /// DERIVED from the one <see cref="NamingPreviewConverter"/> seam the XAML binds (never a
+    /// hardcoded hex) — so a static frame can never look plausible while the chip drifts off
+    /// the verdict palette or collapses to idle. RED until
+    /// <c>src/App/Views/SettingsWindow.axaml(.cs)</c>, the Naming tab, and
+    /// <c>NamingRuleEditor.PreviewSample</c> exist.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_Naming(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        // The default ships three naming cards (naming-gg / naming-dl / naming-ug); the fixture
+        // needs at least one match and one non-match in frame.
+        Assert.True(vm.Naming.Count >= 2, "the default ruleset must seed >= 2 naming cards");
+        var ggCard = vm.Naming.Single(r => r.Kind == AdObjectKind.GlobalGroup);
+        var nonGgCard = vm.Naming.First(r => r.Kind != AdObjectKind.GlobalGroup);
+
+        // One ✓ verdict and one ✗ verdict, live: the GG card's sample matches the GG pattern;
+        // the same sample fed to a non-GG card (e.g. the DL_..._(RW|RO) pattern) does not.
+        ggCard.PreviewSample = "GG_Vertrieb_Lesen";
+        nonGgCard.PreviewSample = "GG_Vertrieb_Lesen";
+
+        // Soundness BEFORE the window: the chosen samples really do straddle the verdict —
+        // a match on the GG card and a non-match on the other — through the production
+        // preview engine, so the fixture cannot silently capture two identical chips.
+        Assert.Equal(
+            NamingPreviewKind.Ok,
+            NamingPreview.Evaluate(ggCard.Pattern, ggCard.PreviewSample).Kind);
+        Assert.Equal(
+            NamingPreviewKind.Violation,
+            NamingPreview.Evaluate(nonGgCard.Pattern, nonGgCard.PreviewSample).Kind);
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the Naming tab to the front so its cards (the captured surface) are realized.
+        SelectTab(window, "Naming");
+        Dispatcher.UIThread.RunJobs();
+
+        // The two verdict chips render correctly in frame — the soundness pin the PNG can't make.
+        AssertNamingPreviewChip(window, ggCard, nonGgCard);
+
+        CaptureWindowPng(window, "settings-naming", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the Naming-tab live preview (AP 3.3 / S5): the seeded ✓ and ✗
+    /// cards each render a chip whose glyph AND palette color match what the ONE
+    /// <see cref="NamingPreviewConverter"/> binding seam produces for that card's
+    /// <c>(Pattern, PreviewSample, Severity)</c> — derived, never hardcoded, so this fails the
+    /// instant the chip drifts off the verdict palette (the Ok green or the rule's own severity
+    /// color) or collapses to idle. Located structurally by glyph + brush (the chips are not
+    /// named controls), exactly the <see cref="AssertSeverityChipStrip"/> shape.
+    /// </summary>
+    private static void AssertNamingPreviewChip(
+        SettingsWindow window, NamingRuleEditor okCard, NamingRuleEditor violationCard)
+    {
+        // The ✓ card: the converter must yield an Ok visual (green ✓) for the matching sample.
+        var okVisual = PreviewVisual(okCard);
+        Assert.Equal(NamingPreviewKind.Ok, okVisual.Kind);
+        Assert.Equal(OkChipGlyph, okVisual.Glyph);
+        AssertChipRendered(window, okVisual);
+
+        // The ✗ card: a Violation visual in the rule's OWN severity glyph + palette color.
+        var violationVisual = PreviewVisual(violationCard);
+        Assert.Equal(NamingPreviewKind.Violation, violationVisual.Kind);
+        var expectedGlyph = Assert.IsType<string>(SeverityConverters.ToGlyph.Convert(
+            violationCard.Severity, typeof(string), null, CultureInfo.InvariantCulture));
+        Assert.Equal(expectedGlyph, violationVisual.Glyph);
+        AssertChipRendered(window, violationVisual);
+
+        // The two verdicts must be visually DISTINCT — a ✓ and a ✗ chip, not two of the same.
+        var okColor = Assert.IsAssignableFrom<ISolidColorBrush>(okVisual.Brush).Color;
+        var violationColor = Assert.IsAssignableFrom<ISolidColorBrush>(violationVisual.Brush).Color;
+        Assert.True(
+            okVisual.Glyph != violationVisual.Glyph || okColor != violationColor,
+            "the ✓ and ✗ preview chips must be visually distinct (glyph or color)");
+    }
+
+    /// <summary>The chip descriptor the XAML binds for <paramref name="card"/>: the live
+    /// <c>NamingPreviewConverter</c> over <c>[Pattern, PreviewSample]</c> with the card's
+    /// severity as the parameter — the exact seam the Naming-tab chip uses.</summary>
+    private static NamingPreviewVisual PreviewVisual(NamingRuleEditor card) =>
+        Assert.IsType<NamingPreviewVisual>(NamingPreviewConverter.Instance.Convert(
+            new object?[] { card.Pattern, card.PreviewSample },
+            typeof(NamingPreviewVisual),
+            card.Severity,
+            CultureInfo.InvariantCulture));
+
+    /// <summary>Asserts the realized visual tree contains a rendered chip carrying
+    /// <paramref name="expected"/>'s glyph in its pinned brush color — a glyph
+    /// <see cref="Avalonia.Controls.TextBlock"/> whose <c>Text</c> equals the expected glyph and
+    /// whose own <c>Foreground</c> OR whose chip <c>Border</c> ancestor's <c>Background</c> is
+    /// the expected palette color. Brush parity is derived from the converter output (never a
+    /// hardcoded hex), so the chip can never silently drift off the verdict palette.</summary>
+    private static void AssertChipRendered(SettingsWindow window, NamingPreviewVisual expected)
+    {
+        var expectedColor = Assert.IsAssignableFrom<ISolidColorBrush>(expected.Brush).Color;
+
+        var glyphBlocks = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && t.Text == expected.Glyph)
+            .ToList();
+        Assert.NotEmpty(glyphBlocks);
+
+        var painted = glyphBlocks.Any(t =>
+            (t.Foreground is ISolidColorBrush fg && fg.Color == expectedColor)
+            || t.GetVisualAncestors()
+                .OfType<Avalonia.Controls.Border>()
+                .Any(b => b.Background is ISolidColorBrush bg && bg.Color == expectedColor));
+
+        Assert.True(
+            painted,
+            $"a '{expected.Glyph}' preview chip must render in the verdict color "
+            + $"#{expectedColor.R:X2}{expectedColor.G:X2}{expectedColor.B:X2} "
+            + "(parity with NamingPreviewConverter)");
+    }
+
+    /// <summary>Brings the <see cref="Avalonia.Controls.TabItem"/> whose header text contains
+    /// <paramref name="header"/> to the front of the window's <see cref="Avalonia.Controls.TabControl"/>,
+    /// so its content is realized for capture. Header match is substring + ordinal-ignore-case so
+    /// a "Naming" tab still resolves if the implementer labels it "Naming rules".</summary>
+    private static void SelectTab(SettingsWindow window, string header)
+    {
+        var tabs = Assert.Single(window.GetVisualDescendants().OfType<Avalonia.Controls.TabControl>());
+        var item = Assert.Single(
+            tabs.GetVisualDescendants().OfType<Avalonia.Controls.TabItem>(),
+            t => (t.Header?.ToString() ?? string.Empty)
+                .Contains(header, StringComparison.OrdinalIgnoreCase));
+        tabs.SelectedItem = item;
+    }
+
+    /// <summary>The capture core for a standalone settings <see cref="Window"/> — same
+    /// capture-and-discard + real-rasterization gate as <see cref="CapturePng"/> for
+    /// <see cref="MainWindow"/>, but typed to <see cref="Avalonia.Controls.Window"/> so the
+    /// settings fixtures share it.</summary>
+    private static void CaptureWindowPng(Avalonia.Controls.Window window, string name, int width, int height)
+    {
+        Dispatcher.UIThread.RunJobs();
+
+        // Same lagging-compositor rule as CapturePng: the first capture after a mutation
+        // (here: Show + tab select) returns the previous frame — discard it, then capture.
+        window.CaptureRenderedFrame()?.Dispose();
+
+        using var frame = window.CaptureRenderedFrame();
+        Assert.NotNull(frame);
+        Assert.Equal(new PixelSize(width, height), frame.PixelSize);
+        AssertSampledPixelsNonUniform(frame, name);
+
+        var path = Path.Combine(ArtifactsUiDir.Value, $"{name}-{width}x{height}.png");
+        frame.Save(path);
+
+        var file = new FileInfo(path);
+        Assert.True(file.Exists, $"'{path}' was not written");
+        Assert.True(file.Length > 0, $"'{path}' is empty");
     }
 
     // --- capture core ---------------------------------------------------------------------------
