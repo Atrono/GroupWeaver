@@ -41,7 +41,7 @@ jobs:
         run: pwsh tools/pack-release.ps1 -Version '${{ steps.ver.outputs.version }}' -Emit github
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2   # confirm current major in Marketplace at impl time
+        uses: actions/attest-build-provenance@v2   # v2.4.0; v4 is current but is a thin actions/attest wrapper — v2 stays fully supported
         with:
           subject-path: ${{ steps.pack.outputs.zip }}
 
