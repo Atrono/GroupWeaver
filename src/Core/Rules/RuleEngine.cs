@@ -47,19 +47,70 @@ public static class RuleEngine
         return new RuleReport(violations.OrderBy(v => v, order).ToList(), uncheckedDns);
     }
 
-    /// <summary>Nesting-matrix check over the local edges copy.</summary>
+    /// <summary>Nesting-matrix check over the local edges copy (ADR-009).
+    /// Judged domain: only edges whose PARENT kind is a real group scope —
+    /// OU containment, user/computer parents, and loaded parents absent from
+    /// <see cref="DirectorySnapshot.Objects"/> (GetKind == External) are out.
+    /// A member DN absent from the snapshot is External by definition and is
+    /// judged under the External COLUMN — the raw builtin/FSP edge is never
+    /// skipped. Missing matrix row OR column falls back to
+    /// <see cref="NestingRule.Unlisted"/> (fails closed); a self-edge A→A is a
+    /// normal cell lookup (circularity belongs to the circular rule). Finding:
+    /// Dns = [ParentDn, ChildDn] in the EDGE's stored spellings.</summary>
     private static void CheckNesting(
         DirectorySnapshot snapshot,
         Ruleset ruleset,
         IReadOnlyCollection<MembershipEdge> edges,
         List<RuleViolation> violations)
     {
-        // TODO(AP 3.2 S4): judged domain = edges whose parent kind is GG/DL/UG;
-        // member kind via GetKind (absent => External column, never skipped);
-        // missing row/column fails closed via NestingRule.Unlisted; severity =
-        // Cell.SeverityOverride ?? Nesting.Severity; global ignore on EITHER
-        // endpoint via the dual-channel DN helper, then endpoint-narrowed
-        // Nesting.Exceptions. Finding: Dns = [ParentDn, ChildDn] as stored.
+        var nesting = ruleset.Nesting;
+        if (!nesting.Enabled)
+        {
+            return;
+        }
+
+        foreach (var edge in edges)
+        {
+            var parentKind = snapshot.GetKind(edge.ParentDn);
+            if (!IsGroupKind(parentKind))
+            {
+                continue;
+            }
+
+            var memberKind = snapshot.GetKind(edge.ChildDn);
+            var cell = nesting.Cell(parentKind, memberKind);
+            if (cell.Allowed)
+            {
+                continue;
+            }
+
+            // Suppression order is global ignore -> per-rule exceptions -> check
+            // (ADR-008 §5); evaluating the CELL first and consulting suppression
+            // only on non-allow cells is observationally equivalent — suppressing
+            // a non-finding is a no-op — and skips all glob work on the
+            // allow-dominated bulk of a conformant directory. Global ignore
+            // exempts the edge when EITHER endpoint matches (dual channel);
+            // exceptions honor endpoint narrowing.
+            if (MatchesAny(ruleset.Ignore, snapshot, edge.ParentDn)
+                || MatchesAny(ruleset.Ignore, snapshot, edge.ChildDn)
+                || IsExceptedEdge(nesting.Exceptions, snapshot, edge))
+            {
+                continue;
+            }
+
+            var parentWord = KindWord(parentKind);
+            violations.Add(new RuleViolation
+            {
+                RuleId = RuleIds.Nesting,
+                Severity = cell.SeverityOverride ?? nesting.Severity,
+                Dns = [edge.ParentDn, edge.ChildDn],
+                // Endpoints are named by Name when they resolve in the snapshot,
+                // else by the raw DN verbatim; string-only interpolation is
+                // culture-invariant by construction. The parent kind word opens
+                // the sentence (always a group word — judged domain).
+                Message = $"{char.ToUpperInvariant(parentWord[0])}{parentWord[1..]} '{DisplayName(snapshot, edge.ParentDn)}' contains {KindWord(memberKind)} '{DisplayName(snapshot, edge.ChildDn)}' - denied by the nesting matrix.",
+            });
+        }
     }
 
     /// <summary>Naming checks, one block per rule in file order (ADR-009):
@@ -203,14 +254,9 @@ public static class RuleEngine
     /// match raw DNs.</summary>
     private static bool MatchesAny(IReadOnlyList<MatchEntry> entries, DirectorySnapshot snapshot, string dn)
     {
-        if (snapshot.TryGetObject(dn, out var obj))
-        {
-            return MatchesAny(entries, obj);
-        }
-
         foreach (var entry in entries)
         {
-            if (entry.MatchesDn(dn))
+            if (Matches(entry, snapshot, dn))
             {
                 return true;
             }
@@ -218,6 +264,53 @@ public static class RuleEngine
 
         return false;
     }
+
+    /// <summary>One entry through the dual channel (see
+    /// <see cref="MatchesAny(IReadOnlyList{MatchEntry}, DirectorySnapshot, string)"/>).</summary>
+    private static bool Matches(MatchEntry entry, DirectorySnapshot snapshot, string dn) =>
+        snapshot.TryGetObject(dn, out var obj) ? entry.Matches(obj) : entry.MatchesDn(dn);
+
+    /// <summary>Whether any nesting exception suppresses the edge, honoring
+    /// endpoint narrowing (ADR-009): <c>Parent</c> tests only ParentDn,
+    /// <c>Member</c> only ChildDn, <c>Any</c> either. Each tested endpoint goes
+    /// through the dual channel.</summary>
+    private static bool IsExceptedEdge(IReadOnlyList<MatchEntry> exceptions, DirectorySnapshot snapshot, MembershipEdge edge)
+    {
+        foreach (var entry in exceptions)
+        {
+            var suppresses = entry.Endpoint switch
+            {
+                MatchEndpoint.Parent => Matches(entry, snapshot, edge.ParentDn),
+                MatchEndpoint.Member => Matches(entry, snapshot, edge.ChildDn),
+                _ => Matches(entry, snapshot, edge.ParentDn) || Matches(entry, snapshot, edge.ChildDn),
+            };
+
+            if (suppresses)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Message-template addressing (ADR-009): the object's Name when
+    /// the DN resolves in the snapshot, else the raw DN verbatim.</summary>
+    private static string DisplayName(DirectorySnapshot snapshot, string dn) =>
+        snapshot.TryGetObject(dn, out var obj) ? obj.Name : dn;
+
+    /// <summary>English kind word for message templates — lowercase; callers
+    /// capitalize the sentence-initial (parent) position.</summary>
+    private static string KindWord(AdObjectKind kind) => kind switch
+    {
+        AdObjectKind.User => "user",
+        AdObjectKind.GlobalGroup => "global group",
+        AdObjectKind.DomainLocalGroup => "domain-local group",
+        AdObjectKind.UniversalGroup => "universal group",
+        AdObjectKind.OrganizationalUnit => "organizational unit",
+        AdObjectKind.Computer => "computer",
+        _ => "external object",
+    };
 
     /// <summary>The rule-subject group kinds (empty-group subjects, nesting
     /// judged-domain parents): real group scopes only — External is fetchable
