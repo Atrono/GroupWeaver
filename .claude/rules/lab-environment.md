@@ -1,5 +1,16 @@
 # Lab box environment facts
 
+- **Stale agent worktrees hijack the shell cwd (found in session 8):** the
+  PowerShell tool's working directory persists across tool calls and can be
+  left inside a finished subagent's `.claude/worktrees/agent-*` dir. Once that
+  worktree's git metadata is pruned, git commands there silently retarget the
+  MAIN repo (git walks up to the repo root) while *relative pathspecs* still
+  resolve against the dead directory — branch switches land in the main repo,
+  `git add <relative>` says "pathspec did not match". A shell parked there also
+  blocks `git worktree remove`/`Remove-Item` with Permission denied. Fix:
+  `Set-Location` back to the repo root before git ops after any worktree
+  cleanup; prefer absolute paths or `git -C` in orchestrator sessions; remove
+  leftover worktree dirs only after the owning agent's processes have exited.
 - **GPU:** Intel UHD Graphics 620; the driver (31.0.101.2141) was only installed
   2026-06-11 *mid-Phase-0* — every run before that was Chromium software
   rendering. After a box rebuild (eval license!) the driver is gone again
