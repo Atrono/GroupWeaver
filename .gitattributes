@@ -1,1 +1,7 @@
 * text=auto
+
+# Vendored, version-pinned third-party assets: store and check out byte-for-byte
+# (no EOL normalization) so the on-disk bytes match the recorded upstream SHA256
+# in THIRD-PARTY-NOTICES.md. `* text=auto` was rewriting the minified bundle to
+# CRLF on Windows checkout, diverging it from the pristine upstream LF bytes.
+src/App/web/vendor/** -text
