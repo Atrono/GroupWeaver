@@ -118,7 +118,8 @@
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:ViolationRowModel">
           <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Padding="4" Background="Transparent" BorderThickness="0"
+                  Padding="4" BorderThickness="0"
+                  Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}"
                   ToolTip.Tip="{Binding PrimaryDn}"
                   Command="{Binding $parent[views:ViolationsSidebarView].((vm:WorkspaceViewModel)DataContext).JumpCommand}"
                   CommandParameter="{Binding PrimaryDn}">
