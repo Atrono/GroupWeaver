@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 
+using GroupWeaver.Core.Diff;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Rules;
 
@@ -55,6 +56,19 @@ public interface IGraphRenderer
     /// <see cref="ShowGraphAsync(GraphModel, CancellationToken)"/> overload.</summary>
     Task UpdateGraphAsync(GraphModel graph, CancellationToken cancellationToken = default) =>
         UpdateGraphAsync(graph, RuleReport.Empty, belowMap: null, cancellationToken);
+
+    /// <summary>Renders a fresh wholesale GAP topology (ADR-015 Slice 6, #66): the
+    /// <paramref name="union"/> graph carries every Added/Removed/Common node, and the
+    /// <paramref name="diff"/> supplies the per-element Added/Removed/Common/Unchecked status
+    /// painted via the slice-4 wire fields. This is a wholesale destroy+fit init (NOT a
+    /// replace-in-place <see cref="UpdateGraphAsync(GraphModel, RuleReport,
+    /// IReadOnlyDictionary{string, ValueTuple{int, RuleSeverity}}, CancellationToken)"/>); it
+    /// carries NO <see cref="RuleReport"/> — the Gap view shows the DIFF, not severity. Default
+    /// no-op (mirroring <see cref="ExportPngAsync"/>): renderer fakes without a diff surface
+    /// inherit it; the real <c>CytoscapeGraphRenderer</c> overrides it.</summary>
+    Task ShowDiffGraphAsync(
+        GraphModel union, SnapshotDiff diff, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 
     /// <summary>Moves the camera to fit the nodes named by <paramref name="dns"/>
     /// (ADR-005 D2/D3: parent + members after an expand); completes once the renderer

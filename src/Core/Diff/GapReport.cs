@@ -70,6 +70,12 @@ public sealed record GapFinding(GapKind Kind, IReadOnlyList<string> Dns, string 
 /// <param name="Findings">All gap findings in canonical block order.</param>
 public sealed record GapReport(IReadOnlyList<GapFinding> Findings)
 {
+    /// <summary>The canonical empty report — no findings. A stable singleton (a static readonly
+    /// field, not a computed property) so the App's <c>GapViewModel.Report</c> can start at it and
+    /// reference-compare back to it (the "no gap computed yet" sentinel), mirroring
+    /// <see cref="Rules.RuleReport.Empty"/>.</summary>
+    public static readonly GapReport Empty = new([]);
+
     /// <summary>
     /// Synthesizes the gap report from <paramref name="diff"/> (the classification) and the two
     /// snapshots it diffed (<paramref name="ist"/> live, <paramref name="plan"/> proposed; read

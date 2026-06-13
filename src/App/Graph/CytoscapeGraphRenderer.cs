@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Threading;
 
+using GroupWeaver.Core.Diff;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Rules;
 
@@ -115,6 +116,50 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             await DispatchAsync(GraphChunker.ToUpdateCommands(graph, report, belowMap), cancellationToken);
             await AwaitConfirmationAsync(
                 _loaded.Task, "graph update never completed (60 s)", cancellationToken);
+        }
+        finally
+        {
+            _commandInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Renders a fresh wholesale GAP topology (ADR-015 Slice 6, #66): the same destroy+fit init
+    /// path as <see cref="ShowGraphAsync"/> — the SAME chunk slicing + trailing <c>graphCommit</c>,
+    /// the SAME ready/dispatch/<c>loaded</c>-confirmation plumbing — differing ONLY in that it
+    /// forwards the <paramref name="diff"/>'s per-element status (via
+    /// <see cref="GraphChunker.ToChunkCommands(GraphModel, RuleReport,
+    /// IReadOnlyDictionary{string, ValueTuple{int, RuleSeverity}},
+    /// IReadOnlyDictionary{string, DiffStatus}, IReadOnlyDictionary{MembershipEdge, DiffStatus},
+    /// int, int)"/>) and carries NO report/below-map (an empty report, no roll-up — the gap render
+    /// paints the diff overlay, never severity halos). Identical single-flight guard and 60 s
+    /// bounded-wait → RendererError-and-return-normally policy as <see cref="ShowGraphAsync"/>
+    /// (see its remarks).
+    /// </summary>
+    public async Task ShowDiffGraphAsync(
+        GraphModel union, SnapshotDiff diff, CancellationToken cancellationToken = default)
+    {
+        EnterSingleFlight(nameof(ShowDiffGraphAsync));
+        try
+        {
+            if (!await TryAwaitReadyAsync(cancellationToken))
+            {
+                return;
+            }
+
+            // Armed BEFORE the first dispatch: the page may confirm faster than the
+            // last InvokeScript returns.
+            _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await DispatchAsync(
+                GraphChunker.ToChunkCommands(
+                    union,
+                    RuleReport.Empty,
+                    belowMap: null,
+                    nodeDiffMap: diff.NodeStatus,
+                    edgeDiffMap: diff.EdgeStatus),
+                cancellationToken);
+            await AwaitConfirmationAsync(
+                _loaded.Task, "gap graph render never completed (60 s)", cancellationToken);
         }
         finally
         {
