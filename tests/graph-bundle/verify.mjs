@@ -771,6 +771,27 @@ async function main() {
     await page.screenshot({ path: join(screenshotDir, 'graph-expanded.png') });
     phase('graphUpdate replace-in-place (instance, viewport, handlers survive)');
 
+    // --- PNG export round-trip (AP 4.1, ADR-013) -----------------------------
+    // Dispatch the new {type:'exportPng'} command and await the {type:'pngExported',
+    // data:<base64>, width, height} reply. cy.png({output:'base64'}) returns a BARE
+    // base64 string (no data: prefix); decoding it must yield a real PNG, so assert
+    // the 8-byte PNG signature 89 50 4E 47 0D 0A 1A 0A. The happy path sends NO
+    // jsError, so this MUST sit BEFORE the zero-jsError audit below (F1). Harness
+    // morals hold: bridge-message promise (MESSAGE_TIMEOUT_MS), primitives only out
+    // of evaluate, watchdog-bounded - no sleeps.
+    await page.evaluate(() => window.bridge.dispatch({ type: 'exportPng' }));
+    const png = await awaitMessage('pngExported', 'cy.png base64 export round-trip (ADR-013)');
+    assert(typeof png.data === 'string',
+      `pngExported.data must be a base64 string, got ${typeof png.data}`);
+    assert(png.data.length > 100,
+      `pngExported.data must be a non-trivial base64 payload, got length ${png.data.length}`);
+    const pngBytes = Buffer.from(png.data, 'base64');
+    const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    assert(pngBytes.length >= PNG_MAGIC.length
+      && PNG_MAGIC.every((b, i) => pngBytes[i] === b),
+      `decoded pngExported.data must start with the PNG signature 89 50 4E 47 0D 0A 1A 0A, got ${[...pngBytes.subarray(0, PNG_MAGIC.length)].map((b) => b.toString(16).padStart(2, '0')).join(' ')}`);
+    phase(`png export round-trip (${pngBytes.length} bytes, PNG magic ok)`);
+
     // --- final audit: ZERO jsError across the whole run (ADR-004 D6) ---------
     const jsErrors = allMessages.filter((m) => m.type === 'jsError');
     assert(jsErrors.length === 0,

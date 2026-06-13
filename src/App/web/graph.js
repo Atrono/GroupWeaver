@@ -208,6 +208,22 @@
     });
   }
 
+  // AP 4.1 (ADR-013): rasterize the LIVE instance via cytoscape's built-in
+  // cy.png. output:'base64' returns a BARE base64 string (no data: prefix) -
+  // the .NET side Convert.FromBase64String's it and writes the bytes to the
+  // user-picked .png path. full:false (viewport - "what you see is what you
+  // export"), scale:2, bg:'#1b1f27' are the ADR-013 defaults; the outbound
+  // command carries no untrusted tokens. cy===null is guarded by the caller.
+  function exportPng(cmd) {
+    var data = cy.png({
+      output: 'base64',
+      full: !!cmd.full,
+      scale: cmd.scale || 2,
+      bg: cmd.bg || '#1b1f27'
+    });
+    window.bridge.send({ type: 'pngExported', data: data, width: cy.width(), height: cy.height() });
+  }
+
   function focusOn(ids) {
     // ADR-004 D5: cy.getElementById ONLY - selector concatenation silently
     // matches nothing for every comma-containing DN.
@@ -252,6 +268,19 @@
           break;
         case 'focus':
           focusOn(cmd.ids);
+          break;
+        case 'exportPng':
+          // ADR-013: cy.png on the live instance. Guard like graphUpdate -
+          // an exportPng before any graphCommit has no instance to rasterize.
+          if (cy === null) {
+            window.bridge.send({
+              type: 'jsError',
+              source: 'handler:exportPng',
+              message: 'exportPng before graphCommit: no live cytoscape instance'
+            });
+            break;
+          }
+          exportPng(cmd);
           break;
         case 'ping':
           window.bridge.send({ type: 'pong', seq: cmd.seq });
