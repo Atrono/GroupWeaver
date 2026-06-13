@@ -44,14 +44,23 @@
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="12">
 
-          <!-- 1. Header + Back -->
+          <!-- 1. Header + Export script + Back -->
           <Grid ColumnDefinitions="*,Auto">
             <TextBlock Grid.Column="0" Text="Plan" FontSize="15" FontWeight="SemiBold"
                        VerticalAlignment="Center" />
-            <Button Grid.Column="1" Name="BackButton" Content="← Back to explore"
-                    Padding="8,4" FontSize="12"
-                    ToolTip.Tip="Return to the explored Ist structure"
-                    Command="{Binding BackCommand}" />
+            <!-- Right-aligned actions: Export the plan as an inert .ps1, then Back. Both live in
+                 the editor column - never over GraphHost (ADR-001 airspace guardrail 5). -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                        HorizontalAlignment="Right">
+              <Button Name="ExportScriptButton" Content="Export script"
+                      Padding="8,4" FontSize="12"
+                      ToolTip.Tip="Export the plan as a PowerShell script you run yourself (GroupWeaver never runs it)"
+                      Command="{Binding ExportPlanScriptCommand}" />
+              <Button Name="BackButton" Content="← Back to explore"
+                      Padding="8,4" FontSize="12"
+                      ToolTip.Tip="Return to the explored Ist structure"
+                      Command="{Binding BackCommand}" />
+            </StackPanel>
           </Grid>
 
           <!-- 2. Add object -->

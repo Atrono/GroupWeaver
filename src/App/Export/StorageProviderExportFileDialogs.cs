@@ -35,6 +35,11 @@ public sealed class StorageProviderExportFileDialogs : IExportFileDialogs
         Patterns = ["*.png"],
     };
 
+    private static readonly FilePickerFileType Ps1FileType = new("PowerShell scripts")
+    {
+        Patterns = ["*.ps1"],
+    };
+
     private readonly TopLevel _topLevel;
 
     /// <summary>Wraps the picker of <paramref name="topLevel"/> — the workspace window's
@@ -48,7 +53,8 @@ public sealed class StorageProviderExportFileDialogs : IExportFileDialogs
         {
             ExportKind.Csv => ("Export violation report (CSV)", "csv", CsvFileType),
             ExportKind.Html => ("Export violation report (HTML)", "html", HtmlFileType),
-            _ => ("Export graph image (PNG)", "png", PngFileType),
+            ExportKind.Png => ("Export graph image (PNG)", "png", PngFileType),
+            _ => ("Export plan as a PowerShell script", "ps1", Ps1FileType),
         };
 
         var file = await _topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
