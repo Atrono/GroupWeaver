@@ -15,6 +15,9 @@ public enum ExportKind
 
     /// <summary>Rendered graph image as PNG (<c>*.png</c>).</summary>
     Png,
+
+    /// <summary>Plan Mode proposed structure as an inert PowerShell script (<c>*.ps1</c>).</summary>
+    Ps1,
 }
 
 /// <summary>

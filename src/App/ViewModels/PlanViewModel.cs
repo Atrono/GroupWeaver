@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
+using System.Text;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.Core.Graph;
@@ -35,6 +38,24 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Action? _onBackToExplore;
     private Ruleset _ruleset;
+
+    /// <summary>The injected, deterministic generation clock (AP 4.2.4 / ADR-014): the plan
+    /// export builds its <see cref="PlanScriptHeader.GeneratedAt"/> from this, never the wall
+    /// clock — so two exports of the same plan are byte-identical. Defaults to
+    /// <c>() =&gt; DateTimeOffset.Now</c>; a test injects a fixed instant.</summary>
+    private readonly Func<DateTimeOffset> _clock;
+
+    /// <summary>The injected tool version stamped into the export header (AP 4.2.4 / ADR-014):
+    /// the assembly informational version by default (Program.cs pattern, "unknown" fallback),
+    /// a fixed string in tests — so the exported <c>.ps1</c> is reproducible.</summary>
+    private readonly string _toolVersion;
+
+    /// <summary>The AP 4.1 export save-dialog seam (ADR-013 §5): supplied by the production
+    /// <c>MainWindow</c> from the window's <see cref="Avalonia.Controls.TopLevel"/> once attached
+    /// (via <see cref="UseExportFileDialogs"/>, mirroring <see cref="WorkspaceViewModel"/>);
+    /// <c>null</c> until wired, so <see cref="ExportPlanScriptCommand"/> stays disarmed
+    /// (<see cref="CanExportPlanScript"/>).</summary>
+    private IExportFileDialogs? _exportDialogs;
 
     /// <summary>The AP 3.4 rule report the violations list binds; re-Evaluated on every
     /// <see cref="RevalidateAsync"/> and <see cref="ApplyRulesetAsync"/>.
@@ -110,7 +131,10 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         EffectiveRuleset ruleset,
         Func<IGraphRenderer>? graphRendererFactory = null,
         bool webView2Missing = false,
-        Action? onBackToExplore = null)
+        Action? onBackToExplore = null,
+        IExportFileDialogs? exportDialogs = null,
+        Func<DateTimeOffset>? clock = null,
+        string? toolVersion = null)
     {
         ArgumentNullException.ThrowIfNull(ruleset);
 
@@ -118,6 +142,17 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         _ruleset = ruleset.Ruleset;
         _onBackToExplore = onBackToExplore;
         WebView2Missing = webView2Missing;
+
+        // AP 4.2.4 deterministic-export inputs (ADR-014): the header is built from the injected
+        // clock + tool version so the .ps1 is reproducible (a test pins exact bytes). The version
+        // defaults to the assembly informational version (Program.cs pattern, "unknown" fallback).
+        _exportDialogs = exportDialogs;
+        _clock = clock ?? (() => DateTimeOffset.Now);
+        _toolVersion = toolVersion
+            ?? Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion
+            ?? "unknown";
 
         // Mirror the workspace: re-check the runtime probe BEFORE building a renderer, so a
         // missing WebView2 Runtime never even invokes the factory. The plan owns its OWN
@@ -202,6 +237,68 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     /// which restores the SAME workspace instance — never a reload, never a dispose.</summary>
     [RelayCommand]
     private void Back() => _onBackToExplore?.Invoke();
+
+    /// <summary>Installs the real export save-picker seam (AP 4.2.4 / ADR-014; mirrors
+    /// <see cref="WorkspaceViewModel.UseExportFileDialogs"/>): the production <c>MainWindow</c>
+    /// calls this from its own <see cref="Avalonia.Controls.TopLevel"/>
+    /// (<c>StorageProviderExportFileDialogs</c>) once attached, so the export command reaches the
+    /// OS picker. Headless tests inject a fake here. Re-arms <see cref="ExportPlanScriptCommand"/>
+    /// (its gate includes <c>_exportDialogs is not null</c>); idempotent — the last writer wins.</summary>
+    public void UseExportFileDialogs(IExportFileDialogs dialogs)
+    {
+        _exportDialogs = dialogs;
+        ExportPlanScriptCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Exports the authored plan as an inert PowerShell script to a user-picked path
+    /// (AP 4.2.4 / ADR-014; mirrors the workspace CSV/HTML discipline). NO AD-write code path:
+    /// the FROZEN pure-Core <see cref="PlanScriptExporter.ToPowerShell"/> produces INERT string
+    /// text the app never runs; the only write target is the picked local <c>.ps1</c> file (the
+    /// directory is never touched). Re-guards in the body (a stale-armed Execute ignores
+    /// CanExecute), picks via the seam, and on a non-null pick builds a
+    /// <see cref="PlanScriptHeader"/> from <see cref="BaseOuDn"/> + the INJECTED tool version +
+    /// the INJECTED clock instant, then writes the exporter output (UTF-8, NO BOM) to ONLY that
+    /// path. A control-char token surfaces into <see cref="EditError"/> instead of throwing
+    /// (defense-in-depth — <c>PlanModel.AddNode</c> already blocks them at author time).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportPlanScript))]
+    private async Task ExportPlanScriptAsync()
+    {
+        if (IsDisposed || _exportDialogs is null || Plan.Nodes.Count == 0)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.Ps1, _cts.Token);
+        if (path is null)
+        {
+            return;
+        }
+
+        var header = new PlanScriptHeader(BaseOuDn, _toolVersion, _clock());
+        string script;
+        try
+        {
+            script = PlanScriptExporter.ToPowerShell(Plan, header);
+        }
+        catch (PlanScriptException ex)
+        {
+            EditError = ex.Message;
+            return;
+        }
+
+        EditError = null;
+        await File.WriteAllTextAsync(
+            path, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), _cts.Token);
+    }
+
+    /// <summary>Armed iff the export seam is installed AND the plan has ≥1 node (a control-char
+    /// token can never reach here — <c>AddNode</c> blocks it). Re-gated from
+    /// <see cref="RefreshAuthoredCollections"/> (every add/remove) and
+    /// <see cref="UseExportFileDialogs"/>.</summary>
+    private bool CanExportPlanScript() =>
+        !IsDisposed && _exportDialogs is not null && Plan.Nodes.Count > 0;
 
     // ===== AP 4.2.3 editor commands: form -> model mutation -> collections -> revalidate =====
     // Each mutating command catches PlanConflictException into EditError (a value, never a
@@ -368,6 +465,10 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         SelectedNodeRow = Resolve(Nodes, SelectedNodeRow?.Dn);
         MemberParentRow = Resolve(GroupNodes, MemberParentRow?.Dn);
         MemberChildRow = Resolve(Nodes, MemberChildRow?.Dn);
+
+        // Re-gate plan export across the zero-node boundary (AP 4.2.4): adding the first object
+        // arms it, removing the last disarms it (the dialogs half is set by UseExportFileDialogs).
+        ExportPlanScriptCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>The fresh <paramref name="rows"/> instance whose Dn matches <paramref name="dn"/>
