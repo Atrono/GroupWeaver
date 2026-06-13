@@ -513,6 +513,204 @@ public sealed class ShellScreenshotTests
             + "(parity with NamingPreviewConverter)");
     }
 
+    // --- Settings window: Rules master grid (AP 3.3 / S6) -----------------------------------------
+
+    /// <summary>
+    /// AP 3.3 / S6 (ADR-011; spec "Final slice plan" S6 + "ui-checklist additions"): the
+    /// modal <see cref="SettingsWindow"/>'s <b>Rules master grid</b> rendered standalone —
+    /// the same headless seam <see cref="Settings_Naming"/> pins (<c>.Show()</c>, NOT
+    /// <c>ShowDialog</c>; open-risk #3), capturing <c>settings-rules-{W}x{H}.png</c> at both
+    /// checklist sizes for the ui-verifier to judge against the new section-B Rules-grid row.
+    ///
+    /// <para>The VM is seeded from <see cref="RulesetLoader.LoadDefault"/> through the mirror
+    /// (<see cref="SettingsViewModel.LoadFrom"/>) — the demo-mode-safe default, never a lab
+    /// file. The default's master grid spans every rule kind the <c>EnumerateRules</c> shape
+    /// emits: the nesting matrix (error), the three <c>naming-*</c> rules (warning), circular
+    /// (error) and empty-group (info) — so ALL THREE severities are evidenced in one frame
+    /// AND the two SimpleRule cards (circular + empty-group) the spec wants in the Rules-tab
+    /// capture are present.</para>
+    ///
+    /// <para>Beyond the PNG, <see cref="AssertRulesGridSeverityParity"/> pins fixture
+    /// soundness — the <b>severity-parity assertion on the Rules grid</b> the checklist's
+    /// <c>[T:SettingsScreenshotTests — severity parity]</c> tag demands: every
+    /// <see cref="RuleRowEditor"/> renders, above the fold, its E/W/i glyph in the pinned
+    /// <see cref="SeverityConverters"/> palette (#D13438 / #F7A30B / #4FA3E3), DERIVED from
+    /// the live row severity (never a hardcoded hex), so a static frame can never look
+    /// plausible while a row's severity selector drifts off the palette or the grid silently
+    /// loses a row. <b>RED</b> until <c>src/App/Views/SettingsWindow.axaml(.cs)</c> and the
+    /// Rules tab (the <c>EnumerateRules</c>-shaped grid binding <see cref="SettingsViewModel.Rules"/>)
+    /// exist — today no grid row realizes, so the parity assertion finds no glyphs.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_Rules(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        // Soundness BEFORE the window: the default seeds the full EnumerateRules shape — the
+        // nesting row, every naming rule, circular and empty-group — covering all three
+        // severities (nesting=Error, naming=Warning, empty-group=Info) so the parity check
+        // below has a row in each palette color to verify.
+        Assert.Equal(
+            vm.Naming.Count + 3, // nesting + each naming rule + circular + empty-group
+            vm.Rules.Count);
+        var severities = vm.Rules.Select(r => r.Severity).ToHashSet();
+        Assert.Contains(RuleSeverity.Error, severities);
+        Assert.Contains(RuleSeverity.Warning, severities);
+        Assert.Contains(RuleSeverity.Info, severities);
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the Rules tab to the front so its master grid (the captured surface) is realized.
+        SelectTab(window, "Rules");
+        Dispatcher.UIThread.RunJobs();
+
+        // The grid renders every rule's severity glyph in the pinned palette — the soundness
+        // pin the PNG can't make (and the checklist's "severity parity" test tag).
+        AssertRulesGridSeverityParity(window, vm);
+
+        CaptureWindowPng(window, "settings-rules", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the Rules master grid (AP 3.3 / S6; checklist
+    /// <c>[T:SettingsScreenshotTests — severity parity]</c>): every <see cref="RuleRowEditor"/>
+    /// in <see cref="SettingsViewModel.Rules"/> renders its severity in the ONE pinned
+    /// <see cref="SeverityConverters"/> palette — the E/W/i glyph AND its #D13438/#F7A30B/#4FA3E3
+    /// square color, DERIVED from the live <see cref="RuleRowEditor.Severity"/> (never a hardcoded
+    /// hex), exactly the <see cref="AssertSeverityChipStrip"/> shape. For each distinct severity
+    /// present in the grid the realized Rules-tab content must contain at least one rendered glyph
+    /// <see cref="Avalonia.Controls.TextBlock"/> whose <c>Text</c> equals that severity's glyph and
+    /// whose own <c>Foreground</c> OR a <see cref="Avalonia.Controls.Border"/> ancestor's
+    /// <c>Background</c> is the pinned palette color — so the grid can never silently drift off the
+    /// palette, miscolor a row, or lose a severity entirely.
+    /// </summary>
+    private static void AssertRulesGridSeverityParity(SettingsWindow window, SettingsViewModel vm)
+    {
+        Assert.NotEmpty(vm.Rules);
+
+        // The glyph TextBlocks rendered anywhere in the realized window. The Rules grid binds
+        // its severity selector through the same SeverityConverters the sidebar chip strip does,
+        // so each row contributes a glyph painted in that severity's palette color.
+        var glyphBlocks = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text))
+            .ToList();
+
+        foreach (var severity in vm.Rules.Select(r => r.Severity).Distinct())
+        {
+            // Expectations DERIVED from the one palette the XAML binds — never hardcoded.
+            var glyph = Assert.IsType<string>(SeverityConverters.ToGlyph.Convert(
+                severity, typeof(string), null, CultureInfo.InvariantCulture));
+            var expectedColor = Assert.IsAssignableFrom<ISolidColorBrush>(
+                SeverityConverters.ToBrush.Convert(
+                    severity, typeof(IBrush), null, CultureInfo.InvariantCulture)).Color;
+
+            var painted = glyphBlocks.Any(t =>
+                t.Text == glyph
+                && ((t.Foreground is ISolidColorBrush fg && fg.Color == expectedColor)
+                    || t.GetVisualAncestors()
+                        .OfType<Avalonia.Controls.Border>()
+                        .Any(b => b.Background is ISolidColorBrush bg && bg.Color == expectedColor)));
+
+            Assert.True(
+                painted,
+                $"the Rules grid must render a '{glyph}' severity glyph in the pinned palette color "
+                + $"#{expectedColor.R:X2}{expectedColor.G:X2}{expectedColor.B:X2} "
+                + $"for severity {severity} (parity with SeverityConverters)");
+        }
+    }
+
+    // --- Settings window: Matrix tab (AP 3.3 / S6) ------------------------------------------------
+
+    /// <summary>
+    /// AP 3.3 / S6 (ADR-011; spec "Matrix editor" + "ui-checklist additions"): the modal
+    /// <see cref="SettingsWindow"/>'s <b>nesting-matrix tab</b> rendered standalone — same
+    /// headless seam (<c>.Show()</c>, NOT <c>ShowDialog</c>), capturing
+    /// <c>settings-matrix-{W}x{H}.png</c> at both checklist sizes for the ui-verifier to judge
+    /// the 3×6 grid (3 parent rows GG/DL/UG × 6 member cols User/Computer/GG/DL/UG/External, no
+    /// OU), the kind-badge headers, the per-cell allow/deny/error/warning/info chips, and the
+    /// Unlisted-fallback + rule-wide-default-severity controls (the AGUDLP lane readable).
+    ///
+    /// <para>The VM is seeded from <see cref="RulesetLoader.LoadDefault"/> through the mirror —
+    /// the default ships the full strict-AGDLP matrix (every cell present), so the captured grid
+    /// is the canonical 18-cell shape, including the AGUDLP lane (DL←UG allow, UG←GG allow) the
+    /// checklist wants legible.</para>
+    ///
+    /// <para><see cref="AssertMatrixGridCells"/> pins fixture soundness the PNG can't: the
+    /// realized window contains a rendered, addressable cell surface for all 18 parent×member
+    /// pairings the <see cref="NestingEditor"/> grid spans — so a static frame can never look
+    /// plausible while the matrix grid is missing or short rows/columns. <b>RED</b> until
+    /// <c>src/App/Views/SettingsWindow.axaml(.cs)</c> and the Matrix tab (the 3×6 grid binding
+    /// <see cref="NestingEditor.Cells"/>) exist — today no matrix cell control realizes.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_Matrix(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        // Soundness BEFORE the window: the default seeds the dense 3×6 grid (18 cells, every one
+        // Present) so the captured matrix is the full strict-AGDLP shape — never a sparse stub.
+        Assert.Equal(
+            NestingEditor.ParentKinds.Count * NestingEditor.MemberKinds.Count,
+            vm.Nesting.Cells.Count);
+        Assert.All(vm.Nesting.Cells, c => Assert.True(
+            c.Present, $"default cell {c.Parent}<-{c.Member} must load Present for the full matrix capture"));
+
+        // The two SimpleRule rules the spec wants surfaced alongside the matrix capture exist and
+        // are enabled in the default (circular=error, empty-group=info) — the Rules-tab cards.
+        Assert.True(vm.Circular.Enabled);
+        Assert.True(vm.EmptyGroup.Enabled);
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the Matrix tab to the front so its 3×6 grid (the captured surface) is realized.
+        SelectTab(window, "Matrix");
+        Dispatcher.UIThread.RunJobs();
+
+        // The 18-cell grid actually realized a control per cell — the soundness pin the PNG can't make.
+        AssertMatrixGridCells(window, vm);
+
+        CaptureWindowPng(window, "settings-matrix", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the nesting-matrix tab (AP 3.3 / S6): the realized window
+    /// surfaces a rendered, bound editor control for EVERY one of the 18
+    /// parent×member cells the <see cref="NestingEditor"/> grid spans — located via the
+    /// <see cref="NestingCellEditor"/> instances themselves, which the spec binds as each cell's
+    /// <c>DataContext</c> (a compact per-cell <see cref="Avalonia.Controls.ComboBox"/> over
+    /// <see cref="NestingCellEditor.Choice"/>). Every cell editor must back at least one realized,
+    /// effectively-visible <see cref="Avalonia.Controls.Control"/> in the visual tree — so the grid
+    /// can never silently drop a row or column and still look plausible in a static frame.
+    /// </summary>
+    private static void AssertMatrixGridCells(SettingsWindow window, SettingsViewModel vm)
+    {
+        Assert.Equal(18, vm.Nesting.Cells.Count); // 3 parents × 6 members, the canonical shape
+
+        var boundDataContexts = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Control>()
+            .Where(c => c.IsEffectivelyVisible)
+            .Select(c => c.DataContext)
+            .ToHashSet();
+
+        foreach (var cell in vm.Nesting.Cells)
+        {
+            Assert.True(
+                boundDataContexts.Contains(cell),
+                $"the matrix grid must realize a bound cell control for {cell.Parent}<-{cell.Member}");
+        }
+    }
+
     /// <summary>Brings the <see cref="Avalonia.Controls.TabItem"/> whose header text contains
     /// <paramref name="header"/> to the front of the window's <see cref="Avalonia.Controls.TabControl"/>,
     /// so its content is realized for capture. Header match is substring + ordinal-ignore-case so

@@ -10,6 +10,55 @@
         Width="900" Height="640"
         MinWidth="720" MinHeight="520">
 
+  <Window.Resources>
+
+    <!-- Shared severity-selector item template (AP 3.3 / S6): the E/W/i glyph in the
+         pinned SeverityConverters palette (#D13438/#F7A30B/#4FA3E3) + the name label.
+         Reused by the Naming-tab cards AND the Rules-tab master grid so every severity
+         selector in the editor reads in lock-step with the sidebar glyphs. -->
+    <DataTemplate x:Key="SeverityItemTemplate" x:DataType="rules:RuleSeverity">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Border Width="18" Height="18" CornerRadius="3"
+                Background="{Binding Converter={x:Static views:SeverityConverters.ToBrush}}">
+          <TextBlock Text="{Binding Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- Shared nesting-matrix cell-choice item template (AP 3.3 / S6): a compact colored
+         chip — green ✓ allow, neutral ✗ deny, E/W/i in the ADR-010 palette for a per-cell
+         severity override — so a cell reads as a colored chip without opening its ComboBox.
+         Reused by the 18 matrix cells AND the Unlisted-fallback selector. -->
+    <DataTemplate x:Key="CellChoiceItemTemplate" x:DataType="settings:CellChoice">
+      <Border MinWidth="58" CornerRadius="3" Padding="6,1"
+              Background="{Binding Converter={x:Static views:CellChoiceConverters.ToBrush}}">
+        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+          <TextBlock Text="{Binding Converter={x:Static views:CellChoiceConverters.ToGlyph}}"
+                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     VerticalAlignment="Center" />
+          <TextBlock Text="{Binding}" Foreground="White" FontSize="11"
+                     VerticalAlignment="Center" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
+    <!-- One matrix cell (AP 3.3 / S6): a ContentControl in the 3×6 grid binds a
+         NestingCellEditor as its Content, this template re-scopes the compiled-binding
+         x:DataType to that cell so the ComboBox's SelectedItem="{Binding Choice}" resolves
+         against the cell (and the realized control's DataContext IS the cell — the matrix
+         soundness pin). The chip ItemTemplate renders the colored verdict. -->
+    <DataTemplate x:Key="MatrixCellTemplate" x:DataType="settings:NestingCellEditor">
+      <ComboBox HorizontalAlignment="Stretch"
+                SelectedItem="{Binding Choice}"
+                ItemsSource="{x:Static settings:CellChoiceItems.All}"
+                ItemTemplate="{StaticResource CellChoiceItemTemplate}" />
+    </DataTemplate>
+
+  </Window.Resources>
+
   <!-- The modal settings editor (AP 3.3 / ADR-011 §1): a separate top-level Window
        (ADR-003 D5's sanctioned escape hatch — never layered over the workspace
        GraphHost, ADR-001 airspace guardrail 5). The editable mirror tree
@@ -69,9 +118,55 @@
 
     <TabControl Padding="0">
 
+      <!-- Rules master grid (AP 3.3 / S6): one row per rule in the EnumerateRules shape —
+           the nesting matrix, every naming rule (file order), circular, empty-group — each
+           a 2-way Enabled toggle + Severity selector reading/writing THROUGH the owning
+           section editor (RuleRowEditor, so the grid and the per-section tabs can never
+           disagree). The severity selector reuses the shared SeverityItemTemplate, so each
+           row's E/W/i glyph reads in the pinned SeverityConverters palette. -->
       <TabItem Header="Rules">
-        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
-                   Text="The rule master grid is added in a later slice." />
+        <ScrollViewer>
+          <StackPanel Margin="12" Spacing="2">
+
+            <TextBlock Opacity="0.6" TextWrapping="Wrap" Margin="2,0,0,8"
+                       Text="Every rule, with its on/off toggle and severity. Edit a rule's details on its own tab (Naming, Matrix); changes here and there stay in sync." />
+
+            <!-- Header row -->
+            <Grid ColumnDefinitions="Auto,*,Auto" Margin="4,0,4,4">
+              <TextBlock Grid.Column="0" Text="On" FontWeight="SemiBold" Opacity="0.7" />
+              <TextBlock Grid.Column="1" Text="Rule" FontWeight="SemiBold" Opacity="0.7"
+                         Margin="10,0,0,0" />
+              <TextBlock Grid.Column="2" Text="Severity" FontWeight="SemiBold" Opacity="0.7"
+                         Margin="10,0,0,0" />
+            </Grid>
+
+            <ItemsControl ItemsSource="{Binding Rules}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settings:RuleRowEditor">
+                  <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="4,6">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                IsChecked="{Binding Enabled}" />
+                      <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Margin="10,0,0,0"
+                                 VerticalAlignment="Center" TextWrapping="NoWrap" />
+                      <ComboBox Grid.Column="2" Margin="10,0,0,0" MinWidth="120"
+                                VerticalAlignment="Center"
+                                SelectedItem="{Binding Severity}"
+                                ItemTemplate="{StaticResource SeverityItemTemplate}">
+                        <ComboBox.Items>
+                          <rules:RuleSeverity>Error</rules:RuleSeverity>
+                          <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                          <rules:RuleSeverity>Info</rules:RuleSeverity>
+                        </ComboBox.Items>
+                      </ComboBox>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
 
       <TabItem Header="Naming">
@@ -97,25 +192,13 @@
                            the SeverityConverters palette (parity with the sidebar). -->
                       <ComboBox Grid.Column="2" Margin="8,0,0,0" MinWidth="120"
                                 VerticalAlignment="Center"
-                                SelectedItem="{Binding Severity}">
+                                SelectedItem="{Binding Severity}"
+                                ItemTemplate="{StaticResource SeverityItemTemplate}">
                         <ComboBox.Items>
                           <rules:RuleSeverity>Error</rules:RuleSeverity>
                           <rules:RuleSeverity>Warning</rules:RuleSeverity>
                           <rules:RuleSeverity>Info</rules:RuleSeverity>
                         </ComboBox.Items>
-                        <ComboBox.ItemTemplate>
-                          <DataTemplate x:DataType="rules:RuleSeverity">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                              <Border Width="18" Height="18" CornerRadius="3"
-                                      Background="{Binding Converter={x:Static views:SeverityConverters.ToBrush}}">
-                                <TextBlock Text="{Binding Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                                           Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                              </Border>
-                              <TextBlock Text="{Binding}" VerticalAlignment="Center" />
-                            </StackPanel>
-                          </DataTemplate>
-                        </ComboBox.ItemTemplate>
                       </ComboBox>
 
                       <!-- Kind selector: the 6 legal kinds (External pre-filtered — the
@@ -204,9 +287,166 @@
         </ScrollViewer>
       </TabItem>
 
+      <!-- Nesting matrix editor (AP 3.3 / S6): a fixed 3×6 explicit grid — rows (parent)
+           GG/DL/UG × columns (member) User/Computer/GG/DL/UG/External (OU excluded, the
+           loader rejects an OU column). Row/column headers are kind badges (AdObjectKind
+           converters) so the AGUDLP lane reads by color. Each of the 18 cells binds to its
+           NestingCellEditor (indexer binding into the canonical parent-major Cells list) so
+           a cell control's DataContext IS the editor — a compact ComboBox over Choice whose
+           items render a colored allow/deny/E/W/i chip. Below: the Unlisted fallback, the
+           rule-wide deny severity, and the nesting Enabled toggle, then the two simple-rule
+           cards (circular + empty-group). -->
       <TabItem Header="Matrix">
-        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
-                   Text="The nesting matrix editor is added in a later slice." />
+        <ScrollViewer>
+          <StackPanel Margin="12" Spacing="12">
+
+            <DockPanel>
+              <CheckBox DockPanel.Dock="Right" VerticalAlignment="Center"
+                        Content="Nesting check enabled" IsChecked="{Binding Nesting.Enabled}" />
+              <TextBlock Text="Allowed nesting (parent ← member)" FontWeight="SemiBold"
+                         VerticalAlignment="Center" />
+            </DockPanel>
+
+            <!-- The 3×6 matrix: row 0 = column-header badges, rows 1-3 = the parent bands.
+                 Column 0 = the row-header badge column; columns 1-6 = the member cells. -->
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto"
+                  ColumnDefinitions="Auto,*,*,*,*,*,*" ColumnSpacing="4" RowSpacing="4">
+
+              <!-- Column headers (member kinds), badged. -->
+              <Border Grid.Row="0" Grid.Column="1" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.User}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.User}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="2" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.Computer}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.Computer}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="3" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="4" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="5" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="6" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.External}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.External}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+
+              <!-- Row 1: GlobalGroup parent (cells 0-5). -->
+              <Border Grid.Row="1" Grid.Column="0" CornerRadius="3" Padding="4,1" MinWidth="30" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <ContentControl Grid.Row="1" Grid.Column="1" Content="{Binding Nesting.Cells[0]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="2" Content="{Binding Nesting.Cells[1]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="3" Content="{Binding Nesting.Cells[2]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="4" Content="{Binding Nesting.Cells[3]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="5" Content="{Binding Nesting.Cells[4]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="6" Content="{Binding Nesting.Cells[5]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+
+              <!-- Row 2: DomainLocalGroup parent (cells 6-11). -->
+              <Border Grid.Row="2" Grid.Column="0" CornerRadius="3" Padding="4,1" MinWidth="30" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <ContentControl Grid.Row="2" Grid.Column="1" Content="{Binding Nesting.Cells[6]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="2" Content="{Binding Nesting.Cells[7]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="3" Content="{Binding Nesting.Cells[8]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="4" Content="{Binding Nesting.Cells[9]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="5" Content="{Binding Nesting.Cells[10]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="6" Content="{Binding Nesting.Cells[11]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+
+              <!-- Row 3: UniversalGroup parent (cells 12-17). -->
+              <Border Grid.Row="3" Grid.Column="0" CornerRadius="3" Padding="4,1" MinWidth="30" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <ContentControl Grid.Row="3" Grid.Column="1" Content="{Binding Nesting.Cells[12]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="2" Content="{Binding Nesting.Cells[13]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="3" Content="{Binding Nesting.Cells[14]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="4" Content="{Binding Nesting.Cells[15]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="5" Content="{Binding Nesting.Cells[16]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="6" Content="{Binding Nesting.Cells[17]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+
+            </Grid>
+
+            <!-- Fallback + rule-wide deny severity. -->
+            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="6">
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="Unlisted (fallback) →"
+                         VerticalAlignment="Center" />
+              <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="100"
+                        SelectedItem="{Binding Nesting.Unlisted}"
+                        ItemTemplate="{StaticResource CellChoiceItemTemplate}"
+                        ItemsSource="{x:Static settings:CellChoiceItems.All}" />
+
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="Default severity for deny cells →"
+                         VerticalAlignment="Center" />
+              <ComboBox Grid.Row="1" Grid.Column="1" MinWidth="120"
+                        SelectedItem="{Binding Nesting.Severity}"
+                        ItemTemplate="{StaticResource SeverityItemTemplate}">
+                <ComboBox.Items>
+                  <rules:RuleSeverity>Error</rules:RuleSeverity>
+                  <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                  <rules:RuleSeverity>Info</rules:RuleSeverity>
+                </ComboBox.Items>
+              </ComboBox>
+            </Grid>
+
+            <TextBlock Opacity="0.6" TextWrapping="Wrap"
+                       Text="Deny uses the default severity; pick Error/Warning/Info to override one cell." />
+
+            <!-- The two simple-rule cards (circular + empty-group): Enabled + Severity, the
+                 same two rules surfaced as rows in the Rules master grid. Their RuleId is
+                 fixed and invisible (reconstructed from RuleIds on build). -->
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="12">
+              <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8">
+                <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center"
+                          IsChecked="{Binding Circular.Enabled}" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="Circular nesting (A → B → A)"
+                           Margin="8,0,0,0" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="0" Grid.Column="2" MinWidth="120" VerticalAlignment="Center"
+                          SelectedItem="{Binding Circular.Severity}"
+                          ItemTemplate="{StaticResource SeverityItemTemplate}">
+                  <ComboBox.Items>
+                    <rules:RuleSeverity>Error</rules:RuleSeverity>
+                    <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                    <rules:RuleSeverity>Info</rules:RuleSeverity>
+                  </ComboBox.Items>
+                </ComboBox>
+
+                <CheckBox Grid.Row="1" Grid.Column="0" VerticalAlignment="Center"
+                          IsChecked="{Binding EmptyGroup.Enabled}" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="Empty groups"
+                           Margin="8,0,0,0" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="1" Grid.Column="2" MinWidth="120" VerticalAlignment="Center"
+                          SelectedItem="{Binding EmptyGroup.Severity}"
+                          ItemTemplate="{StaticResource SeverityItemTemplate}">
+                  <ComboBox.Items>
+                    <rules:RuleSeverity>Error</rules:RuleSeverity>
+                    <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                    <rules:RuleSeverity>Info</rules:RuleSeverity>
+                  </ComboBox.Items>
+                </ComboBox>
+              </Grid>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
 
       <TabItem Header="Ignore &amp; Exceptions">
