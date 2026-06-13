@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using GroupWeaver.Core.Model;
 
 namespace GroupWeaver.Core.Rules;
@@ -60,14 +62,63 @@ public static class RuleEngine
         // Nesting.Exceptions. Finding: Dns = [ParentDn, ChildDn] as stored.
     }
 
-    /// <summary>Naming checks, one block per rule in file order.</summary>
+    /// <summary>Naming checks, one block per rule in file order (ADR-009):
+    /// subjects are the snapshot objects of <c>rule.Kind</c> (the loader forbids
+    /// External targets); the evaluated string is <c>SamAccountName ?? Name</c>.
+    /// A disabled rule yields zero findings AND skipped work — its pattern is
+    /// never compiled. An unsupported pattern in a hand-built ruleset lets the
+    /// Regex constructor exception propagate (programming error, not input
+    /// error — the loader validates user files).</summary>
     private static void CheckNaming(DirectorySnapshot snapshot, Ruleset ruleset, List<RuleViolation> violations)
     {
-        // TODO(AP 3.2 S3): per enabled naming rule, compile the pattern once per
-        // Evaluate call (NonBacktracking | CultureInvariant — no static memo, so
-        // AP 3.3 preview keystrokes never intern into process memory); subjects =
-        // snapshot objects of rule.Kind; evaluated string = SamAccountName ?? Name;
-        // suppression via the object channel (global ignore, then rule.Exceptions).
+        foreach (var rule in ruleset.Naming)
+        {
+            if (!rule.Enabled)
+            {
+                continue;
+            }
+
+            // Compiled once per ENABLED rule per Evaluate call, never memoized
+            // statically (ADR-009) — AP 3.3's per-keystroke preview patterns
+            // must not intern into process memory. NonBacktracking keeps
+            // matching linear-time on untrusted files; the pattern is anchored
+            // as written and case-SENSITIVE (inline (?i) supported).
+            var regex = new Regex(rule.Pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
+
+            foreach (var obj in snapshot.Objects)
+            {
+                if (obj.Kind != rule.Kind)
+                {
+                    continue;
+                }
+
+                var evaluated = obj.SamAccountName ?? obj.Name;
+                if (regex.IsMatch(evaluated))
+                {
+                    continue;
+                }
+
+                // Suppression order (ADR-008): global ignore, then per-rule
+                // exceptions — object-subject rules use the object channel
+                // directly. Testing the pattern first is observationally
+                // equivalent (suppressing a non-finding is a no-op).
+                if (MatchesAny(ruleset.Ignore, obj) || MatchesAny(rule.Exceptions, obj))
+                {
+                    continue;
+                }
+
+                violations.Add(new RuleViolation
+                {
+                    RuleId = rule.Id,
+                    Severity = rule.Severity,
+                    Dns = [obj.Dn],
+                    // Names the EVALUATED string (sam when present), never the
+                    // un-judged other field; string-only interpolation is
+                    // culture-invariant by construction.
+                    Message = $"Name '{evaluated}' does not match pattern '{rule.Pattern}'.",
+                });
+            }
+        }
     }
 
     /// <summary>Circular check plus the frontier sweep — the ONLY transitive
