@@ -13,6 +13,15 @@ PR that updates the tests deliberately.
   list = loaded and genuinely empty (empty-group check AP 3.2). `SetMembers`
   REPLACES prior members (refresh semantics) and de-duplicates
   case-insensitively. Not thread-safe by contract.
+- **`DirectorySnapshot.Objects` is APPEND-ONLY — there is NO `RemoveObject`, and
+  there must not be one.** Removing a loaded object would tear the `IsLoaded` /
+  null-vs-empty tri-state (a removed loaded parent reads as "never loaded" =
+  AP 3.4 "unexpanded unchecked" = a lie) and resurrect `MembershipTraversal.Walk`
+  frontier nodes. Orphan ex-member nodes after a member-dropping refresh are
+  cured by **whole-scope reload** (`ReloadScopeCommand` rebuilds a FRESH snapshot
+  from `LoadScopeAsync`; issue #30, ADR-005 addendum), never by mutating the
+  current one. Graph-layer reachability pruning is the only sanctioned future
+  alternative and needs its own ADR (it breaks GraphBuilder totality).
 - **Unresolvable is a value, never an exception.** Unknown DN → `null`
   (`GetObjectAsync`) / `Kind.External` (members, `GetKind`) / empty list
   (`GetMembersAsync` on vanished parent). Only directory-unreachable/bind
