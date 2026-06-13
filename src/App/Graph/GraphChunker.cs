@@ -1,4 +1,6 @@
+using GroupWeaver.Core.Diff;
 using GroupWeaver.Core.Graph;
+using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Graph;
@@ -25,21 +27,29 @@ public static class GraphChunker
         GraphModel model,
         int maxNodesPerChunk = 500,
         int maxEdgesPerChunk = 1000) =>
-        ToChunkCommands(model, RuleReport.Empty, belowMap: null, maxNodesPerChunk, maxEdgesPerChunk);
+        ToChunkCommands(
+            model, RuleReport.Empty, belowMap: null,
+            maxNodesPerChunk: maxNodesPerChunk, maxEdgesPerChunk: maxEdgesPerChunk);
 
     /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a full
     /// init (<c>graphCommit</c>: destroy + fit), joining the AP 3.4 severity wire fields
-    /// (ADR-010): <paramref name="report"/> + <paramref name="belowMap"/> are forwarded
-    /// straight into <see cref="GraphJson.MapNodes"/> — the ONE shared node path — so the
-    /// per-chunk <c>sev</c>/<c>below</c>/<c>belowSev</c> are string-identical to the flat
-    /// dump for the same model and can never drift.</summary>
+    /// (ADR-010) and the v0.3 gap-analysis diff channel (ADR-015 Slice 4):
+    /// <paramref name="report"/> + <paramref name="belowMap"/> +
+    /// <paramref name="nodeDiffMap"/> + <paramref name="edgeDiffMap"/> are forwarded
+    /// straight into <see cref="GraphJson.MapNodes"/>/<see cref="GraphJson.MapEdges"/> —
+    /// the ONE shared mapping path — so the per-chunk <c>sev</c>/<c>below</c>/
+    /// <c>belowSev</c>/<c>diff</c> are string-identical to the flat dump for the same
+    /// model and can never drift. The diff maps sit BEFORE the int caps so the smaller
+    /// no-diff call sites still bind.</summary>
     public static IReadOnlyList<string> ToChunkCommands(
         GraphModel model,
         RuleReport report,
         IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        IReadOnlyDictionary<string, DiffStatus>? nodeDiffMap = null,
+        IReadOnlyDictionary<MembershipEdge, DiffStatus>? edgeDiffMap = null,
         int maxNodesPerChunk = 500,
         int maxEdgesPerChunk = 1000) =>
-        ToCommands(model, report, belowMap, maxNodesPerChunk, maxEdgesPerChunk, CommitCommand);
+        ToCommands(model, report, belowMap, nodeDiffMap, edgeDiffMap, maxNodesPerChunk, maxEdgesPerChunk, CommitCommand);
 
     /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a
     /// replace-in-place update (<c>graphUpdate</c>: live instance, viewport untouched,
@@ -49,25 +59,33 @@ public static class GraphChunker
         GraphModel model,
         int maxNodesPerChunk = 500,
         int maxEdgesPerChunk = 1000) =>
-        ToUpdateCommands(model, RuleReport.Empty, belowMap: null, maxNodesPerChunk, maxEdgesPerChunk);
+        ToUpdateCommands(
+            model, RuleReport.Empty, belowMap: null,
+            maxNodesPerChunk: maxNodesPerChunk, maxEdgesPerChunk: maxEdgesPerChunk);
 
     /// <summary>Maps <paramref name="model"/> to the chunked wire commands for a
     /// replace-in-place update (<c>graphUpdate</c>), carrying the AP 3.4 severity wire
-    /// fields (ADR-010 D3): the sev/below fields are string-identical to show mode for the
-    /// same <paramref name="report"/> + <paramref name="belowMap"/>, so a re-sent update
-    /// re-attaches the halos on the live instance — only the trailing commit verb differs.</summary>
+    /// fields (ADR-010 D3) and the v0.3 gap-analysis diff channel (ADR-015 Slice 4): the
+    /// sev/below/diff fields are string-identical to show mode for the same
+    /// <paramref name="report"/> + <paramref name="belowMap"/> + <paramref name="nodeDiffMap"/>
+    /// + <paramref name="edgeDiffMap"/>, so a re-sent update re-attaches the halos and the
+    /// gap overlay on the live instance — only the trailing commit verb differs.</summary>
     public static IReadOnlyList<string> ToUpdateCommands(
         GraphModel model,
         RuleReport report,
         IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        IReadOnlyDictionary<string, DiffStatus>? nodeDiffMap = null,
+        IReadOnlyDictionary<MembershipEdge, DiffStatus>? edgeDiffMap = null,
         int maxNodesPerChunk = 500,
         int maxEdgesPerChunk = 1000) =>
-        ToCommands(model, report, belowMap, maxNodesPerChunk, maxEdgesPerChunk, UpdateCommand);
+        ToCommands(model, report, belowMap, nodeDiffMap, edgeDiffMap, maxNodesPerChunk, maxEdgesPerChunk, UpdateCommand);
 
     private static IReadOnlyList<string> ToCommands(
         GraphModel model,
         RuleReport report,
         IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        IReadOnlyDictionary<string, DiffStatus>? nodeDiffMap,
+        IReadOnlyDictionary<MembershipEdge, DiffStatus>? edgeDiffMap,
         int maxNodesPerChunk,
         int maxEdgesPerChunk,
         string trailingCommand)
@@ -75,10 +93,10 @@ public static class GraphChunker
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxNodesPerChunk);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEdgesPerChunk);
 
-        // GraphJson owns the ONE mapping code path (ids, flip, camelCase, severity) — the
-        // chunker only slices its output, so chunked and flat can never drift.
-        var nodes = GraphJson.MapNodes(model.Nodes, report, belowMap);
-        var edges = GraphJson.MapEdges(model.Edges);
+        // GraphJson owns the ONE mapping code path (ids, flip, camelCase, severity, diff) —
+        // the chunker only slices its output, so chunked and flat can never drift.
+        var nodes = GraphJson.MapNodes(model.Nodes, report, belowMap, nodeDiffMap);
+        var edges = GraphJson.MapEdges(model.Edges, edgeDiffMap);
 
         var commands = new List<string>();
         var nodeIndex = 0;
