@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
+using System.Text;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Startup;
+using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
@@ -41,6 +44,8 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     [NotifyCanExecuteChangedFor(nameof(JumpCommand))]
     [NotifyCanExecuteChangedFor(nameof(ReloadScopeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportReportHtmlCommand))]
     private bool _isLoading;
 
     /// <summary>Inline load/renderer error; <c>null</c> hides the error block.</summary>
@@ -87,18 +92,27 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// picks the new ruleset up in its own Evaluate.</summary>
     private Ruleset _ruleset;
 
+    /// <summary>The AP 4.1 export save-dialog seam (ADR-013 §5): supplied by the composition
+    /// root from the workspace window's <see cref="Avalonia.Controls.TopLevel"/> once attached
+    /// (via <see cref="UseExportFileDialogs"/>, mirroring <c>SettingsViewModel.UseFileDialogs</c>);
+    /// <c>null</c> in tests until the export seam is wired, so every existing test stays on the
+    /// default and the export commands stay disarmed (<see cref="CanExportReport"/>).</summary>
+    private IExportFileDialogs? _exportDialogs;
+
     public WorkspaceViewModel(
         IDirectoryProvider provider,
         AdObject root,
         DirectoryConnection connection,
         bool webView2Missing = false,
         Func<IGraphRenderer>? graphRendererFactory = null,
-        EffectiveRuleset? ruleset = null)
+        EffectiveRuleset? ruleset = null,
+        IExportFileDialogs? exportDialogs = null)
     {
         Provider = provider;
         Root = root;
         Connection = connection;
         WebView2Missing = webView2Missing;
+        _exportDialogs = exportDialogs;
 
         // null => the embedded default (the pre-AP-3.4 contract); a located user/default
         // EffectiveRuleset otherwise. Errors carried, surfaced by AP 3.3. // AP 3.3
@@ -358,6 +372,97 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         var below = ComputeBelow(Snapshot, Report);
         await renderer.UpdateGraphAsync(Graph!, Report, below, cancellationToken);
     }
+
+    /// <summary>Installs the real export save-picker seam (AP 4.1 / ADR-013 §5): the
+    /// production workspace view calls this from its own <see cref="Avalonia.Controls.TopLevel"/>
+    /// (<c>StorageProviderExportFileDialogs</c>) once attached, so the export commands reach the
+    /// OS picker. Headless tests inject a fake here. Re-arms the export commands (the gate
+    /// includes <c>_exportDialogs is not null</c>). Idempotent — the last writer wins; mirrors
+    /// <c>SettingsViewModel.UseFileDialogs</c>.</summary>
+    public void UseExportFileDialogs(IExportFileDialogs dialogs)
+    {
+        _exportDialogs = dialogs;
+        ExportReportCsvCommand.NotifyCanExecuteChanged();
+        ExportReportHtmlCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Exports the current <see cref="Report"/> as RFC-4180 CSV to a user-picked path
+    /// (AP 4.1 / ADR-013 §2/§5/§6). Gate (F2): <c>Snapshot is not null</c> — NOT
+    /// <see cref="HasViolations"/> — so an all-clear-but-unexpanded scope still exports its
+    /// unchecked-areas appendix. Re-guards in the body (a stale-armed Execute ignores
+    /// CanExecute), picks via the seam, and on a non-null pick writes the pure-Core
+    /// <see cref="ViolationReportExporter.ToCsv"/> output (UTF-8, no BOM) to ONLY that path —
+    /// a cancelled pick is a no-op. Read-only toward AD: the only write target is the picked
+    /// local file; the directory is never touched (the name closure reads the snapshot only).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportReport))]
+    private async Task ExportReportCsvAsync()
+    {
+        if (_disposed || IsLoading || Snapshot is null || _exportDialogs is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.Csv, _cts.Token);
+        if (path is null)
+        {
+            return;
+        }
+
+        var csv = ViolationReportExporter.ToCsv(Report, ResolveSubjectName);
+        await WriteUtf8Async(path, csv, _cts.Token);
+    }
+
+    /// <summary>
+    /// Exports the current <see cref="Report"/> as a self-contained HTML file to a user-picked
+    /// path (AP 4.1 / ADR-013 §2/§5/§6). Same gate, re-guard, pick and write-once discipline as
+    /// <see cref="ExportReportCsvAsync"/>; the HTML carries a <see cref="ReportHeader"/> built
+    /// from this workspace's root identity + connection summary + the current wall clock
+    /// (<see cref="BuildReportHeader"/>).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportReport))]
+    private async Task ExportReportHtmlAsync()
+    {
+        if (_disposed || IsLoading || Snapshot is null || _exportDialogs is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.Html, _cts.Token);
+        if (path is null)
+        {
+            return;
+        }
+
+        var html = ViolationReportExporter.ToHtml(Report, ResolveSubjectName, BuildReportHeader());
+        await WriteUtf8Async(path, html, _cts.Token);
+    }
+
+    /// <summary>Armed iff a load has COMPLETED (<c>Snapshot is not null</c> — F2, NOT
+    /// <see cref="HasViolations"/>: the unexpanded-areas appendix is exportable all-clear),
+    /// the ONE global busy gate is idle, and the export seam is installed. Pre-load the
+    /// commands are inert.</summary>
+    private bool CanExportReport() => !IsLoading && Snapshot is not null && _exportDialogs is not null;
+
+    /// <summary>The name-resolution closure handed to the exporter — mirrors
+    /// <see cref="OnReportChanged"/> exactly: an in-snapshot object resolves to its
+    /// <c>Name</c>, an absent DN falls back to the DN itself (never a provider call, so
+    /// export stays read-only toward AD). Core stays App-free (ADR-013 §2 / F4): it takes
+    /// this delegate, never the snapshot.</summary>
+    private string ResolveSubjectName(string dn) =>
+        Snapshot is not null && Snapshot.TryGetObject(dn, out var obj) ? obj!.Name : dn;
+
+    /// <summary>Builds the HTML report header from this workspace's identity (ADR-013 §2):
+    /// root DN/name + connection summary, with <see cref="DateTimeOffset.Now"/> as the
+    /// injected generation timestamp (the exporter keeps no ambient clock).</summary>
+    private ReportHeader BuildReportHeader() =>
+        new(RootDn, RootName, ConnectionSummary, DateTimeOffset.Now);
+
+    /// <summary>Writes <paramref name="content"/> to <paramref name="path"/> as UTF-8 WITHOUT
+    /// a BOM — the exact bytes the CSV/HTML exporter pinned tests expect.</summary>
+    private static Task WriteUtf8Async(string path, string content, CancellationToken cancellationToken) =>
+        File.WriteAllTextAsync(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
     private void OnNodeExpandRequested(string dn)
     {

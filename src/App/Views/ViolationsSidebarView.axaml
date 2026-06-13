@@ -16,11 +16,29 @@
        glyph color matches the overlay-color the bundle paints. -->
   <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12,12,12,8">
 
-    <!-- Header: "Findings (n)". n = Violations.Count (the populated rows; the
-         authoritative roll-up count lives here, not on canvas). -->
-    <TextBlock Grid.Row="0"
-               Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
-               FontSize="15" FontWeight="SemiBold" />
+    <!-- Header (AP 4.1 / ADR-013 §6): "Findings (n)" left, the report-export pair right.
+         n = Violations.Count (the populated rows; the authoritative roll-up count lives
+         here, not on canvas). The two-column split keeps the title/chips clear of the
+         export buttons - the buttons NEVER crowd the chip strip below (Row 1). Each button
+         is disabled until a load completes: CanExportReport gates on Snapshot is not null
+         (F2 - the unchecked-areas appendix is exportable in the all-clear state), so the
+         pre-load state shows the buttons greyed. -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+      <TextBlock Grid.Column="0"
+                 Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
+                 FontSize="15" FontWeight="SemiBold"
+                 VerticalAlignment="Center" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+        <Button Name="ExportCsvButton" Content="Export CSV"
+                Padding="8,4" FontSize="12"
+                ToolTip.Tip="Export the violation report as CSV"
+                Command="{Binding ExportReportCsvCommand}" />
+        <Button Name="ExportHtmlButton" Content="Export HTML"
+                Padding="8,4" FontSize="12"
+                ToolTip.Tip="Export the violation report as a self-contained HTML file"
+                Command="{Binding ExportReportHtmlCommand}" />
+      </StackPanel>
+    </Grid>
 
     <!-- Per-severity summary chips (E n · W n · i n), each a glyph square in THE one
          SeverityConverters palette (overlay-color parity with the graph halos) + its
