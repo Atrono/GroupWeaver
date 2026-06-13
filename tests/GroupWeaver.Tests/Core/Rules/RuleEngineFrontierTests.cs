@@ -283,8 +283,14 @@ public class RuleEngineFrontierTests
             Obj(DetBadNameDn, AdObjectKind.GlobalGroup, name: "SalesGlobal"),
         };
 
+        var ordered = objects.ToArray();
+        if (scrambled)
+        {
+            Array.Reverse(ordered);
+        }
+
         var snapshot = new DirectorySnapshot();
-        foreach (var obj in scrambled ? objects.Reverse() : objects)
+        foreach (var obj in ordered)
         {
             snapshot.AddObject(obj);
         }
