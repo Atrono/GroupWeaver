@@ -23,6 +23,14 @@ the packages themselves. Versions are pinned exactly (ADR-001/ADR-003).
 - Source: https://js.cytoscape.org/
 - A pinned, vendored copy of this exact version ships inside the application
   (see [ADR-001](docs/adr/001-graph-library.md)).
+- **Upstream provenance:** `src/App/web/vendor/cytoscape.min.js` is byte-identical
+  to the official npm distribution `cytoscape@3.34.0/dist/cytoscape.min.js`
+  (e.g. https://unpkg.com/cytoscape@3.34.0/dist/cytoscape.min.js).
+  Verified SHA256 (raw, LF):
+  `9c2a3bf2592e0b14a1f7bec07c03a54f16dedf32af9cd0af155c716aa6c87bc3`
+  The file is marked `-text` in `.gitattributes` so it is stored and checked out
+  byte-for-byte; `WebBundleTests` asserts the vendored copy still matches this
+  hash, so the supply chain is independently re-verifiable, not self-referential.
 
 ```
 Copyright (c) 2016-2026, The Cytoscape Consortium.

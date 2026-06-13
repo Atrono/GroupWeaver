@@ -27,6 +27,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Defense-in-depth internals (NamingPreview.MatchTimeout, #52 e) are pinned by App.Tests. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>GroupWeaver.App.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Core\GroupWeaver.Core.csproj" />
     <ProjectReference Include="..\Providers\GroupWeaver.Providers.csproj" />
   </ItemGroup>

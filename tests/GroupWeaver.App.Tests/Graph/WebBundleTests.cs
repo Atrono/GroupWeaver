@@ -47,12 +47,19 @@ public sealed class WebBundleTests
     // --- 2./3. Verbatim copies from the spike (proven contracts, no drift) -----------
 
     [Fact]
-    public void Vendor_CytoscapeIsSha256IdenticalToSpike()
+    public void Vendor_CytoscapeMatchesRecordedUpstreamSha256()
     {
-        var shipped = RequireShipped("vendor", "cytoscape.min.js");
-        var spike = SpikeWebPath("vendor", "cytoscape.min.js");
+        // Supply-chain provenance (#52): the vendored bundle must stay byte-identical to
+        // the official npm distribution cytoscape@3.34.0/dist/cytoscape.min.js, whose
+        // SHA256 (raw, LF) is recorded in THIRD-PARTY-NOTICES.md. The file is marked
+        // `-text` in .gitattributes so it is checked out byte-for-byte (no CRLF rewrite),
+        // making this an INDEPENDENT upstream check, not a self-referential in-repo compare.
+        const string upstreamSha256 =
+            "9c2a3bf2592e0b14a1f7bec07c03a54f16dedf32af9cd0af155c716aa6c87bc3";
 
-        Assert.Equal(Sha256Hex(spike), Sha256Hex(shipped));
+        var shipped = RequireShipped("vendor", "cytoscape.min.js");
+
+        Assert.Equal(upstreamSha256, Sha256Hex(shipped), ignoreCase: true);
     }
 
     [Fact]

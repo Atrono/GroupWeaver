@@ -25,6 +25,13 @@ namespace GroupWeaver.App.Settings;
 /// </summary>
 public static class NamingPreview
 {
+    /// <summary>Belt-and-suspenders abort for the throwaway preview regex (issue #52 e).
+    /// Matching is already <see cref="RegexOptions.NonBacktracking"/> (linear-time), so
+    /// this never fires today — but a future pattern path that forgets the flag must not
+    /// be able to hang the per-keystroke settings preview. Mirrors
+    /// <c>GlobMatcher.RegexMatchTimeout</c> on the Core side.</summary>
+    internal static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(2);
+
     /// <summary>
     /// Compiles <paramref name="pattern"/> as a throwaway
     /// <c>NonBacktracking | CultureInvariant</c> regex and reports whether
@@ -38,7 +45,10 @@ public static class NamingPreview
         Regex rx;
         try
         {
-            rx = new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
+            rx = new Regex(
+                pattern,
+                RegexOptions.NonBacktracking | RegexOptions.CultureInvariant,
+                MatchTimeout);
         }
         catch (NotSupportedException ex)
         {

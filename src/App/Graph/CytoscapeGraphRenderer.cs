@@ -221,7 +221,61 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         var webView = new NativeWebView();
         webView.WebMessageReceived += (_, e) => OnWebMessageReceived(e.Body ?? string.Empty);
         webView.AttachedToVisualTree += (_, _) => NavigateOnce(webView);
+        HardenWebView(webView);
         return webView;
+    }
+
+    /// <summary>
+    /// Defense-in-depth (#52): the renderer hosts a local <c>file://</c> graph page
+    /// with a single embedded bundle — it never needs DevTools, child windows, or
+    /// off-page navigation. These three hooks are everything the Avalonia
+    /// <c>NativeWebView</c> 11.4.0 wrapper exposes:
+    /// <list type="bullet">
+    /// <item><see cref="NativeWebView.EnvironmentRequested"/> →
+    /// <c>EnableDevTools = false</c> disables the DevTools surface (F12 / Inspect)
+    /// at WebView2 environment-creation time.</item>
+    /// <item><see cref="NativeWebView.NewWindowRequested"/> →
+    /// <c>Handled = true</c> swallows every <c>window.open</c>/target=_blank request
+    /// rather than spawning an out-of-frame WebView2 window.</item>
+    /// <item><see cref="NativeWebView.NavigationStarted"/> →
+    /// <c>Cancel = true</c> for any non-<c>file://</c> document, pinning the WebView
+    /// to local content. This app only ever serves a local <c>file://</c> page, so a
+    /// scheme check both always admits the legitimate <c>index.html</c> load and
+    /// blocks the realistic threat — a main-frame navigation to a remote URL.</item>
+    /// </list>
+    /// The CoreWebView2Settings the wrapper does NOT surface managed accessors for —
+    /// <c>AreDefaultContextMenusEnabled</c>, <c>IsStatusBarEnabled</c>,
+    /// <c>AreBrowserAcceleratorKeysEnabled</c> — are reachable on this package only as
+    /// a raw COM <c>IntPtr</c> (<c>IWindowsWebView2PlatformHandle.CoreWebView2</c>);
+    /// poking them would mean hand-rolled vtable P/Invoke, deliberately out of scope.
+    /// </summary>
+    private void HardenWebView(NativeWebView webView)
+    {
+        webView.EnvironmentRequested += (_, e) => e.EnableDevTools = false;
+        webView.NewWindowRequested += (_, e) => e.Handled = true;
+        webView.NavigationStarted += OnNavigationStarted;
+    }
+
+    /// <summary>
+    /// Locality guard (#52): ALLOWS any local <c>file://</c> document — the only
+    /// thing this app ever serves (the vendored <c>index.html</c> bundle) — and
+    /// CANCELS every non-<c>file</c> scheme (http/https/…), i.e. a main-frame
+    /// navigation to a remote URL. Matching on scheme rather than the exact
+    /// <c>index.html</c> URI is robust by construction: WebView2 may report the
+    /// initial <c>file://</c> URI with different drive-letter casing, space
+    /// percent-encoding, or trailing form than the <see cref="Uri"/> we navigated
+    /// with, and an over-strict equality check there would cancel the legitimate
+    /// load and blank the graph. The scheme is invariant under that canonicalization,
+    /// so file:// is always admitted. A missing request URI is treated as allow:
+    /// the app's own load must never be cancelled on absent information (fail open).
+    /// </summary>
+    private void OnNavigationStarted(object? sender, WebViewNavigationStartingEventArgs e)
+    {
+        if (e.Request is { Scheme: var scheme } &&
+            !scheme.Equals(Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
+        {
+            e.Cancel = true;
+        }
     }
 
     /// <summary>Navigates on the FIRST attach only — the page (and its accumulated
@@ -237,7 +291,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
         // new Uri(<absolute path>) yields a properly percent-encoded file:/// URI
         // (spaces → %20 etc.) — the GraphSpike navigation pattern (ADR-004 D6).
-        webView.Navigate(new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html")));
+        // It is always file://, so the NavigationStarted scheme guard always admits
+        // it regardless of how WebView2 later canonicalizes the reported URI.
+        var indexUri = new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html"));
+        webView.Navigate(indexUri);
     }
 
     /// <summary>
