@@ -63,12 +63,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     private DetailPanelModel? _detailPanel;
 
     /// <summary>The AP 3.4 rule report (ADR-010 §3) the violations sidebar binds.
-    /// S4 ships it as a stub fixed at <see cref="RuleReport.Empty"/> so the sidebar
-    /// view binds and renders its all-clear state; the S5 VM integration runs
-    /// <c>RuleEngine.Evaluate</c> at LoadAsync/ExpandAsync and assigns the real report
-    /// (which re-projects <see cref="Violations"/> and re-evaluates
-    /// <see cref="HasViolations"/>/<see cref="HasUncheckedAreas"/>). Evaluate is NOT
-    /// wired here — that is S5.</summary>
+    /// <c>RuleEngine.Evaluate</c> runs at LoadAsync against the default ruleset and
+    /// assigns the real report (which re-projects <see cref="Violations"/> in
+    /// <see cref="OnReportChanged"/> and re-evaluates <see cref="HasViolations"/>/
+    /// <see cref="HasUncheckedAreas"/>). The ExpandAsync re-Evaluate, the composition-root
+    /// EffectiveRuleset threading and the renderer-seam severity push remain S5; until
+    /// then this starts at <see cref="RuleReport.Empty"/> until the first load settles.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasViolations))]
     [NotifyPropertyChangedFor(nameof(HasUncheckedAreas))]
@@ -134,10 +134,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         new RelayCommand(WebView2Runtime.OpenDownloadPage);
 
     /// <summary>The AP 3.4 violations sidebar rows (ADR-010 §5), in canonical report
-    /// order (unshuffled — ADR-009). S4 ships it empty; the S5 VM integration projects
-    /// <see cref="Report"/>'s <see cref="RuleReport.Violations"/> into it (in
-    /// <c>OnReportChanged</c>, with <see cref="ViolationRowModel.SubjectName"/> resolved
-    /// snapshot-only). Bound by <see cref="Views.ViolationsSidebarView"/>.</summary>
+    /// order (unshuffled — ADR-009): <see cref="OnReportChanged"/> projects
+    /// <see cref="Report"/>'s <see cref="RuleReport.Violations"/> into it, with
+    /// <see cref="ViolationRowModel.SubjectName"/> resolved snapshot-only. Bound by
+    /// <see cref="Views.ViolationsSidebarView"/>.</summary>
     public ObservableCollection<ViolationRowModel> Violations { get; } = [];
 
     /// <summary>Drives the sidebar all-clear state: <c>true</c> when the report has at
@@ -189,6 +189,26 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     private void RecomputeDetailPanel() =>
         DetailPanel = Snapshot is null ? null : DetailPanelModel.Build(Snapshot, SelectedDn);
 
+    /// <summary>Re-projects <see cref="Report"/>'s findings into <see cref="Violations"/>
+    /// (ADR-010 §5): canonical report order, unshuffled (ADR-009); the subject name is
+    /// resolved snapshot-only (raw-External anchors fall back to the DN — never a provider
+    /// call). The all-clear text and the unchecked-areas hint flip via the generated
+    /// <see cref="HasViolations"/>/<see cref="HasUncheckedAreas"/> notifications.
+    /// Jump-to-node, the renderer-seam severity param and the roll-up below-map remain S5
+    /// (this slice only restores the populated-sidebar evidence the S4 gate needs).</summary>
+    partial void OnReportChanged(RuleReport value)
+    {
+        Violations.Clear();
+        foreach (var violation in value.Violations)
+        {
+            var subject = Snapshot is not null && Snapshot.TryGetObject(violation.PrimaryDn, out var obj)
+                ? obj!.Name
+                : violation.PrimaryDn;
+            Violations.Add(new ViolationRowModel(
+                violation.Severity, violation.Message, subject, violation.PrimaryDn));
+        }
+    }
+
     private async Task LoadAsync(CancellationToken cancellationToken)
     {
         IsLoading = true;
@@ -196,6 +216,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         {
             Snapshot = await Provider.LoadScopeAsync(RootDn, cancellationToken);
             Graph = GraphBuilder.Build(Snapshot, RootDn);
+
+            // AP 3.4 (ADR-010 §3): evaluate the loaded scope BEFORE the renderer call,
+            // inside this IsLoading window — Evaluate is pure/sync (ADR-009), no new gate.
+            // The default ruleset is loaded directly here; S5 threads the composition-root
+            // EffectiveRuleset and adds the ExpandAsync re-Evaluate + renderer-seam severity.
+            Report = RuleEngine.Evaluate(Snapshot, RulesetLoader.LoadDefault());
+
             if (GraphRenderer is not null)
             {
                 await GraphRenderer.ShowGraphAsync(Graph, cancellationToken);
