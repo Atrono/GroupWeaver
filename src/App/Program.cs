@@ -3,7 +3,9 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using GroupWeaver.App.Graph;
 using GroupWeaver.Core.Graph;
+using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
+using GroupWeaver.Core.Rules;
 using GroupWeaver.Providers;
 
 namespace GroupWeaver.App;
@@ -129,7 +131,15 @@ internal static class Program
                 .First().Dn;
 
             var snapshot = provider.LoadScopeAsync(rootDn).GetAwaiter().GetResult();
-            File.WriteAllText(path, GraphJson.SerializeFlat(GraphBuilder.Build(snapshot, rootDn)));
+
+            // AP 3.4 S2 (ADR-010 D3): run the pure engine with the embedded default
+            // ruleset and join the report into the wire, so the Playwright fixture
+            // carries severity. Demo-only path — live-AD structure never reaches here.
+            var report = RuleEngine.Evaluate(snapshot, RulesetLoader.LoadDefault());
+            var belowMap = ComputeBelow(snapshot, report);
+
+            File.WriteAllText(
+                path, GraphJson.SerializeFlat(GraphBuilder.Build(snapshot, rootDn), report, belowMap));
             return 0;
         }
         catch (Exception ex)
@@ -138,6 +148,51 @@ internal static class Program
             return 1;
         }
     }
+
+    /// <summary>
+    /// The roll-up "n below" map (ADR-010 D4): for every LOADED fetchable-kind node, the
+    /// distinct findings among its transitive LOADED descendants — count + max severity.
+    /// The ONLY sanctioned transitive walk is <see cref="MembershipTraversal.Walk"/>
+    /// (data-model.md); <c>Skip(1)</c> drops the node itself (its own severity is the
+    /// per-node <c>sev</c>, not a roll-up). Loaded-only by construction — Walk reads
+    /// <c>GetMembers</c> per node, so a never-loaded child is excluded, never fetched.
+    /// </summary>
+    private static IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)> ComputeBelow(
+        DirectorySnapshot snapshot, RuleReport report)
+    {
+        var map = new Dictionary<string, (int Count, RuleSeverity Sev)>(Dn.Comparer);
+        if (report.Violations.Count == 0)
+        {
+            return map; // cheap exit: no findings means no roll-ups anywhere.
+        }
+
+        foreach (var obj in snapshot.Objects)
+        {
+            if (!IsFetchableKind(obj.Kind) || !snapshot.IsLoaded(obj.Dn))
+            {
+                continue;
+            }
+
+            var below = report.ViolationsAmong(MembershipTraversal.Walk(snapshot, obj.Dn).Visited.Skip(1));
+            if (below.Count == 0)
+            {
+                continue;
+            }
+
+            map[obj.Dn] = (below.Count, below.Max(v => v.Severity));
+        }
+
+        return map;
+    }
+
+    /// <summary>ADR-005's fetchable kinds — the group scopes plus External (what a
+    /// double-click would fetch). The roll-up anchors are exactly the nodes whose
+    /// transitive membership can be loaded; leaves never carry a "below".</summary>
+    private static bool IsFetchableKind(AdObjectKind kind) => kind
+        is AdObjectKind.GlobalGroup
+        or AdObjectKind.DomainLocalGroup
+        or AdObjectKind.UniversalGroup
+        or AdObjectKind.External;
 
     /// <summary>How many RDN components <paramref name="dn"/> has — unescaped-comma
     /// separated, counted via the escape-aware <see cref="DnPath"/> walker.</summary>

@@ -125,6 +125,81 @@ public sealed class AppCliTests
         Assert.NotEqual(0, exitCode);
     }
 
+    // --- --dump-graph carries severity (AP 3.4 S2, ADR-010 D3) ----------------
+
+    /// <summary>
+    /// AP 3.4 S2: the demo dump runs <c>RuleEngine.Evaluate(snapshot, default-ruleset)</c>
+    /// and joins the report into the wire (ADR-010 D2/D3), so the Playwright fixture
+    /// carries severity. The AP 3.2 demo baseline (rule-engine.md) is exactly 19 findings —
+    /// 3 nesting + 1 cycle ERRORS, 3 naming WARNINGS, 12 empty-group INFOS — so all three
+    /// <c>sev</c> tokens are present by construction, and the nesting parents (whose loaded
+    /// transitive members are flagged) carry a <c>below</c> roll-up. Pre-S2 this is RED:
+    /// <c>Program.cs</c> calls the no-report <c>SerializeFlat</c> overload, which delegates
+    /// with <see cref="RuleReport.Empty"/> and a null below-map — zero <c>sev</c>/<c>below</c>
+    /// keys reach the wire.
+    /// </summary>
+    [Fact]
+    public async Task DemoDumpGraph_NodesCarrySeverityAndRollup()
+    {
+        var path = TempDumpPath();
+        try
+        {
+            var (exitCode, _, stderr) = await RunAppAsync("--demo", "--dump-graph", path);
+
+            Assert.True(exitCode == 0, $"app exited with {exitCode}; stderr: {stderr}");
+
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            var nodes = document.RootElement.GetProperty("nodes").EnumerateArray().ToList();
+
+            // The camelCase wire field is "sev" with lowercase tokens (GraphJson.SeverityWire).
+            int SevCount(string token) => nodes.Count(n =>
+                n.TryGetProperty("sev", out var sev)
+                && sev.ValueKind == JsonValueKind.String
+                && sev.GetString() == token);
+
+            // The demo baseline guarantees every severity band is represented on the graph.
+            Assert.True(SevCount("error") >= 1, "expected >= 1 node with sev:\"error\"");
+            Assert.True(SevCount("warning") >= 1, "expected >= 1 node with sev:\"warning\"");
+            Assert.True(SevCount("info") >= 1, "expected >= 1 node with sev:\"info\"");
+
+            // At least one loaded group hides flagged descendants -> a "below" roll-up
+            // count (emitted only when > 0; int-valued, camelCased from NodeDto.Below).
+            var belowNodes = nodes
+                .Where(n => n.TryGetProperty("below", out var below) && below.ValueKind == JsonValueKind.Number)
+                .ToList();
+            Assert.True(belowNodes.Count >= 1, "expected >= 1 node carrying a \"below\" roll-up field");
+            Assert.All(belowNodes, n => Assert.True(
+                n.GetProperty("below").GetInt32() > 0,
+                "a \"below\" field must never be emitted as <= 0"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The demo-only guard (ADR-004 D7) is unchanged by the S2 severity join: severity is
+    /// computed only on the demo path, and live-AD structure still never reaches an
+    /// artifact — without <c>--demo</c>, <c>--dump-graph</c> exits 64 and writes nothing.
+    /// </summary>
+    [Fact]
+    public async Task DumpGraph_WithoutDemo_StillExits64_AfterSeverityJoin()
+    {
+        var path = TempDumpPath();
+        try
+        {
+            var (exitCode, _, _) = await RunAppAsync("--dump-graph", path);
+
+            Assert.Equal(64, exitCode);
+            Assert.False(File.Exists(path), $"'{path}' must never be written without --demo");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // --- helpers -------------------------------------------------------------
 
     /// <summary>

@@ -1,10 +1,14 @@
+using System.Collections.ObjectModel;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Graph;
+using GroupWeaver.App.Rules;
 using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
+using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.ViewModels;
 
@@ -35,6 +39,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// busy gate (ADR-005 D3).</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+    [NotifyCanExecuteChangedFor(nameof(JumpCommand))]
     private bool _isLoading;
 
     /// <summary>Inline load/renderer error; <c>null</c> hides the error block.</summary>
@@ -59,17 +64,41 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private DetailPanelModel? _detailPanel;
 
+    /// <summary>The AP 3.4 rule report (ADR-010 §3) the violations sidebar binds.
+    /// <c>RuleEngine.Evaluate</c> runs against the threaded ruleset at the two graph-build
+    /// sites — LoadAsync and the ExpandAsync fetch branch — BEFORE the renderer call, and
+    /// assigns the real report (which re-projects <see cref="Violations"/> in
+    /// <see cref="OnReportChanged"/> and re-evaluates <see cref="HasViolations"/>/
+    /// <see cref="HasUncheckedAreas"/>). Starts at <see cref="RuleReport.Empty"/> until
+    /// the first load settles.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasViolations))]
+    [NotifyPropertyChangedFor(nameof(HasUncheckedAreas))]
+    private RuleReport _report = RuleReport.Empty;
+
+    /// <summary>The ruleset every Evaluate runs against — located once in the composition
+    /// root and threaded down (ADR-010 §3); a <c>null</c> ctor ruleset resolves to the
+    /// embedded default, so every pre-AP-3.4 workspace test stays on the 19-finding
+    /// baseline. <see cref="EffectiveRuleset.Errors"/> is carried, not surfaced — AP 3.3
+    /// owns the settings UI that shows them.</summary>
+    private readonly Ruleset _ruleset;
+
     public WorkspaceViewModel(
         IDirectoryProvider provider,
         AdObject root,
         DirectoryConnection connection,
         bool webView2Missing = false,
-        Func<IGraphRenderer>? graphRendererFactory = null)
+        Func<IGraphRenderer>? graphRendererFactory = null,
+        EffectiveRuleset? ruleset = null)
     {
         Provider = provider;
         Root = root;
         Connection = connection;
         WebView2Missing = webView2Missing;
+
+        // null => the embedded default (the pre-AP-3.4 contract); a located user/default
+        // EffectiveRuleset otherwise. Errors carried, surfaced by AP 3.3. // AP 3.3
+        _ruleset = (ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, [])).Ruleset;
 
         // ADR-004 D5: re-check the runtime probe BEFORE building a renderer — a
         // missing WebView2 Runtime must not even invoke the factory.
@@ -118,6 +147,22 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     public IRelayCommand OpenWebView2DownloadPageCommand { get; } =
         new RelayCommand(WebView2Runtime.OpenDownloadPage);
 
+    /// <summary>The AP 3.4 violations sidebar rows (ADR-010 §5), in canonical report
+    /// order (unshuffled — ADR-009): <see cref="OnReportChanged"/> projects
+    /// <see cref="Report"/>'s <see cref="RuleReport.Violations"/> into it, with
+    /// <see cref="ViolationRowModel.SubjectName"/> resolved snapshot-only. Bound by
+    /// <see cref="Views.ViolationsSidebarView"/>.</summary>
+    public ObservableCollection<ViolationRowModel> Violations { get; } = [];
+
+    /// <summary>Drives the sidebar all-clear state: <c>true</c> when the report has at
+    /// least one finding. Recomputed on <see cref="Report"/> change.</summary>
+    public bool HasViolations => Report.Violations.Count > 0;
+
+    /// <summary>Drives the "unexpanded areas are unchecked" hint: <c>true</c> when the
+    /// report's <see cref="RuleReport.UncheckedDns"/> is non-empty (load-state truth,
+    /// never ignore-filtered — ADR-009). Recomputed on <see cref="Report"/> change.</summary>
+    public bool HasUncheckedAreas => Report.UncheckedDns.Count > 0;
+
     /// <summary>
     /// The scope-load-and-render flow kicked off at construction; completes only once
     /// the renderer accepted the graph (its readiness must not lie, ADR-004 D5).
@@ -142,15 +187,58 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>The built graph model handed to the renderer; <c>null</c> until built.</summary>
     public GraphModel? Graph { get; private set; }
 
-    /// <summary>ADR-007 D1: selection re-projects IMMEDIATELY — snapshot-only reads,
-    /// never busy-gated, so the panel stays responsive during any in-flight pipeline.</summary>
-    partial void OnSelectedDnChanged(string? value) => RecomputeDetailPanel();
+    /// <summary>ADR-007 D1: selection re-projects the detail panel IMMEDIATELY —
+    /// snapshot-only reads, never busy-gated, so the panel stays responsive during any
+    /// in-flight pipeline. ADR-010 §5: the same change drives the sidebar selection-sync
+    /// highlight — every row anchored at <paramref name="value"/> lights up (multiple
+    /// findings on one DN all highlight); the detail panel itself is untouched (severity
+    /// is not a whitelist attribute).</summary>
+    partial void OnSelectedDnChanged(string? value)
+    {
+        RecomputeDetailPanel();
+        HighlightActiveRows(value);
+    }
+
+    /// <summary>Flips <see cref="ViolationRowModel.IsActive"/> on every sidebar row whose
+    /// anchor matches <paramref name="selectedDn"/> under <see cref="Dn.Comparer"/>
+    /// (ADR-010 §5) — the highlight is by ANCHOR (PrimaryDn), never by attached-DN, so a
+    /// member-endpoint selection that is no finding's anchor lights nothing. A
+    /// <c>null</c>/no-match selection clears all highlights.</summary>
+    private void HighlightActiveRows(string? selectedDn)
+    {
+        foreach (var row in Violations)
+        {
+            row.IsActive = selectedDn is not null && Dn.Comparer.Equals(row.PrimaryDn, selectedDn);
+        }
+    }
 
     /// <summary>The single projection write: a pure snapshot read through the
     /// <see cref="DetailPanelModel.Build"/> choke point — never calls the provider,
     /// never checks or takes the busy gate (ADR-007 D1).</summary>
     private void RecomputeDetailPanel() =>
         DetailPanel = Snapshot is null ? null : DetailPanelModel.Build(Snapshot, SelectedDn);
+
+    /// <summary>Re-projects <see cref="Report"/>'s findings into <see cref="Violations"/>
+    /// (ADR-010 §5): canonical report order, unshuffled (ADR-009); the subject name is
+    /// resolved snapshot-only (raw-External anchors fall back to the DN — never a provider
+    /// call). The all-clear text and the unchecked-areas hint flip via the generated
+    /// <see cref="HasViolations"/>/<see cref="HasUncheckedAreas"/> notifications. The
+    /// selection-sync highlight is re-applied over the fresh rows so a selection that
+    /// persists across a re-Evaluate keeps lighting its anchor.</summary>
+    partial void OnReportChanged(RuleReport value)
+    {
+        Violations.Clear();
+        foreach (var violation in value.Violations)
+        {
+            var subject = Snapshot is not null && Snapshot.TryGetObject(violation.PrimaryDn, out var obj)
+                ? obj!.Name
+                : violation.PrimaryDn;
+            Violations.Add(new ViolationRowModel(
+                violation.Severity, violation.Message, subject, violation.PrimaryDn));
+        }
+
+        HighlightActiveRows(SelectedDn);
+    }
 
     private async Task LoadAsync(CancellationToken cancellationToken)
     {
@@ -159,9 +247,16 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         {
             Snapshot = await Provider.LoadScopeAsync(RootDn, cancellationToken);
             Graph = GraphBuilder.Build(Snapshot, RootDn);
+
+            // AP 3.4 (ADR-010 §3): evaluate the loaded scope BEFORE the renderer call,
+            // inside this IsLoading window — Evaluate is pure/sync (ADR-009), no new gate.
+            // The report + roll-up below-map ride the renderer seam into the wire fields.
+            Report = RuleEngine.Evaluate(Snapshot, _ruleset);
+            var below = ComputeBelow(Snapshot, Report);
+
             if (GraphRenderer is not null)
             {
-                await GraphRenderer.ShowGraphAsync(Graph, cancellationToken);
+                await GraphRenderer.ShowGraphAsync(Graph, Report, below, cancellationToken);
             }
 
             GraphSummary = $"{Graph.Nodes.Count} objects, {Graph.Edges.Count} edges";
@@ -227,6 +322,33 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         && SelectedDn is { } dn
         && IsFetchable(Snapshot.GetKind(dn));
 
+    /// <summary>
+    /// Jump-to-node (ADR-010 §5): frame + select a finding's anchor DN from a sidebar
+    /// row. SELECTS <paramref name="dn"/> (the detail-panel + highlight sync via
+    /// <see cref="OnSelectedDnChanged"/>) AND focuses it on the graph
+    /// (<c>FocusAsync([dn])</c>; an unknown/raw-External DN is silently skipped by the
+    /// graph surface — never an error). A stale-armed Execute (busy/disposed/renderer-less)
+    /// is a silent no-op: it neither selects nor focuses, because the busy gate means the
+    /// graph state is half-built. RelayCommand.Execute does not consult CanExecute, so the
+    /// guard is re-checked HERE — same drop-never-queue discipline as <see cref="Refresh"/>.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanJump))]
+    private async Task JumpAsync(string dn)
+    {
+        if (_disposed || IsLoading || GraphRenderer is not { } renderer)
+        {
+            return;
+        }
+
+        SelectedDn = dn;
+        await renderer.FocusAsync([dn], _cts.Token);
+    }
+
+    /// <summary>Armed iff the ONE global busy gate is idle and a renderer exists (ADR-010
+    /// §5) — a jump frames the graph, so it needs the renderer the AP 2.5 seam may lack;
+    /// never touches the provider or the snapshot.</summary>
+    private bool CanJump() => !IsLoading && GraphRenderer is not null;
+
     /// <summary>The fetchable kinds (ADR-005 D3): groups plus External — a frontier
     /// DN missing from the snapshot's Objects resolves to External by contract.</summary>
     private static bool IsFetchable(AdObjectKind kind) => kind
@@ -234,6 +356,45 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         or AdObjectKind.DomainLocalGroup
         or AdObjectKind.UniversalGroup
         or AdObjectKind.External;
+
+    /// <summary>
+    /// The AP 3.4 roll-up below-map (ADR-010 §4): for every LOADED fetchable-kind node,
+    /// the count + max severity of the DISTINCT findings among its loaded transitive
+    /// descendants. The ONLY place a <see cref="MembershipTraversal.Walk"/> runs for
+    /// roll-ups (data-model.md: the one sanctioned walk; JS never walks) — Walk reads
+    /// <c>GetMembers</c> per node (<c>null</c> = unexpanded = excluded), so the count is
+    /// loaded-only by construction and never fetches. <c>Visited.Skip(1)</c> drops the
+    /// node itself (its own halo is the <c>sev</c> field, not the roll-up). The
+    /// <c>report.Violations.Count == 0</c> early exit keeps the all-clear scope free.
+    /// </summary>
+    private static Dictionary<string, (int Count, RuleSeverity Sev)> ComputeBelow(
+        DirectorySnapshot snapshot, RuleReport report)
+    {
+        var map = new Dictionary<string, (int Count, RuleSeverity Sev)>(Dn.Comparer);
+        if (report.Violations.Count == 0)
+        {
+            return map;
+        }
+
+        foreach (var obj in snapshot.Objects)
+        {
+            if (!IsFetchable(obj.Kind) || !snapshot.IsLoaded(obj.Dn))
+            {
+                continue;
+            }
+
+            var below = report.ViolationsAmong(
+                MembershipTraversal.Walk(snapshot, obj.Dn).Visited.Skip(1));
+            if (below.Count == 0)
+            {
+                continue;
+            }
+
+            map[obj.Dn] = (below.Count, below.Max(v => v.Severity));
+        }
+
+        return map;
+    }
 
     private async Task ExpandAsync(string dn, bool forceFetch, CancellationToken cancellationToken)
     {
@@ -253,13 +414,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         try
         {
             var fetchable = IsFetchable(snapshot.GetKind(dn));
-            if (!fetchable || (!forceFetch && snapshot.IsLoaded(dn)))
+            var cachedMembers = snapshot.GetMembers(dn);
+            // Cache hit ONLY when there are cached members to frame: a non-group dbltap,
+            // or a loaded group with ≥1 member. A loaded-but-EMPTY fetchable group falls
+            // through to the fetch branch (ADR-010 §3) — re-fetching is the whole point of
+            // re-opening an empty group (it may have gained members), there is nothing to
+            // focus on, and the re-fetch re-Evaluates so a now-non-empty group sheds its
+            // empty-group finding. A forced Refresh always re-fetches (ADR-005 D4).
+            if (!fetchable || (!forceFetch && cachedMembers is { Count: > 0 }))
             {
-                // Cache hit / non-group dbltap: a pure camera move over the node plus
-                // its cached members — NEVER a fabricated SetMembers (null ≠ empty; the
-                // AP 3.2/3.4 checks read exactly this load state).
-                var cached = snapshot.GetMembers(dn);
-                IReadOnlyCollection<string> focus = cached is null ? [dn] : [dn, .. cached];
+                // A pure camera move over the node plus its cached members — NEVER a
+                // fabricated SetMembers (null ≠ empty; the AP 3.2/3.4 checks read exactly
+                // this load state).
+                IReadOnlyCollection<string> focus =
+                    cachedMembers is null ? [dn] : [dn, .. cachedMembers];
                 await renderer.FocusAsync(focus, cancellationToken);
                 return;
             }
@@ -296,9 +464,17 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             snapshot.SetMembers(dn, memberDns);
 
             Graph = GraphBuilder.Build(snapshot, RootDn);
+
+            // AP 3.4 (ADR-010 §3): full re-Evaluate per expand (ADR-009 — no
+            // incrementality), BEFORE the renderer call, inside this IsLoading window. The
+            // fresh report + below-map ride the replace-in-place update, so the halos
+            // re-attach on the live instance (a re-sent wire field, never preserved state).
+            Report = RuleEngine.Evaluate(snapshot, _ruleset);
+            var below = ComputeBelow(snapshot, Report);
+
             // Replace-in-place (ADR-005 D1/D2): exactly ONE UpdateGraphAsync — never a
             // second ShowGraphAsync (destroy + fit would lose the viewport).
-            await renderer.UpdateGraphAsync(Graph, cancellationToken);
+            await renderer.UpdateGraphAsync(Graph, Report, below, cancellationToken);
             GraphSummary = $"{Graph.Nodes.Count} objects, {Graph.Edges.Count} edges";
             await renderer.FocusAsync([dn, .. memberDns], cancellationToken);
         }

@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Graph;
+using GroupWeaver.App.Rules;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 
@@ -24,6 +25,7 @@ public sealed partial class RootPickerViewModel : ObservableObject
     private readonly Action<WorkspaceViewModel> _onConfirmed;
     private readonly bool _webView2Missing;
     private readonly Func<IGraphRenderer>? _graphRendererFactory;
+    private readonly EffectiveRuleset? _ruleset;
 
     /// <summary>True while the candidate enumeration is in flight.</summary>
     [ObservableProperty]
@@ -54,7 +56,8 @@ public sealed partial class RootPickerViewModel : ObservableObject
         Action onBack,
         Action<WorkspaceViewModel> onConfirmed,
         bool webView2Missing = false,
-        Func<IGraphRenderer>? graphRendererFactory = null)
+        Func<IGraphRenderer>? graphRendererFactory = null,
+        EffectiveRuleset? ruleset = null)
     {
         _provider = provider;
         _connection = connection;
@@ -62,6 +65,7 @@ public sealed partial class RootPickerViewModel : ObservableObject
         _onConfirmed = onConfirmed;
         _webView2Missing = webView2Missing;
         _graphRendererFactory = graphRendererFactory;
+        _ruleset = ruleset;
         LoadCandidates = LoadCandidatesAsync();
     }
 
@@ -106,7 +110,7 @@ public sealed partial class RootPickerViewModel : ObservableObject
     private void LoadRoot() =>
         _onConfirmed(new WorkspaceViewModel(
             _provider, SelectedCandidate!, _connection, _webView2Missing,
-            _graphRendererFactory));
+            _graphRendererFactory, _ruleset));
 
     private bool CanLoadRoot() => SelectedCandidate is not null;
 

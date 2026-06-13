@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 
 using GroupWeaver.Core.Graph;
+using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Graph;
 
@@ -58,7 +59,11 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// the VM's busy gate drops overlapping gestures, so an overlap here is a caller
     /// bug; queueing would hide it).
     /// </summary>
-    public async Task ShowGraphAsync(GraphModel graph, CancellationToken cancellationToken = default)
+    public async Task ShowGraphAsync(
+        GraphModel graph,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        CancellationToken cancellationToken = default)
     {
         EnterSingleFlight(nameof(ShowGraphAsync));
         try
@@ -71,7 +76,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             // Armed BEFORE the first dispatch: the page may confirm faster than the
             // last InvokeScript returns.
             _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(GraphChunker.ToChunkCommands(graph), cancellationToken);
+            await DispatchAsync(GraphChunker.ToChunkCommands(graph, report, belowMap), cancellationToken);
             await AwaitConfirmationAsync(
                 _loaded.Task, "graph render never completed (60 s)", cancellationToken);
         }
@@ -88,7 +93,11 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// single-flight guard and 60 s bounded-wait → RendererError-and-return-normally
     /// policy as <see cref="ShowGraphAsync"/> (see its remarks).
     /// </summary>
-    public async Task UpdateGraphAsync(GraphModel graph, CancellationToken cancellationToken = default)
+    public async Task UpdateGraphAsync(
+        GraphModel graph,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        CancellationToken cancellationToken = default)
     {
         EnterSingleFlight(nameof(UpdateGraphAsync));
         try
@@ -101,7 +110,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             // Armed BEFORE the first dispatch: the page may confirm faster than the
             // last InvokeScript returns.
             _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(GraphChunker.ToUpdateCommands(graph), cancellationToken);
+            await DispatchAsync(GraphChunker.ToUpdateCommands(graph, report, belowMap), cancellationToken);
             await AwaitConfirmationAsync(
                 _loaded.Task, "graph update never completed (60 s)", cancellationToken);
         }

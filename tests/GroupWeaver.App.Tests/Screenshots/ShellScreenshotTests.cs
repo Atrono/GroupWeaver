@@ -1,15 +1,19 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
 using GroupWeaver.Core.Model;
+using GroupWeaver.Core.Rules;
 using GroupWeaver.Providers;
 
 using Xunit;
@@ -137,6 +141,132 @@ public sealed class ShellScreenshotTests
 
         CapturePng(window, "workspace-webview2-missing", width, height);
         window.Close();
+    }
+
+    /// <summary>
+    /// AP 3.4 (ADR-010 §5): the violations sidebar topping the right column, above the
+    /// AP 2.5 detail stack (the <c>2*,Auto,3*</c> vertical split, beside GraphHost, never
+    /// over it — ADR-001 airspace). Driven to the settled workspace via the same
+    /// <see cref="DriveToWorkspaceAsync"/> the other workspace frames use, default ruleset
+    /// (the AP 3.2 demo baseline = 19 findings = E 4 · W 3 · i 12).
+    ///
+    /// Beyond the airspace pin (sidebar renders right of GraphHost), this fixture pins the
+    /// header severity-summary chip strip — the ui-verifier B-2 evidence gap. The canonical
+    /// errors-first row order pushes Warning/Info below the scroll fold, so the chip strip
+    /// is the ONLY above-the-fold evidence that all three severities exist; without a pin it
+    /// could silently regress (e.g. a chip collapses, or a glyph drifts off the ADR-010
+    /// palette) and every static frame would still look plausible. So
+    /// <see cref="AssertSeverityChipStrip"/> addresses the three glyph squares in the visual
+    /// tree (the 18×18 chip borders are unique to the strip — rows use 20×20) and asserts,
+    /// per severity: the count text (E 4 / W 3 / i 12, the demo baseline AND parity with the
+    /// <c>CountForSeverity</c> tally) and that the glyph brush is the pinned ADR-010 palette
+    /// color (#D13438 / #F7A30B / #4FA3E3, parity with <c>SeverityConverters.ToBrush</c>).
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceViolations(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
+        Dispatcher.UIThread.RunJobs();
+
+        // The violations sidebar VIEW actually rendered, and it lives in the right detail
+        // column (right of GraphHost — the airspace pin, as in DetailPanelViewTests).
+        var sidebar = Assert.Single(
+            window.GetVisualDescendants().OfType<ViolationsSidebarView>());
+        Assert.True(sidebar.IsEffectivelyVisible, "the violations sidebar must be rendered");
+
+        var graphHost = Assert.Single(window.GetVisualDescendants().OfType<Avalonia.Controls.ContentControl>()
+, c => c.Name == "GraphHost");
+        var sidebarLeft = sidebar.TranslatePoint(new Point(0, 0), window);
+        var graphRight = graphHost.TranslatePoint(
+            new Point(graphHost.Bounds.Width, 0), window);
+        Assert.NotNull(sidebarLeft);
+        Assert.NotNull(graphRight);
+        Assert.True(
+            sidebarLeft.Value.X >= graphRight.Value.X - 0.5,
+            $"the violations sidebar (X={sidebarLeft.Value.X}) must sit right of "
+            + $"GraphHost (right edge X={graphRight.Value.X}) — never over the graph");
+
+        // The header chip strip evidences ALL THREE severities above the fold (ui-verifier
+        // B-2): the demo baseline is E 4 · W 3 · i 12, each glyph in the ADR-010 palette.
+        AssertSeverityChipStrip(workspace, sidebar);
+
+        CapturePng(window, "workspace-violations", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Pins the AP 3.4 header severity-summary chip strip (ADR-010 §5; ui-verifier B-2):
+    /// all THREE severity chips are present, visible, and individually correct — count text
+    /// AND glyph-square palette color. The chips are not named controls, so they are located
+    /// structurally: the three 18×18 glyph <see cref="Avalonia.Controls.Border"/>s are unique
+    /// to the strip (the findings ListBox rows use 20×20), and each chip's letter
+    /// (E / W / i) ties it to its severity. Expectations are DERIVED, never hardcoded:
+    /// the glyph letter and brush come from the one <see cref="SeverityConverters"/> palette
+    /// the XAML binds, and the count from the same <c>CountForSeverity</c> tally — so this
+    /// fails the instant the strip drifts off the palette or miscounts. The demo-baseline
+    /// totals (E 4 · W 3 · i 12 = 19) are additionally pinned as a literal, so a dataset or
+    /// engine drift that silently changes the per-severity mix is also caught here.
+    /// </summary>
+    private static void AssertSeverityChipStrip(WorkspaceViewModel workspace, ViolationsSidebarView sidebar)
+    {
+        Assert.True(workspace.HasViolations, "the demo baseline must populate the chip strip");
+
+        // The 18×18 glyph squares are unique to the chip strip (rows use 20×20) — exactly
+        // one per severity, all rendered above the fold.
+        var chipBorders = sidebar.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Border>()
+            .Where(b => b.IsEffectivelyVisible && b.Width == 18 && b.Height == 18)
+            .ToList();
+        Assert.Equal(3, chipBorders.Count);
+
+        // The demo baseline: Error 4 (3 nesting + 1 circular), Warning 3 (naming), Info 12
+        // (empty-group) — literal pins so a per-severity mix drift is caught, paired with
+        // the live CountForSeverity tally so the chip text can never diverge from the data.
+        var expectedCounts = new Dictionary<RuleSeverity, int>
+        {
+            [RuleSeverity.Error] = 4,
+            [RuleSeverity.Warning] = 3,
+            [RuleSeverity.Info] = 12,
+        };
+
+        foreach (var severity in new[] { RuleSeverity.Error, RuleSeverity.Warning, RuleSeverity.Info })
+        {
+            // Locate THIS severity's chip by its redundant letter (E / W / i) — derived from
+            // the one palette, the colorblind-safe channel the chip renders in the square.
+            var glyph = Assert.IsType<string>(SeverityConverters.ToGlyph.Convert(
+                severity, typeof(string), null, CultureInfo.InvariantCulture));
+            var letterBlocks = chipBorders
+                .Select(b => b.Child as Avalonia.Controls.TextBlock)
+                .ToList();
+            var letterBlock = Assert.Single(letterBlocks, t => t is not null && t.Text == glyph)!;
+            var border = (Avalonia.Controls.Border)letterBlock.Parent!;
+
+            // (1) the glyph square is the pinned ADR-010 palette color (parity with ToBrush).
+            var expectedBrush = Assert.IsAssignableFrom<ISolidColorBrush>(
+                SeverityConverters.ToBrush.Convert(
+                    severity, typeof(IBrush), null, CultureInfo.InvariantCulture));
+            var actualBrush = Assert.IsAssignableFrom<ISolidColorBrush>(border.Background);
+            Assert.Equal(expectedBrush.Color, actualBrush.Color);
+
+            // (2) the chip's count TextBlock — the sibling of the square inside the chip
+            // StackPanel (the letter lives INSIDE the square, so exclude the square's
+            // subtree) — reads the per-severity tally: the live CountForSeverity AND the
+            // pinned demo-baseline literal must agree, and the rendered text must equal it.
+            var chip = (Avalonia.Controls.StackPanel)border.Parent!;
+            var countBlock = Assert.Single(chip.GetVisualDescendants()
+                    .OfType<Avalonia.Controls.TextBlock>()
+, t => t.IsEffectivelyVisible && !ReferenceEquals(t, letterBlock));
+
+            var liveCount = Assert.IsType<string>(SeverityConverters.CountForSeverity.Convert(
+                new object?[] { workspace.Violations, workspace.Violations.Count },
+                typeof(string), severity, CultureInfo.InvariantCulture));
+            Assert.Equal(expectedCounts[severity].ToString(CultureInfo.InvariantCulture), liveCount);
+            Assert.Equal(liveCount, countBlock.Text);
+        }
     }
 
     /// <summary>

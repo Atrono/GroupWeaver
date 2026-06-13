@@ -4,6 +4,8 @@ using System.Text.Json;
 using GroupWeaver.App.Graph;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
+using GroupWeaver.Core.Rules;
+using GroupWeaver.Providers;
 
 using Xunit;
 
@@ -231,5 +233,257 @@ public sealed class GraphJsonTests
         Assert.Contains("\\u2029", json, StringComparison.Ordinal);
         using var document = JsonDocument.Parse(json);
         Assert.Equal(Label, document.RootElement.GetProperty("nodes")[0].GetProperty("label").GetString());
+    }
+
+    // --- severity -> wire mapping (AP 3.4 S1, ADR-010) =================================
+    //
+    // ADR-010 D1/D2: severity is joined ONLY in the App wire mapper (GraphJson.MapNodes),
+    // never in Core/GraphBuilder. Three optional NodeDto fields, all WhenWritingNull-
+    // ignored so an UNFLAGGED node stays byte-identical to the pre-AP wire:
+    //   sev      = SevToken(report.MaxSeverityByDn[dn])            -> "error"|"warning"|"info"
+    //   below    = distinct-finding count among loaded descendants -> int, emitted only > 0
+    //   belowSev = SevToken(max severity among those)              -> token form, with `below`
+    // The new signature pins the ONE shared node path used by both flat and chunked output:
+    //   MapNodes(nodes, report, belowMap)  -> a `SerializeFlat(model, report, belowMap)`
+    //   overload exposes it; the single-arg SerializeFlat keeps RuleReport.Empty/null.
+    //
+    // SPEC CONFLICT (flagged loudly): the "Final rendering decision" pins the MapNodes
+    // signature with `IReadOnlyDictionary<string,RuleSeverity>? belowByDn` (value = max
+    // severity ONLY), yet the SAME section requires the wire to carry `below` (an int
+    // COUNT) AND `belowSev`. A severity-only map cannot yield the count, and MapNodes
+    // receives no descendant set to recompute it (Walk is VM-only, data-model.md). The
+    // only below-map shape that produces BOTH pinned wire fields from inside MapNodes is
+    // the `(int Count, RuleSeverity Sev)` value form the spec itself falls back to
+    // ("Final VM/sidebar/eval design": "ship a Dictionary<string,(int Count, RuleSeverity
+    // Sev)>; MapNodes reads both"). These tests therefore pin the COUNT-carrying map.
+    // The implementer must reconcile the two spec phrasings to this shape.
+
+    /// <summary>The demo dataset root (fewest RDN components), pinned against
+    /// <c>src/Providers/Demo/demo-directory.json</c>'s <c>rootDn</c> — same constant the
+    /// AppCli dump-graph tests use.</summary>
+    private const string DemoRootDn = "OU=AGDLP-Demo,DC=weavedemo,DC=example";
+
+    private const string GroupSuffix = ",OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+    private const string UserSuffix = ",OU=Users,OU=AGDLP-Demo,DC=weavedemo,DC=example";
+
+    // Baseline DNs lifted verbatim from the 19-finding subject table
+    // (RuleEngineDemoBaselineTests). MaxSeverityByDn for each is pinned there:
+    //   DL_FS-Sales_RW  -> Error   (DL <- User nesting error, parent endpoint)
+    //   Anna Acker(u001)-> Error   (the member endpoint of that SAME nesting error)
+    //   UG_ProjectX     -> Info    (empty-group only)
+    //   GG_X            -> Warning (naming-gg warning outranks its empty-group Info)
+    private const string DlFsSalesRwDn = "CN=DL_FS-Sales_RW" + GroupSuffix;
+    private const string User001Dn = "CN=Anna Acker (u001)" + UserSuffix;
+    private const string UgProjectXDn = "CN=UG_ProjectX" + GroupSuffix;
+    private const string GgXDn = "CN=GG_X" + GroupSuffix;
+
+    // --- unflagged byte-identity (the omit-when-null guarantee) ------------------------
+
+    [Fact]
+    public void SerializeFlat_NoReport_IsByteIdenticalToTheSingleArgOverload_NoSeverityKeys()
+    {
+        // The single-arg SerializeFlat must keep emitting the pre-AP wire verbatim, and
+        // the new (model, report, belowMap) overload with an EMPTY report + null below-map
+        // must produce the IDENTICAL bytes — no sev/below/belowSev keys anywhere.
+        var model = new GraphModel(
+            [
+                new GraphNode(DlFsSalesRwDn, "DL_FS-Sales_RW", AdObjectKind.DomainLocalGroup, 1d, 2d, 1, IsRoot: false),
+                new GraphNode(User001Dn, "Anna Acker (u001)", AdObjectKind.User, 3d, 4d, 2, IsRoot: false),
+            ],
+            []);
+
+        var legacy = GraphJson.SerializeFlat(model);
+        var withEmptyReport = GraphJson.SerializeFlat(model, RuleReport.Empty, belowMap: null);
+
+        Assert.Equal(legacy, withEmptyReport);
+        Assert.DoesNotContain("\"sev\"", withEmptyReport, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"below\"", withEmptyReport, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"belowSev\"", withEmptyReport, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SerializeFlat_FlaggedReport_UnflaggedNodeIsByteIdenticalToTheNoReportWire()
+    {
+        // Even when the report DOES carry findings, a node that is NOT an attached DN must
+        // serialize byte-for-byte the same as it would with no report at all (ADR-010 D2:
+        // "no finding => no sev field => byte-identical to a pre-AP node").
+        const string UnflaggedDn = "CN=GG_Conformant" + GroupSuffix;
+        var unflagged = new GraphModel(
+            [new GraphNode(UnflaggedDn, "GG_Conformant", AdObjectKind.GlobalGroup, 5d, -6d, 2, IsRoot: false)],
+            []);
+
+        var report = DemoDefaultReport();
+
+        Assert.Equal(
+            GraphJson.SerializeFlat(unflagged),
+            GraphJson.SerializeFlat(unflagged, report, belowMap: null));
+    }
+
+    // --- per-node sev token from MaxSeverityByDn ---------------------------------------
+
+    [Theory]
+    [InlineData(DlFsSalesRwDn, "error")]   // DL parent of the DL <- User nesting error
+    [InlineData(User001Dn, "error")]       // its member endpoint: BOTH-endpoint attribution
+    [InlineData(GgXDn, "warning")]         // naming-gg warning outranks its empty-group Info
+    [InlineData(UgProjectXDn, "info")]     // empty-group only
+    public void SerializeFlat_FlaggedNode_CarriesTheExactSevToken(string dn, string expectedSev)
+    {
+        // The 19-finding default-ruleset report over the demo snapshot is the live source
+        // of truth: MaxSeverityByDn[dn] -> lowercase wire token, decoupled from enum names.
+        var report = DemoDefaultReport();
+        var model = SingleNodeModel(dn);
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, report, belowMap: null), dn);
+
+        Assert.Equal(expectedSev, node.GetProperty("sev").GetString());
+        // A pure per-node sev (no below-map) carries neither roll-up field.
+        Assert.False(node.TryGetProperty("below", out _), "below must be absent without a below-map");
+        Assert.False(node.TryGetProperty("belowSev", out _), "belowSev must be absent without a below-map");
+    }
+
+    [Fact]
+    public void SerializeFlat_BothEndpointAttribution_MarksTheMemberUserNodeError_NotJustTheParent()
+    {
+        // The pinned both-endpoint case from the prompt: the DL <- User nesting error
+        // attaches to BOTH the DL parent AND the user member, so the user node (Anna Acker
+        // (u001)) must carry sev:"error" even though a User is never itself a rule subject.
+        var report = DemoDefaultReport();
+        var model = SingleNodeModel(User001Dn);
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, report, belowMap: null), User001Dn);
+
+        Assert.Equal("error", node.GetProperty("sev").GetString());
+    }
+
+    [Fact]
+    public void SerializeFlat_SevTokenIsLowercase_NotTheEnumName()
+    {
+        // The wire tokens are lowercase ("error"/"warning"/"info"), NOT the RuleSeverity
+        // enum names ("Error"/"Warning"/"Info") — same decoupling as the kind tokens being
+        // enum names verbatim, but inverted for severity (ADR-010 D2, SeverityWire helper).
+        var report = DemoDefaultReport();
+        var json = GraphJson.SerializeFlat(SingleNodeModel(DlFsSalesRwDn), report, belowMap: null);
+
+        Assert.Contains("\"sev\":\"error\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"sev\":\"Error\"", json, StringComparison.Ordinal);
+    }
+
+    // --- roll-up below / belowSev from the below-map -----------------------------------
+
+    [Fact]
+    public void SerializeFlat_NodeInBelowMap_EmitsBelowCountAndBelowSevToken()
+    {
+        // The roll-up wire fields come from the VM-computed below-map (count + max severity
+        // among loaded descendants). below is the int COUNT; belowSev is the token form.
+        var model = SingleNodeModel(DlFsSalesRwDn);
+        var belowMap = BelowMap((DlFsSalesRwDn, 3, RuleSeverity.Error));
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, RuleReport.Empty, belowMap), DlFsSalesRwDn);
+
+        Assert.Equal(3, node.GetProperty("below").GetInt32());
+        Assert.Equal("error", node.GetProperty("belowSev").GetString());
+    }
+
+    [Theory]
+    [InlineData(RuleSeverity.Warning, "warning")]
+    [InlineData(RuleSeverity.Info, "info")]
+    public void SerializeFlat_BelowSev_IsTheLowercaseTokenOfTheBelowMapSeverity(
+        RuleSeverity below, string expectedToken)
+    {
+        var model = SingleNodeModel(DlFsSalesRwDn);
+        var belowMap = BelowMap((DlFsSalesRwDn, 1, below));
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, RuleReport.Empty, belowMap), DlFsSalesRwDn);
+
+        Assert.Equal(expectedToken, node.GetProperty("belowSev").GetString());
+    }
+
+    [Fact]
+    public void SerializeFlat_NodeAbsentFromBelowMap_HasNeitherBelowNorBelowSev()
+    {
+        // A node not in the below-map (no flagged loaded descendants) must omit BOTH roll-up
+        // fields entirely (WhenWritingNull) — never below:0, never belowSev:null.
+        var model = SingleNodeModel(DlFsSalesRwDn);
+        var belowMap = BelowMap(("CN=Someone_Else" + GroupSuffix, 2, RuleSeverity.Error));
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, RuleReport.Empty, belowMap), DlFsSalesRwDn);
+
+        Assert.False(node.TryGetProperty("below", out _), "below must be absent for a node not in the below-map");
+        Assert.False(node.TryGetProperty("belowSev", out _), "belowSev must be absent for a node not in the below-map");
+        Assert.DoesNotContain("\"below\":0", FlatJson(model, RuleReport.Empty, belowMap), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SerializeFlat_ZeroCountBelowEntry_IsTreatedAsAbsent_NeverEmittedAsBelowZero()
+    {
+        // below is emitted "only when > 0" (ADR-010 D2). A degenerate count-0 below-map entry
+        // must NOT reach the wire as below:0 — the omit-when-zero rule is part of the contract.
+        var model = SingleNodeModel(DlFsSalesRwDn);
+        var belowMap = BelowMap((DlFsSalesRwDn, 0, RuleSeverity.Error));
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, RuleReport.Empty, belowMap), DlFsSalesRwDn);
+
+        Assert.False(node.TryGetProperty("below", out _), "a count-0 below entry must not emit below");
+        Assert.False(node.TryGetProperty("belowSev", out _), "a count-0 below entry must not emit belowSev");
+    }
+
+    [Fact]
+    public void SerializeFlat_SevAndBelowCoexist_OnTheSameNode()
+    {
+        // sev (own findings) and below (descendant roll-up) are independent channels and may
+        // both appear on one node — a flagged group that also hides flagged descendants.
+        var report = DemoDefaultReport();
+        var model = SingleNodeModel(DlFsSalesRwDn);
+        var belowMap = BelowMap((DlFsSalesRwDn, 2, RuleSeverity.Warning));
+
+        var node = FlatNode(GraphJson.SerializeFlat(model, report, belowMap), DlFsSalesRwDn);
+
+        Assert.Equal("error", node.GetProperty("sev").GetString());
+        Assert.Equal(2, node.GetProperty("below").GetInt32());
+        Assert.Equal("warning", node.GetProperty("belowSev").GetString());
+    }
+
+    // --- helpers (severity) ------------------------------------------------------------
+
+    /// <summary>The live 19-finding baseline report: the FULL demo snapshot under the
+    /// embedded default ruleset (RuleEngineDemoBaselineTests is the authoritative table).
+    /// Built in-test per the slice brief — never a hand-rolled report.</summary>
+    private static RuleReport DemoDefaultReport()
+    {
+        var snapshot = new DemoProvider().LoadScopeAsync(DemoRootDn).GetAwaiter().GetResult();
+        return RuleEngine.Evaluate(snapshot, RulesetLoader.LoadDefault());
+    }
+
+    /// <summary>A one-node model carrying <paramref name="dn"/> (kind/coords irrelevant to
+    /// the severity join, which is keyed purely on the DN id).</summary>
+    private static GraphModel SingleNodeModel(string dn) =>
+        new([new GraphNode(dn, dn, AdObjectKind.DomainLocalGroup, 1d, 2d, 1, IsRoot: false)], []);
+
+    /// <summary>The count-carrying below-map shape these tests pin (see the SPEC CONFLICT
+    /// note above): node DN -> (distinct-finding count among loaded descendants, max
+    /// severity among them).</summary>
+    private static IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)> BelowMap(
+        params (string Dn, int Count, RuleSeverity Sev)[] entries)
+    {
+        var map = new Dictionary<string, (int Count, RuleSeverity Sev)>(Dn.Comparer);
+        foreach (var (dn, count, sev) in entries)
+        {
+            map[dn] = (count, sev);
+        }
+
+        return map;
+    }
+
+    private static string FlatJson(
+        GraphModel model, RuleReport report, IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap) =>
+        GraphJson.SerializeFlat(model, report, belowMap);
+
+    /// <summary>The single flat-document node element whose id equals <paramref name="dn"/>.</summary>
+    private static JsonElement FlatNode(string flatJson, string dn)
+    {
+        using var document = JsonDocument.Parse(flatJson);
+        var node = document.RootElement.GetProperty("nodes").EnumerateArray()
+            .Single(n => n.GetProperty("id").GetString() == dn);
+        return node.Clone();
     }
 }
