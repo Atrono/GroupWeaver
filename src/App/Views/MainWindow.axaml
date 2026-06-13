@@ -28,6 +28,10 @@
       <views:PlanView />
     </DataTemplate>
 
+    <DataTemplate DataType="vm:GapViewModel">
+      <views:GapView />
+    </DataTemplate>
+
   </Window.DataTemplates>
 
   <DockPanel>

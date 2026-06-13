@@ -157,7 +157,7 @@ Keine Scope-Schätzung – Priorisierung erfolgt über GitHub-Issues echter Nutz
 | Release | Inhalt (geplant) |
 |---|---|
 | v0.2 | winget-Einreichung (O5, mit Win-11-Testumgebung); Export (Graph als PNG/SVG, Verstoß-Report CSV/HTML); Plan-Modus: Knoten per Drag & Drop entwerfen, Live-Validierung, Export als PowerShell-Skript (bleibt read-only!) |
-| v0.3 | Gap-Analyse: Diff Ist-Graph vs. Plan-Graph |
+| v0.3 | Gap-Analyse: Diff Ist-Graph vs. Plan-Graph — **erledigt** (ADR-015, #66; Slices 1–9: Core-Diff/GapReport/GapSummary, Graph-Diff-Cues, GapViewModel, und Slice 8/9 = Gap-Modus erreichbar aus Plan-Modus + GapView) |
 | v0.4 | Entra ID / M365 via Graph API (dynamische Gruppen, Verteiler – z. B. GG „Firma" ↔ Verteiler firma@…) |
 
 ---
