@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using GroupWeaver.App.Graph;
+using GroupWeaver.App.Rules;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
@@ -38,7 +39,11 @@ public sealed partial class App : Application
                 WebView2Runtime.Probe(),
                 // The ONLY place the real renderer is wired (ADR-004 D5). Headless tests
                 // never reach this: they construct VMs directly (null factory or fakes).
-                static () => new CytoscapeGraphRenderer());
+                static () => new CytoscapeGraphRenderer(),
+                // The ruleset every workspace Evaluate runs against (ADR-010 §3) — located
+                // ONCE here (ADR-008 whole-file precedence). EffectiveRuleset.Errors are
+                // carried, surfaced by AP 3.3's settings UI; the locator never throws.
+                new RulesetLocator().LoadEffective());
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
 

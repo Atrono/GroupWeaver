@@ -1,21 +1,51 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.ViewModels;
 
 /// <summary>
-/// One row of the AP 3.4 violations sidebar (ADR-010 §5): the immutable projection of
-/// a <see cref="RuleViolation"/> the <see cref="ViolationsSidebarView"/> binds — the
+/// One row of the AP 3.4 violations sidebar (ADR-010 §5): the projection of a
+/// <see cref="RuleViolation"/> the <see cref="Views.ViolationsSidebarView"/> binds — the
 /// severity (glyph color + redundant letter), the presentation message, the resolved
 /// subject name (falls back to the DN for raw-External anchors), and the jump anchor
-/// (<see cref="RuleViolation.PrimaryDn"/> = <c>Dns[0]</c>).
+/// (<see cref="RuleViolation.PrimaryDn"/> = <c>Dns[0]</c>). The four projection fields are
+/// immutable; only <see cref="IsActive"/> mutates — the selection-sync highlight the VM
+/// flips in <c>OnSelectedDnChanged</c> for every row whose <see cref="PrimaryDn"/> matches
+/// the current selection (an <see cref="ObservableProperty"/> so the highlight repaints).
 ///
-/// S4 ships the record + the view binding; the S5 VM integration fills the
-/// projection (<c>OnReportChanged</c>, in canonical report order — unshuffled) and the
-/// jump-to-node command. Severity is NOT a detail-panel attribute (ADR-007); this row
-/// is the only App-side surface that pairs a finding with its subject name.
+/// Severity is NOT a detail-panel attribute (ADR-007); this row is the only App-side
+/// surface that pairs a finding with its subject name.
 /// </summary>
-public sealed record ViolationRowModel(
-    RuleSeverity Severity,
-    string Message,
-    string SubjectName,
-    string PrimaryDn);
+public sealed partial class ViolationRowModel : ObservableObject
+{
+    public ViolationRowModel(RuleSeverity severity, string message, string subjectName, string primaryDn)
+    {
+        Severity = severity;
+        Message = message;
+        SubjectName = subjectName;
+        PrimaryDn = primaryDn;
+    }
+
+    /// <summary>Effective severity — drives the glyph color/letter via the one
+    /// <see cref="Views.SeverityConverters"/> palette (overlay-color parity with the
+    /// graph halos).</summary>
+    public RuleSeverity Severity { get; }
+
+    /// <summary>The finding's presentation message (canonical, culture-invariant).</summary>
+    public string Message { get; }
+
+    /// <summary>The anchor object's display name, resolved snapshot-only; raw-External
+    /// anchors fall back to the DN.</summary>
+    public string SubjectName { get; }
+
+    /// <summary>The jump-to-node anchor (<c>Dns[0]</c>) — the command parameter and the
+    /// selection-sync match key (compared under <c>Dn.Comparer</c>).</summary>
+    public string PrimaryDn { get; }
+
+    /// <summary>Selection-sync highlight (ADR-010 §5): <c>true</c> while this row's
+    /// <see cref="PrimaryDn"/> matches the current graph/panel selection. The VM flips it
+    /// in <c>OnSelectedDnChanged</c>; multiple findings on one DN all highlight.</summary>
+    [ObservableProperty]
+    private bool _isActive;
+}

@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Graph;
+using GroupWeaver.App.Rules;
 using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Providers;
 
@@ -17,6 +18,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly Func<bool, IDirectoryProvider> _providerFactory;
     private readonly Func<IGraphRenderer>? _graphRendererFactory;
+    private readonly EffectiveRuleset? _ruleset;
 
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
@@ -26,10 +28,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Func<bool, IDirectoryProvider> providerFactory,
         StartupOptions startupOptions,
         WebView2RuntimeStatus? webView2Runtime = null,
-        Func<IGraphRenderer>? graphRendererFactory = null)
+        Func<IGraphRenderer>? graphRendererFactory = null,
+        EffectiveRuleset? ruleset = null)
     {
         _providerFactory = providerFactory;
         _graphRendererFactory = graphRendererFactory;
+        _ruleset = ruleset;
 
         // Default = real probe, so harnesses constructing the shell directly behave like
         // the app; S8's headless tests pass an explicit status to force the missing state.
@@ -78,7 +82,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Provider = provider;
         CurrentStep = new RootPickerViewModel(
             provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing,
-            _graphRendererFactory);
+            _graphRendererFactory, _ruleset);
     }
 
     /// <summary>The picker's Back: drop the provider, start over on a fresh Connect step.</summary>

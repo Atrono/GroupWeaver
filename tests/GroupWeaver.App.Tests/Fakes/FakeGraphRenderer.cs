@@ -2,6 +2,7 @@ using Avalonia.Controls;
 
 using GroupWeaver.App.Graph;
 using GroupWeaver.Core.Graph;
+using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Tests.Fakes;
 
@@ -16,6 +17,11 @@ namespace GroupWeaver.App.Tests.Fakes;
 /// <c>Raise*</c> methods. <see cref="View"/> defaults to <c>null</c> (no visual
 /// surface — the honest headless answer); mount tests set a plain control to assert
 /// the GraphHost hand-off without any WebView.
+/// AP 3.4 S5 (ADR-010 §3): the renderer seam grew a <see cref="RuleReport"/> + the
+/// VM-computed below-map alongside each graph push — the fake records them on their
+/// own channels (<see cref="ShownReports"/>/<see cref="UpdatedReports"/> +
+/// <see cref="ShownBelowMaps"/>/<see cref="UpdatedBelowMaps"/>) so WorkspaceViolationsTests
+/// can pin that the re-Evaluated report actually reaches the surface.
 /// </summary>
 internal sealed class FakeGraphRenderer : IGraphRenderer
 {
@@ -24,6 +30,15 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
 
     /// <summary>Every model received by <see cref="ShowGraphAsync"/>, in call order.</summary>
     public List<GraphModel> ShownGraphs { get; } = [];
+
+    /// <summary>Every report received by <see cref="ShowGraphAsync"/>, in call order
+    /// (AP 3.4 S5 severity push — the VM evaluates BEFORE the show and hands the report
+    /// to the renderer; the fake captures it so the load-time evaluation is pinnable).</summary>
+    public List<RuleReport> ShownReports { get; } = [];
+
+    /// <summary>Every below-map received by <see cref="ShowGraphAsync"/>, in call order
+    /// (the VM-computed roll-up; <c>null</c> when no roll-up applies).</summary>
+    public List<IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>?> ShownBelowMaps { get; } = [];
 
     /// <summary>The cancellation token observed by each <see cref="ShowGraphAsync"/> call.</summary>
     public List<CancellationToken> ShowGraphTokens { get; } = [];
@@ -36,6 +51,14 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// (ADR-005 D2 — kept separate from <see cref="ShownGraphs"/>: show and update
     /// have different post-conditions, tests must see which path was taken).</summary>
     public List<GraphModel> UpdatedGraphs { get; } = [];
+
+    /// <summary>Every report received by <see cref="UpdateGraphAsync"/>, in call order
+    /// (AP 3.4 S5: the ExpandAsync re-Evaluate pushes the fresh report through the
+    /// replace-in-place update — the fake records it to pin the re-evaluation).</summary>
+    public List<RuleReport> UpdatedReports { get; } = [];
+
+    /// <summary>Every below-map received by <see cref="UpdateGraphAsync"/>, in call order.</summary>
+    public List<IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>?> UpdatedBelowMaps { get; } = [];
 
     /// <summary>The cancellation token observed by each <see cref="UpdateGraphAsync"/> call.</summary>
     public List<CancellationToken> UpdateGraphTokens { get; } = [];
@@ -60,16 +83,28 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
 
     public event EventHandler<GraphErrorEventArgs>? RendererError;
 
-    public Task ShowGraphAsync(GraphModel graph, CancellationToken cancellationToken = default)
+    public Task ShowGraphAsync(
+        GraphModel graph,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        CancellationToken cancellationToken = default)
     {
         ShownGraphs.Add(graph);
+        ShownReports.Add(report);
+        ShownBelowMaps.Add(belowMap);
         ShowGraphTokens.Add(cancellationToken);
         return ShowGraphResult;
     }
 
-    public Task UpdateGraphAsync(GraphModel graph, CancellationToken cancellationToken = default)
+    public Task UpdateGraphAsync(
+        GraphModel graph,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        CancellationToken cancellationToken = default)
     {
         UpdatedGraphs.Add(graph);
+        UpdatedReports.Add(report);
+        UpdatedBelowMaps.Add(belowMap);
         UpdateGraphTokens.Add(cancellationToken);
         return UpdateGraphResult;
     }
