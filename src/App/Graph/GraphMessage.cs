@@ -25,5 +25,13 @@ public sealed record FocusedMessage : GraphMessage;
 /// <summary>A JS-side error report (<c>{"type":"jsError"}</c>, ADR-004 D6).</summary>
 public sealed record JsErrorMessage(string Source, string Message) : GraphMessage;
 
+/// <summary>The <c>cy.png()</c> base64 result (<c>{"type":"pngExported"}</c>, ADR-013):
+/// <paramref name="Data"/> is a BARE base64 PNG string (image bytes only, no <c>data:</c>
+/// prefix, never an untrusted token); <paramref name="Width"/>/<paramref name="Height"/>
+/// are diagnostics (the cy canvas size, default 0). A well-formed message MUST parse to
+/// this — an <see cref="UnknownMessage"/> would route to <c>RendererError</c>
+/// (<c>CytoscapeGraphRenderer.HandleMessage</c>).</summary>
+public sealed record PngExportedMessage(string Data, int Width, int Height) : GraphMessage;
+
 /// <summary>Fallback for malformed JSON, unknown message types, or missing required fields.</summary>
 public sealed record UnknownMessage(string Raw, string? Reason) : GraphMessage;

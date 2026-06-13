@@ -65,6 +65,11 @@ writes only local files the user picks via a save dialog.
   (~33%, one un-chunked `WebMessageReceived` message) is bounded by the
   viewport-only default, a capped scale, and the 60 s wait.
 - No new vendored blob — integrity lists and THIRD-PARTY-NOTICES untouched.
+- The graph image is driven by a `WorkspaceViewModel.ExportGraphImageCommand`
+  (armed when not loading + a renderer is wired + the seam is installed) behind an
+  "Export image" button in the workspace header row, beside Reload scope / Refresh —
+  native chrome, never over GraphHost. It rasterises BEFORE picking, so a null raster
+  (the renderer's timeout/error contract) short-circuits before the picker is opened.
 - SVG export becomes a future issue when feedback asks for it.
 
 ## Rejected alternatives

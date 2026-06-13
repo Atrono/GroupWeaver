@@ -77,6 +77,28 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// never-completing, or faulted — injected per test.</summary>
     public Task FocusResult { get; set; } = Task.CompletedTask;
 
+    /// <summary>The eight-byte PNG file signature (89 50 4E 47 0D 0A 1A 0A) — the canned
+    /// "image bytes" the AP 4.1 S8 graph-image export tests pin: a non-null
+    /// <see cref="ExportPngAsync"/> result the VM must write VERBATIM to the picked
+    /// <c>.png</c> path (the real renderer returns the decoded <c>cy.png</c> base64; the
+    /// fake stands in with a recognisable, byte-checkable magic-number payload).</summary>
+    public static readonly byte[] PngMagicBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    /// <summary>How many times <see cref="ExportPngAsync"/> was invoked (the round-trip is
+    /// dispatched at most once per command run — pins "no double export", and that a
+    /// gated-out command never reaches the renderer at all).</summary>
+    public int ExportPngCalls { get; private set; }
+
+    /// <summary>The cancellation token observed by each <see cref="ExportPngAsync"/> call.</summary>
+    public List<CancellationToken> ExportPngTokens { get; } = [];
+
+    /// <summary>Result returned by <see cref="ExportPngAsync"/>: the canned
+    /// <see cref="PngMagicBytes"/> by default (a successful raster). Set to <c>null</c> to
+    /// model the never-throw timeout/error contract (<see cref="IGraphRenderer.ExportPngAsync"/>
+    /// returns <c>null</c>, the VM must then write NOTHING). Set to a never-completing TCS
+    /// task to model an in-flight export.</summary>
+    public Task<byte[]?> ExportPngResult { get; set; } = Task.FromResult<byte[]?>(PngMagicBytes);
+
     public event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
     public event EventHandler<GraphNodeEventArgs>? NodeExpandRequested;
@@ -114,6 +136,17 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
         FocusCalls.Add(dns);
         FocusTokens.Add(cancellationToken);
         return FocusResult;
+    }
+
+    /// <summary>AP 4.1 S8 (ADR-013): records the call + observed token and returns the
+    /// injected <see cref="ExportPngResult"/> — the canned <see cref="PngMagicBytes"/> by
+    /// default, or <c>null</c> to exercise the never-throw timeout contract. Image bytes
+    /// only; the outbound command carries no untrusted tokens.</summary>
+    public Task<byte[]?> ExportPngAsync(CancellationToken cancellationToken = default)
+    {
+        ExportPngCalls++;
+        ExportPngTokens.Add(cancellationToken);
+        return ExportPngResult;
     }
 
     /// <summary>Simulates a node tap arriving from the graph surface.</summary>

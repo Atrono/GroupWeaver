@@ -46,6 +46,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(ReloadScopeCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportReportHtmlCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportGraphImageCommand))]
     private bool _isLoading;
 
     /// <summary>Inline load/renderer error; <c>null</c> hides the error block.</summary>
@@ -384,6 +385,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         _exportDialogs = dialogs;
         ExportReportCsvCommand.NotifyCanExecuteChanged();
         ExportReportHtmlCommand.NotifyCanExecuteChanged();
+        ExportGraphImageCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -444,6 +446,46 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// the ONE global busy gate is idle, and the export seam is installed. Pre-load the
     /// commands are inert.</summary>
     private bool CanExportReport() => !IsLoading && Snapshot is not null && _exportDialogs is not null;
+
+    /// <summary>
+    /// Exports the live graph as a PNG image to a user-picked path (AP 4.1 / ADR-013 §3/§5/§6).
+    /// Gate: a renderer exists (it is the byte source — no renderer, nothing to rasterise) and
+    /// the export seam is installed. Flow (spec slice 8, RASTERISE-BEFORE-PICK): re-guard, then
+    /// <see cref="IGraphRenderer.ExportPngAsync"/>; the never-throw renderer returns <c>null</c>
+    /// on timeout/error — a null raster short-circuits BEFORE the picker is ever consulted (write
+    /// NOTHING). On a non-null raster, <c>PickSavePathAsync(Png)</c>; a cancelled pick is a no-op.
+    /// Otherwise the EXACT image bytes are written to ONLY that picked <c>.png</c> path — image
+    /// data only, no transform. Read-only toward AD: the only write target is the picked local
+    /// file; the directory is never touched, and the outbound command carries no untrusted tokens.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportGraphImage))]
+    private async Task ExportGraphImageAsync()
+    {
+        if (_disposed || IsLoading || GraphRenderer is not { } renderer || _exportDialogs is null)
+        {
+            return;
+        }
+
+        var bytes = await renderer.ExportPngAsync(_cts.Token);
+        if (bytes is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.Png, _cts.Token);
+        if (path is null)
+        {
+            return;
+        }
+
+        await File.WriteAllBytesAsync(path, bytes, _cts.Token);
+    }
+
+    /// <summary>Armed iff a renderer exists (the byte source — the AP 2.5 seam allows selection
+    /// without one, in which case there is nothing to rasterise), the ONE global busy gate is
+    /// idle, and the export seam is installed. Snapshot-independent: the live graph is what the
+    /// renderer rasterises.</summary>
+    private bool CanExportGraphImage() => !IsLoading && GraphRenderer is not null && _exportDialogs is not null;
 
     /// <summary>The name-resolution closure handed to the exporter — mirrors
     /// <see cref="OnReportChanged"/> exactly: an in-snapshot object resolves to its

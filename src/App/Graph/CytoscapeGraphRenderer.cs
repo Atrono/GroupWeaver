@@ -29,6 +29,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
     private TaskCompletionSource? _loaded;
     private TaskCompletionSource? _focused;
+    private TaskCompletionSource? _pngReady;
+    private string? _pngExported;
     private NativeWebView? _webView;
     private bool _navigated;
     private bool _commandInFlight;
@@ -149,6 +151,47 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             _commandInFlight = false;
         }
     }
+
+    /// <summary>
+    /// Rasterizes the live graph to PNG (ADR-013): dispatches <c>exportPng</c> and
+    /// completes on the page's <c>pngExported</c> reply, decoding its bare base64 into
+    /// bytes. The outbound command carries no untrusted tokens (just <c>scale</c>/
+    /// <c>full</c>/<c>bg</c>); the reply's <c>data</c> is image bytes only. Returns
+    /// <c>null</c> on timeout/error (never-throw renderer contract) — identical
+    /// single-flight guard and 60 s bounded-wait → RendererError-and-return-normally
+    /// policy as <see cref="FocusAsync"/> (see <see cref="ShowGraphAsync"/> remarks).
+    /// Defaults match ADR-013: viewport-only (<c>full:false</c>), <c>scale:2</c>,
+    /// <c>bg:'#1b1f27'</c>.
+    /// </summary>
+    public async Task<byte[]?> ExportPngAsync(CancellationToken cancellationToken = default)
+    {
+        EnterSingleFlight(nameof(ExportPngAsync));
+        try
+        {
+            if (!await TryAwaitReadyAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            // Armed BEFORE the dispatch: the page may confirm faster than
+            // InvokeScript returns.
+            _pngExported = null;
+            _pngReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await DispatchAsync(
+                [GraphJson.Serialize(new ExportPngDto("exportPng", 2, false, "#1b1f27"))], cancellationToken);
+            await AwaitConfirmationAsync(
+                _pngReady.Task, "png export never completed (60 s)", cancellationToken);
+            return _pngExported is null ? null : Convert.FromBase64String(_pngExported);
+        }
+        finally
+        {
+            _commandInFlight = false;
+        }
+    }
+
+    /// <summary>The <c>exportPng</c> bridge command (ADR-013); carries no untrusted
+    /// tokens — only the raster knobs scale/full/background.</summary>
+    private sealed record ExportPngDto(string Type, int Scale, bool Full, string Bg);
 
     /// <summary>One renderer call at a time, shared across show/update/focus —
     /// an overlap is a caller bug, never queued (ADR-005 D3).</summary>
@@ -326,6 +369,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 break;
             case FocusedMessage:
                 _focused?.TrySetResult();
+                break;
+            case PngExportedMessage png:
+                _pngExported = png.Data;
+                _pngReady?.TrySetResult();
                 break;
             case NodeClickMessage click:
                 NodeClicked?.Invoke(this, new GraphNodeEventArgs(click.Id, click.Kind));

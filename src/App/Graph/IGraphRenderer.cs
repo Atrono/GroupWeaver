@@ -61,6 +61,16 @@ public interface IGraphRenderer
     /// confirmed the move. Unknown DNs are silently skipped by the graph surface.</summary>
     Task FocusAsync(IReadOnlyCollection<string> dns, CancellationToken cancellationToken = default);
 
+    /// <summary>Rasterizes the live graph to PNG via <c>cy.png()</c> (ADR-013): dispatches
+    /// <c>exportPng</c> and decodes the <c>pngExported</c> base64 reply into bytes. Returns
+    /// <c>null</c> on timeout or any error (the never-throw renderer contract — a degraded
+    /// renderer must not crash the VM), so the caller writes a file only on a non-null
+    /// result. Default no-op (<c>null</c>): renderer fakes without an image surface inherit
+    /// it; the real <c>CytoscapeGraphRenderer</c> overrides it. The bytes are decoded image
+    /// data only — the outbound command carries no untrusted tokens (just scale/full/bg).</summary>
+    Task<byte[]?> ExportPngAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<byte[]?>(null);
+
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 

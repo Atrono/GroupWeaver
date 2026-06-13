@@ -74,6 +74,14 @@
               <Button Name="RefreshButton" Content="Refresh"
                       ToolTip.Tip="Re-fetch members of the selected node"
                       Command="{Binding RefreshCommand}" />
+              <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG
+                   via the renderer's cy.png round-trip and save it to a user-picked file.
+                   Native chrome beside the graph, never over GraphHost (ADR-001 airspace
+                   guardrail 5); the command's CanExecute disables it while IsLoading or
+                   with no renderer / export seam. -->
+              <Button Name="ExportGraphImageButton" Content="Export image"
+                      ToolTip.Tip="Save the current graph as a PNG image"
+                      Command="{Binding ExportGraphImageCommand}" />
             </StackPanel>
 
             <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
