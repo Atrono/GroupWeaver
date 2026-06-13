@@ -1,12 +1,15 @@
 namespace GroupWeaver.App.Settings;
 
 /// <summary>
-/// The three verdicts <see cref="NamingPreview.Evaluate(string,string)"/> can
-/// produce for a naming pattern against a candidate sample (ADR-011 §4, AP 3.3):
-/// <see cref="Ok"/> (sample matches the pattern), <see cref="Violation"/> (sample
-/// does not match — it would be flagged), or <see cref="PatternInvalid"/> (the
-/// pattern could not be compiled under the engine's <c>NonBacktracking</c>
-/// options — a lookaround/backreference or a malformed pattern).
+/// The verdicts the live naming preview can surface for a pattern against a
+/// candidate sample (ADR-011 §4, AP 3.3). The first three are produced by
+/// <see cref="NamingPreview.Evaluate(string,string)"/>: <see cref="Ok"/> (sample
+/// matches the pattern), <see cref="Violation"/> (sample does not match — it would
+/// be flagged), or <see cref="PatternInvalid"/> (the pattern could not be compiled
+/// under the engine's <c>NonBacktracking</c> options — a lookaround/backreference
+/// or a malformed pattern). <see cref="Idle"/> is NOT an <c>Evaluate</c> result —
+/// it is the preview chip's own resting affordance for an empty sample, decided by
+/// <c>NamingPreviewConverter</c> before any evaluation.
 /// </summary>
 public enum NamingPreviewKind
 {
@@ -18,6 +21,11 @@ public enum NamingPreviewKind
 
     /// <summary>The pattern itself is not a usable regex; see <see cref="NamingPreviewResult.Message"/>.</summary>
     PatternInvalid,
+
+    /// <summary>The preview chip rests: an empty sample, no verdict yet. A chip-only
+    /// affordance (decided before evaluating), never returned by
+    /// <see cref="NamingPreview.Evaluate(string,string)"/>.</summary>
+    Idle,
 }
 
 /// <summary>
