@@ -453,6 +453,85 @@ public sealed class WorkspaceLoadTests
         window.Close();
     }
 
+    // --- the Reload-scope button view pin (issue #30 S2, discharges ADR-005 D4 follow-up) -
+
+    [AvaloniaFact]
+    public async Task ReloadScopeButton_SitsBesideGraphHost_LeftOfRefresh_ArmedWithNoSelection_WithTooltip()
+    {
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(Provider(SmallSnapshot()), () => fake);
+        var (window, view) = ShowWorkspace(vm);
+        await vm.Initialization;
+        Dispatcher.UIThread.RunJobs();
+
+        // The named header button (a seam-name pin like RefreshButton/GraphHost),
+        // labelled "Reload scope" — shipped UI strings are English (ADR-005 D4).
+        var reload = Assert.Single(
+            view.GetVisualDescendants().OfType<Button>(), b => b.Name == "ReloadScopeButton");
+        Assert.True(reload.IsEffectivelyVisible);
+        Assert.Contains("Reload scope", VisibleTexts(reload));
+
+        // Bound to ReloadScopeCommand — the SAME command instance the VM exposes, not
+        // some other RelayCommand. (Refresh and Reload must not be cross-wired.)
+        Assert.Same(vm.ReloadScopeCommand, reload.Command);
+
+        // Native chrome BESIDE GraphHost, never inside/over it (ADR-001 airspace
+        // guardrail 5): it lives in the right detail column, ABOVE the AP 2.5
+        // DetailPanelRegion seam (a future detail panel must not be able to evict it).
+        var detailRegion = Region(view, "DetailPanelRegion");
+        Assert.DoesNotContain(reload, Region(view, "GraphHost").GetVisualDescendants());
+        Assert.DoesNotContain(reload, detailRegion.GetVisualDescendants());
+
+        var reloadTop = reload.TranslatePoint(new Point(0, 0), view);
+        var regionTop = detailRegion.TranslatePoint(new Point(0, 0), view);
+        Assert.NotNull(reloadTop);
+        Assert.NotNull(regionTop);
+        Assert.True(
+            reloadTop.Value.X >= view.Bounds.Width - 320,
+            $"the Reload scope button belongs in the right detail column, beside GraphHost (was at X={reloadTop.Value.X})");
+        Assert.True(
+            reloadTop.Value.Y + reload.Bounds.Height <= regionTop.Value.Y + 0.5,
+            "the Reload scope button belongs ABOVE the DetailPanelRegion seam");
+
+        // Order in the shared header row: Reload scope is the LEFT sibling of Refresh
+        // (the surviving header invariant — Reload then Refresh, never the reverse).
+        var refresh = Assert.Single(
+            view.GetVisualDescendants().OfType<Button>(), b => b.Name == "RefreshButton");
+        var reloadLeft = reload.TranslatePoint(new Point(0, 0), view);
+        var refreshLeft = refresh.TranslatePoint(new Point(0, 0), view);
+        Assert.NotNull(reloadLeft);
+        Assert.NotNull(refreshLeft);
+        Assert.True(
+            reloadLeft.Value.X + reload.Bounds.Width <= refreshLeft.Value.X + 0.5,
+            $"Reload scope must sit LEFT of Refresh with no overlap (Reload right edge "
+            + $"{reloadLeft.Value.X + reload.Bounds.Width}, Refresh left {refreshLeft.Value.X})");
+
+        // Tooltip: pinned present and non-empty; the wording is the implementer's.
+        var tip = Assert.IsType<string>(ToolTip.GetTip(reload));
+        Assert.False(string.IsNullOrWhiteSpace(tip), "the Reload scope tooltip must say something");
+
+        // KEYSTONE for the button: CanExecute is selection-INDEPENDENT. Unlike Refresh
+        // (disabled above with no selection), Reload reloads the WHOLE scope, so it is
+        // ARMED with nothing selected the instant the busy gate releases — and the
+        // rendered button reflects that (IsEffectivelyEnabled, not just CanExecute).
+        Assert.Null(vm.SelectedDn);
+        Assert.False(vm.IsLoading);
+        Assert.True(
+            reload.IsEffectivelyEnabled,
+            "Reload scope must be enabled with NO selection — it reloads the whole scope, not a node");
+
+        // A selection (or lack thereof) never changes that: selecting a non-fetchable
+        // User disables Refresh but leaves Reload armed.
+        fake.RaiseNodeClicked(AdaDn, "User");
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(refresh.IsEffectivelyEnabled, "anchor: a User selection disarms Refresh");
+        Assert.True(
+            reload.IsEffectivelyEnabled,
+            "Reload scope stays armed regardless of the current selection");
+
+        window.Close();
+    }
+
     [Fact]
     public async Task RendererError_ReusesLoadError_AndLeavesIsLoadingAlone()
     {
