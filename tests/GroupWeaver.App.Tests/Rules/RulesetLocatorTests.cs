@@ -200,6 +200,32 @@ public sealed class RulesetLocatorTests
         Assert.Matches(new Regex("line", RegexOptions.IgnoreCase), error.Message);
     }
 
+    [Fact]
+    public void LoadEffective_PresentButUnreadableUserFile_ReturnsDefaultPlusOneRootError()
+    {
+        using var dir = new TempDir();
+        var locator = new RulesetLocator(dir.Path);
+        var user = RulesetLoader.LoadDefault() with { Name = "Locked user ruleset" };
+        Directory.CreateDirectory(Path.GetDirectoryName(locator.UserRulesetPath)!);
+        RulesetSerializer.Save(user, locator.UserRulesetPath);
+
+        // A perfectly VALID file held open with FileShare.None: the read itself
+        // fails (sharing violation), so the fallback is the unreadable arm, not
+        // content validation — same degradation as an invalid file, one
+        // root-pathed error in the loader's shape, never a throw.
+        using var fileLock = new FileStream(
+            locator.UserRulesetPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var effective = locator.LoadEffective();
+
+        Assert.False(effective.FromUserFile);
+        AssertIsTheEmbeddedDefault(effective.Ruleset);
+
+        var error = Assert.Single(effective.Errors);
+        Assert.Equal("$", error.Path);
+        Assert.Matches(new Regex("read", RegexOptions.IgnoreCase), error.Message);
+    }
+
     // --- helpers --------------------------------------------------------------------
 
     private static void WriteUserFile(RulesetLocator locator, string jsonc)

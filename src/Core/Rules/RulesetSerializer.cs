@@ -49,7 +49,7 @@ public static class RulesetSerializer
             {
                 File.Delete(tempPath);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Best-effort cleanup; the original failure is the one to surface.
             }
