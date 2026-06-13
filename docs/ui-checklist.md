@@ -37,7 +37,9 @@ renders every shipped shell state via real Skia (real DemoProvider, real views) 
 `artifacts/ui/<view>-<W>x<H>.png` at **both** 1280×720 and 1920×1080:
 `connection-idle`, `connection-error`, `rootpicker-demo`, `rootpicker-demo-tail`,
 `workspace-demo`, `workspace-webview2-missing`, `workspace-detail`,
-`workspace-detail-frontier`, `workspace-violations` — 18 PNGs per run.
+`workspace-detail-frontier`, `workspace-violations`, `settings-naming`,
+`settings-rules`, `settings-matrix`, `settings-ignore`, `settings-exceptions`,
+`settings-file`, `settings-validation` — 32 PNGs per run.
 
 Evidence tags: **[S:name]** = judge from the `name-*.png` pair; **[I]** = interactive
 or transient — cannot be evidenced by a static frame; covered by headless tests
@@ -114,6 +116,24 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 - [ ] Jump-to-node: a row frames the node (FocusAsync) and selects it (detail panel syncs); disabled while loading; raw-External anchors never error [I — WorkspaceViolationsTests]
 - [ ] Selection sync: a graph nodeClick highlights matching sidebar row(s); multiple findings on one DN all highlight [I — WorkspaceViolationsTests]
 
-### Future (not shipped yet — judge when the owning AP lands)
+### Settings / rule editor (AP 3.3)
 
-- [ ] Settings/rule editor (AP 3.3): live preview updates; matrix editor; import/export present
+`settings-rules`, `settings-naming`, `settings-matrix`, `settings-ignore`,
+`settings-exceptions`, `settings-file`, `settings-validation` are captured by
+ShellScreenshotTests (the modal `SettingsWindow` shown standalone via `.Show()`,
+both 1280×720 and 1920×1080). The settings page is its own Window (ADR-011 /
+ADR-003 D5), opened from the shell top command strip.
+
+- [ ] Settings affordance: a "⚙ Settings" button in the shell top command strip (below the WebView2 banner, above step content), never over GraphHost [S:workspace-demo]
+- [ ] Tabs present and reachable: Rules, Naming, Matrix, Ignore & Exceptions, File; validation band + Apply/Save/Cancel footer persist outside the TabControl [S:settings-rules]
+- [ ] Rules master grid: every rule (nesting, each naming, circular, empty-group) with Enabled toggle + Severity selector; E/W/i glyph + palette (#D13438/#F7A30B/#4FA3E3) parity with SeverityConverters [S:settings-rules] [T:ShellScreenshotTests — severity parity]
+- [ ] Naming live preview: typing a sample shows ✓ matches (green) or ✗ would be flagged (severity) against the pattern; an invalid pattern shows the loader's plain-text error, no crash; "GG_Vertrieb_Lesen" vs the GG pattern reads ✓ [S:settings-naming] [T:NamingPreviewTests / NamingPreviewConverterTests]
+- [ ] Naming kind selector offers the 6 legal kinds only (no External), badge-colored (AdObjectKindConverters parity) [S:settings-naming]
+- [ ] Matrix editor: 3 parent rows (GG/DL/UG) × 6 member cols (User/Computer/GG/DL/UG/External, no OU), kind-badge headers; each cell a 5-way allow(green)/deny/error/warning/info chip; Unlisted fallback + rule-wide default severity present and labeled; AGUDLP lane readable [S:settings-matrix]
+- [ ] Ignore + exceptions: dn/name mode toggle, glob field, note field rendered PLAIN TEXT (control chars never interpreted, #45), add/remove; nesting exceptions show the Any/Parent/Member endpoint control, naming/simple ones do not [S:settings-ignore] [S:settings-exceptions] [T:MatchEntryNotePlainTextTests]
+- [ ] Circular + empty-group: Enabled + Severity present [S:settings-rules]
+- [ ] File tab: Import / Export / Reset-to-default present; Save + Apply present and distinct (Apply = live no-write, Save = live + atomic persist) [S:settings-file]
+- [ ] Validation panel: on an invalid edit or a rejected user-file-on-open, errors list as "{path} — {message}", message STRICTLY plain text (#45); save/export blocked while invalid [S:settings-validation] [T:SettingsValidationTests]
+- [ ] Invalid-user-file banner: when the app runs on the default because the saved file was rejected, the window says so and offers Fix/Reset; the on-disk file is never auto-rewritten [S:settings-validation] [T:SettingsValidationTests — on-disk byte-unchanged]
+- [ ] Live re-thread: Apply/Save re-evaluates the open workspace (severity halos + sidebar update) with NO graph rebuild / viewport kept [I — SettingsShellIntegrationTests: Assert.Same(Graph), UpdateGraphAsync not ShowGraphAsync]
+- [ ] Airspace: settings is its own Window, never layered over the workspace GraphHost [I — design rule / ADR-003 D5]
