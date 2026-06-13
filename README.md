@@ -101,10 +101,10 @@ provenance attestation. There is no code-signing certificate (see the SmartScree
 note above); instead, verify integrity and origin yourself — two commands.
 
 **1. Check the SHA256 hash** against the value in the release notes / the
-`GroupWeaver-v0.1-win-x64.zip.sha256` sidecar:
+`GroupWeaver-0.1.0-win-x64.zip.sha256` sidecar:
 
 ```powershell
-Get-FileHash .\GroupWeaver-v0.1-win-x64.zip -Algorithm SHA256
+Get-FileHash .\GroupWeaver-0.1.0-win-x64.zip -Algorithm SHA256
 ```
 
 **2. Verify build provenance** with the [GitHub CLI](https://cli.github.com/) —
@@ -112,7 +112,7 @@ this cryptographically confirms the `.zip` was built by this repository's releas
 workflow on GitHub's runners, not repackaged by someone else:
 
 ```powershell
-gh attestation verify .\GroupWeaver-v0.1-win-x64.zip --repo Atrono/GroupWeaver
+gh attestation verify .\GroupWeaver-0.1.0-win-x64.zip --repo Atrono/GroupWeaver
 ```
 
 A passing check prints the matched attestation and the workflow that produced it.
