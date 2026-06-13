@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 
+using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 
 namespace GroupWeaver.Core.Rules;
@@ -173,23 +174,159 @@ public static class RuleEngine
     }
 
     /// <summary>Circular check plus the frontier sweep — the ONLY transitive
-    /// traversal is <c>MembershipTraversal.Walk</c>. The sweep ALWAYS runs (it
+    /// traversal is <see cref="MembershipTraversal.Walk"/> (ADR-006/009).
+    /// Starts are the DISTINCT parents of the local edges copy (every cycle
+    /// node has an out-edge, so it is a loaded parent — this also roots cycles
+    /// among loaded parents absent from <see cref="DirectorySnapshot.Objects"/>),
+    /// sorted OrdinalIgnoreCase and walked with ONE cumulative seen set.
+    /// Findings are deduped canonical back-edge cycles (Walk's pinned
+    /// decomposition), never an exhaustive simple-cycle enumeration; a cycle is
+    /// suppressed when ANY of its DNs matches the global ignore or
+    /// <c>Circular.Exceptions</c> (dual channel). The sweep ALWAYS runs (it
     /// feeds <see cref="RuleReport.UncheckedDns"/>); only cycle-to-finding
-    /// conversion is gated on <c>Circular.Enabled</c>. Returns the unchecked DNs
-    /// (never ignore-filtered — load-state truth, not a judgment).</summary>
+    /// conversion is gated on <c>Circular.Enabled</c>. Returns the unchecked
+    /// DNs — every walk's frontier plus the O(V) load-state scan for unloaded
+    /// in-snapshot fetchables that no walk reaches (LdapProvider's
+    /// vanished-group arm produces exactly these) — NEVER ignore-filtered
+    /// (load-state truth, not a judgment); the <see cref="RuleReport"/>
+    /// constructor is the dedup/sort choke point. Complexity (ADR-009):
+    /// typically O(V+E); worst case O(S·(V+E)) over S distinct loaded parents
+    /// (Walk is memoryless across calls — accepted at the v0.1 scale, the fix
+    /// would be a Walk API change under ADR review, never a second walk).</summary>
     private static IReadOnlyList<string> SweepCircularAndFrontier(
         DirectorySnapshot snapshot,
         Ruleset ruleset,
         IReadOnlyCollection<MembershipEdge> edges,
         List<RuleViolation> violations)
     {
-        // TODO(AP 3.2 S5): starts = distinct edge parents (Dn.Comparer), sorted
-        // OrdinalIgnoreCase; Walk per unseen start with one cumulative seen set;
-        // canonical cycle = rotation to the Dn.Comparer-minimal DN (never
-        // reversal), deduped element-wise under Dn.Comparer; suppression on ANY
-        // cycle DN (dual-channel). UncheckedDns = walk frontiers + the O(V) scan
-        // of in-snapshot fetchable kinds with GetMembers == null.
-        return Array.Empty<string>();
+        var circular = ruleset.Circular;
+        var seen = new HashSet<string>(Dn.Comparer);
+        var reported = new HashSet<IReadOnlyList<string>>(DnSequenceComparer.Instance);
+        var uncheckedDns = new List<string>();
+
+        var starts = edges
+            .Select(edge => edge.ParentDn)
+            .Distinct(Dn.Comparer)
+            .OrderBy(dn => dn, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var start in starts)
+        {
+            if (seen.Contains(start))
+            {
+                continue;
+            }
+
+            var walk = MembershipTraversal.Walk(snapshot, start);
+            seen.UnionWith(walk.Visited);
+
+            // Walk frontiers land BEFORE the load-state scan below, in sweep
+            // order — so the first-WALKED spelling deterministically wins the
+            // report-side first-occurrence dedup (sorted starts).
+            uncheckedDns.AddRange(walk.Frontier);
+
+            if (!circular.Enabled)
+            {
+                // Disabled gates only the cycle-to-finding conversion (and its
+                // canonicalization/suppression work) — never the sweep itself.
+                continue;
+            }
+
+            foreach (var path in walk.Cycles)
+            {
+                var cycle = RotateToMinimalDn(path);
+                if (!reported.Add(cycle) || IsSuppressedCycle(snapshot, ruleset, cycle))
+                {
+                    continue;
+                }
+
+                violations.Add(new RuleViolation
+                {
+                    RuleId = RuleIds.Circular,
+                    Severity = circular.Severity,
+                    Dns = cycle,
+                    Message = CircularMessage(snapshot, cycle),
+                });
+            }
+        }
+
+        // Source (b): the O(V) load-state SCAN (not a walk) — in-snapshot
+        // fetchables whose members were never loaded and that no walk reaches.
+        foreach (var obj in snapshot.Objects)
+        {
+            if (IsFetchableKind(obj.Kind) && !snapshot.IsLoaded(obj.Dn))
+            {
+                uncheckedDns.Add(obj.Dn);
+            }
+        }
+
+        return uncheckedDns;
+    }
+
+    /// <summary>Canonical cycle identity (ADR-009, the consumer concern
+    /// <see cref="MembershipWalk.Cycles"/> assigns to AP 3.2): the path slice
+    /// rotated so the <see cref="Dn.Comparer"/>-minimal DN comes first — unique,
+    /// because path DNs are pairwise distinct under the comparer. Rotation ONLY,
+    /// never reversal: membership direction is meaningful. Self-membership
+    /// <c>[A]</c> canonicalizes to itself; spellings stay first-encountered.</summary>
+    private static IReadOnlyList<string> RotateToMinimalDn(IReadOnlyList<string> path)
+    {
+        var minIndex = 0;
+        for (var i = 1; i < path.Count; i++)
+        {
+            if (Dn.Comparer.Compare(path[i], path[minIndex]) < 0)
+            {
+                minIndex = i;
+            }
+        }
+
+        if (minIndex == 0)
+        {
+            return path;
+        }
+
+        var rotated = new string[path.Count];
+        for (var i = 0; i < path.Count; i++)
+        {
+            rotated[i] = path[(minIndex + i) % path.Count];
+        }
+
+        return rotated;
+    }
+
+    /// <summary>Whether ANY cycle DN matches the global ignore or
+    /// <c>Circular.Exceptions</c> — one match takes the WHOLE cycle out.
+    /// Suppression order (ADR-008 §5): global ignore first, then the per-rule
+    /// exceptions; every DN goes through the dual channel (raw cycle DNs match
+    /// via <see cref="MatchEntry.MatchesDn"/> only).</summary>
+    private static bool IsSuppressedCycle(DirectorySnapshot snapshot, Ruleset ruleset, IReadOnlyList<string> cycle)
+    {
+        foreach (var dn in cycle)
+        {
+            if (MatchesAny(ruleset.Ignore, snapshot, dn))
+            {
+                return true;
+            }
+        }
+
+        foreach (var dn in cycle)
+        {
+            if (MatchesAny(ruleset.Circular.Exceptions, snapshot, dn))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The circular message template (ADR-009): cycle DNs by
+    /// <see cref="DisplayName"/>, anchor repeated at the END in prose only —
+    /// the Dns list keeps the no-repeat convention. String-only interpolation
+    /// is culture-invariant by construction.</summary>
+    private static string CircularMessage(DirectorySnapshot snapshot, IReadOnlyList<string> cycle)
+    {
+        var names = string.Join(" -> ", cycle.Select(dn => DisplayName(snapshot, dn)));
+        return $"Circular nesting: {names} -> {DisplayName(snapshot, cycle[0])}.";
     }
 
     /// <summary>Empty-group check (ADR-009): subjects are snapshot OBJECTS of a
@@ -319,4 +456,55 @@ public static class RuleEngine
         is AdObjectKind.GlobalGroup
         or AdObjectKind.DomainLocalGroup
         or AdObjectKind.UniversalGroup;
+
+    /// <summary>ADR-005's fetchable kinds — congruent with "what a double-click
+    /// would fetch": the group scopes plus External. The load-state scan's kind
+    /// filter; users, computers, and OUs are leaves whose members are never
+    /// fetched and therefore never unchecked.</summary>
+    private static bool IsFetchableKind(AdObjectKind kind) =>
+        IsGroupKind(kind) || kind == AdObjectKind.External;
+
+    /// <summary>Element-wise <see cref="Dn.Comparer"/> equality over canonical
+    /// cycle sequences (ADR-009): exact — never a joined-string surrogate (DN
+    /// strings are opaque and uncanonicalized). Case-variant first-encountered
+    /// spellings of the same cycle collapse; rotation variants already
+    /// canonicalized away by <see cref="RotateToMinimalDn"/>.</summary>
+    private sealed class DnSequenceComparer : IEqualityComparer<IReadOnlyList<string>>
+    {
+        public static DnSequenceComparer Instance { get; } = new();
+
+        public bool Equals(IReadOnlyList<string>? x, IReadOnlyList<string>? y)
+        {
+            if (ReferenceEquals(x, y))
+            {
+                return true;
+            }
+
+            if (x is null || y is null || x.Count != y.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < x.Count; i++)
+            {
+                if (!Dn.Comparer.Equals(x[i], y[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public int GetHashCode(IReadOnlyList<string> obj)
+        {
+            var hash = default(HashCode);
+            foreach (var dn in obj)
+            {
+                hash.Add(dn, Dn.Comparer);
+            }
+
+            return hash.ToHashCode();
+        }
+    }
 }
