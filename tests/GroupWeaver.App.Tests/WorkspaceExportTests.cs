@@ -289,6 +289,206 @@ public sealed class WorkspaceExportTests
         vm.Dispose();
     }
 
+    // === S8: graph-image (PNG) export command ===========================================
+    //
+    // ExportGraphImageCommand (AP 4.1 / ADR-013 §3, spec slice 8): gated on
+    // _disposed/IsLoading/GraphRenderer-is-not-null (the renderer is the byte source — no
+    // renderer, nothing to rasterise) PLUS the export seam being installed. Flow per the
+    // spec: gate → GraphRenderer.ExportPngAsync → null-guard (the never-throw renderer
+    // returns null on timeout/error → write NOTHING) → PickSavePathAsync(Png) →
+    // if path is not null write the EXACT bytes to the picked .png path. A cancelled pick is
+    // a no-op. The ONE write target is the dialog-returned path (read-only invariant). The
+    // command is disarmed when GraphRenderer is null.
+    //
+    // RED until slice 8 adds ExportGraphImageCommand: it does not exist on WorkspaceViewModel
+    // yet (these references will not compile), which is the failing state this slice pins.
+
+    [Fact(Timeout = 60_000)]
+    public async Task ExportGraphImage_WritesTheRendererPngBytes_ToThePickedPath()
+    {
+        // The fake renderer rasterises to the canned PNG-magic-byte payload; the command
+        // must write THOSE EXACT bytes (image data only — no transform) to the picked path.
+        var provider = StubProvider();
+        provider.LoadScopeResult = Task.FromResult(LoadedScopeWithAFinding());
+        var fake = new FakeGraphRenderer();
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, temp.Path);
+        var vm = Workspace(provider, () => fake, dialogs);
+        await vm.Initialization;
+
+        Assert.True(vm.ExportGraphImageCommand.CanExecute(null), "armed once loaded with a renderer + seam");
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, fake.ExportPngCalls);
+        Assert.Contains(ExportKind.Png, dialogs.RequestedKinds);
+        Assert.True(File.Exists(temp.Path), "the image command must write the picked .png file");
+        Assert.Equal(FakeGraphRenderer.PngMagicBytes, File.ReadAllBytes(temp.Path));
+
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ExportGraphImage_WritesOnlyTheDialogReturnedPath_NeverElsewhere()
+    {
+        // Keystone read-only invariant: the ONE write target is exactly the path the picker
+        // returned — nothing else under the isolation directory, and the directory is never
+        // touched (the stub faults on any object/member fetch — none happen).
+        var provider = StubProvider();
+        provider.LoadScopeResult = Task.FromResult(LoadedScopeWithAFinding());
+        var fake = new FakeGraphRenderer();
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, temp.Path);
+        var vm = Workspace(provider, () => fake, dialogs);
+        await vm.Initialization;
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        var written = temp.WrittenFiles();
+        Assert.True(
+            written.SequenceEqual(new[] { temp.Path }, StringComparer.OrdinalIgnoreCase),
+            $"image export must write ONLY the picked path; saw: {string.Join(", ", written)}");
+        Assert.Equal(0, provider.GetObjectCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ExportGraphImage_NullPngResult_Timeout_WritesNothing()
+    {
+        // The never-throw renderer contract: ExportPngAsync returns null on timeout/error.
+        // The VM must then write NOTHING — and (per the spec flow: export THEN pick) a null
+        // raster short-circuits before the picker is ever consulted.
+        var provider = StubProvider();
+        provider.LoadScopeResult = Task.FromResult(LoadedScopeWithAFinding());
+        var fake = new FakeGraphRenderer { ExportPngResult = Task.FromResult<byte[]?>(null) };
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, temp.Path);
+        var vm = Workspace(provider, () => fake, dialogs);
+        await vm.Initialization;
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, fake.ExportPngCalls);
+        // A null raster never reaches the picker, and nothing is written anywhere.
+        Assert.DoesNotContain(ExportKind.Png, dialogs.RequestedKinds);
+        Assert.False(File.Exists(temp.Path));
+        Assert.Empty(temp.WrittenFiles());
+
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ExportGraphImage_CancelledPick_WritesNothing()
+    {
+        // A cancelled save dialog (null path) is a no-op: the raster was produced but no
+        // file is written.
+        var provider = StubProvider();
+        provider.LoadScopeResult = Task.FromResult(LoadedScopeWithAFinding());
+        var fake = new FakeGraphRenderer();
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, null);
+        var vm = Workspace(provider, () => fake, dialogs);
+        await vm.Initialization;
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        // The picker WAS consulted (the gate let the command run)…
+        Assert.Contains(ExportKind.Png, dialogs.RequestedKinds);
+        // …but a cancelled pick writes nothing anywhere.
+        Assert.False(File.Exists(temp.Path));
+        Assert.Empty(temp.WrittenFiles());
+
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ExportGraphImage_NoRenderer_IsDisarmed_AndInertOnStaleExecute()
+    {
+        // GraphRenderer is null (null factory): there is no byte source, so the command is
+        // disarmed — and a stale-armed Execute (RelayCommand.Execute ignores CanExecute) is
+        // a silent no-op: no pick, no write. A snapshot DID load (the gate's other arms pass)
+        // so this isolates the GraphRenderer-is-null arm.
+        var provider = StubProvider();
+        provider.LoadScopeResult = Task.FromResult(LoadedScopeWithAFinding());
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, temp.Path);
+        var vm = new WorkspaceViewModel(
+            provider,
+            Obj("Lab", StubRootDn, AdObjectKind.OrganizationalUnit),
+            new DirectoryConnection("stub directory", 5),
+            webView2Missing: false,
+            graphRendererFactory: null,
+            ruleset: null,
+            exportDialogs: dialogs);
+        await vm.Initialization;
+
+        Assert.Null(vm.GraphRenderer);
+        Assert.NotNull(vm.Snapshot);
+        Assert.False(
+            vm.ExportGraphImageCommand.CanExecute(null),
+            "image export is disarmed with no renderer (no byte source to rasterise)");
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain(ExportKind.Png, dialogs.RequestedKinds);
+        Assert.False(File.Exists(temp.Path));
+        Assert.Empty(temp.WrittenFiles());
+
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task ExportGraphImage_BeforeAnyLoad_IsDisarmed_AndInertOnStaleExecute()
+    {
+        // The load is held in flight (IsLoading, no snapshot). The image command is disarmed
+        // while busy, and a stale-armed Execute neither rasterises, picks, nor writes — the
+        // _disposed/IsLoading gate (spec slice 8) drops it.
+        var loadGate = new TaskCompletionSource<DirectorySnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = StubProvider();
+        provider.LoadScopeResult = loadGate.Task;
+        var fake = new FakeGraphRenderer();
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, temp.Path);
+        var vm = Workspace(provider, () => fake, dialogs);
+
+        Assert.True(vm.IsLoading);
+        Assert.False(vm.ExportGraphImageCommand.CanExecute(null), "image export is disarmed while loading");
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, fake.ExportPngCalls);
+        Assert.DoesNotContain(ExportKind.Png, dialogs.RequestedKinds);
+        Assert.False(File.Exists(temp.Path));
+
+        loadGate.SetResult(LoadedScopeWithAFinding());
+        await vm.Initialization;
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ExportGraphImage_AfterDispose_WritesNothing()
+    {
+        // _disposed gate (spec slice 8): a stale-armed Execute after Dispose is a no-op —
+        // it neither rasterises nor writes.
+        var provider = StubProvider();
+        provider.LoadScopeResult = Task.FromResult(LoadedScopeWithAFinding());
+        var fake = new FakeGraphRenderer();
+        using var temp = new TempFile("png");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Png, temp.Path);
+        var vm = Workspace(provider, () => fake, dialogs);
+        await vm.Initialization;
+        vm.Dispose();
+
+        await vm.ExportGraphImageCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, fake.ExportPngCalls);
+        Assert.DoesNotContain(ExportKind.Png, dialogs.RequestedKinds);
+        Assert.False(File.Exists(temp.Path));
+    }
+
     // === helpers ========================================================================
 
     /// <summary>The name-resolution closure the VM passes to the exporter — mirrors

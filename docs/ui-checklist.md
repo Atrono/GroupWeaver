@@ -73,6 +73,7 @@ and spot-checked by hand when the step changes.
 - [ ] Status bar shows the drawn-graph summary ("<n> objects, <m> edges"), dimmed, between the connection summary and the root DN, only once the load completed [S:workspace-demo] [S:workspace-live-graph]
 - [ ] Refresh button tops the right detail column — above the DetailPanelRegion seam, native chrome, never over GraphHost (ADR-005 D4); label "Refresh" (shipped UI strings are English), tooltip present [S:workspace-demo — disabled there: nothing selected]
 - [ ] Refresh enablement: armed iff the selection is a fetchable kind (GG/DL/UG/External frontier — loaded or not; refresh is a FORCED re-fetch) and nothing is loading; disarmed for users/computers/OUs, with no selection, and while any load/expand is in flight [I — pinned by WorkspaceLoadTests (button wiring) and WorkspaceExpandTests (command matrix)]
+- [ ] "Export image" button (AP 4.1, ADR-013 §3) sits in the same header row beside Reload scope / Refresh — native chrome, never over GraphHost; label "Export image", tooltip present; armed once a load completes with a renderer wired (CanExportGraphImage), greyed pre-load / while loading [S:workspace-demo] [I — enablement pinned by WorkspaceExportTests]
 - [ ] Nothing floats, pops up, or layers over GraphHost; anything modal is its own Window [I — design rule, re-check on every workspace change]
 
 ### Detail panel
