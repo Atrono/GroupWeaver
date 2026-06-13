@@ -34,6 +34,30 @@ const PALETTE = {
   External: '#757575',
 };
 
+// THE C#/JS severity parity tripwire (AP 3.4, ADR-010 D1). Hand-copied from the
+// pinned palette: if ADR-010 / GraphJson.SeverityWire / graph.js' node[sev=...]
+// overlay rules drift on the color, this harness fails - the exact analogue of
+// PALETTE above for the kind fill. Per-severity overlay GEOMETRY (the redundant
+// colorblind channel: monotonic padding 7/6/5, opacity 0.45/0.45/0.40) is pinned
+// alongside the color so a same-color-wrong-thickness regression is also caught.
+const SEVERITY = {
+  error: '#D13438',
+  warning: '#F7A30B',
+  info: '#4FA3E3',
+};
+const SEVERITY_OVERLAY = {
+  // overlay-color, overlay-opacity, overlay-padding per ADR-010 D1 table.
+  error: { color: '#D13438', opacity: 0.45, padding: 7 },
+  warning: { color: '#F7A30B', opacity: 0.45, padding: 6 },
+  info: { color: '#4FA3E3', opacity: 0.40, padding: 5 },
+};
+// The roll-up "n below" ring cue (ADR-010 D4): a loaded group hiding flagged
+// descendants gets a WIDER, FAINTER max-severity glow keyed off belowSev. The
+// node[below] rules sit AFTER node[sev=...] so they win the overlay channel even
+// on a node that is itself flagged - padding 10 (> every per-sev padding),
+// opacity 0.30 (< every per-sev opacity), color = SEVERITY[belowSev].
+const ROLLUP_OVERLAY = { opacity: 0.30, padding: 10 };
+
 const MESSAGE_TIMEOUT_MS = 60_000;
 // Node diameter D=44 (ADR-004 D3): model-space floor; the xUnit geometry test
 // pins the stronger ~59.7 bound, this render-side assert pins "no overlap".
@@ -159,6 +183,32 @@ function toHex(cssColor) {
     return `#${[...cssColor.slice(1)].map((c) => c + c).join('')}`.toUpperCase();
   }
   throw new Error(`unrecognized CSS color format: '${cssColor}'`);
+}
+
+// cytoscape returns numeric overlay-opacity / overlay-padding as strings
+// (e.g. "0.45", "7px") or bare numbers depending on the property; coerce to a
+// finite number so the per-severity geometry asserts compare cleanly.
+function toNumber(cssValue) {
+  const m = /-?\d+(?:\.\d+)?/.exec(String(cssValue));
+  if (!m) {
+    throw new Error(`unrecognized numeric CSS value: '${cssValue}'`);
+  }
+  return Number(m[0]);
+}
+
+// One round-trip pulling the full severity-overlay triple for a DN (byte-
+// identical id via getElementById, ADR-004 D5 - selector strings drop comma DNs).
+async function overlayOf(page, id) {
+  const raw = await page.evaluate((nid) => {
+    const el = window.__cy.getElementById(nid);
+    return {
+      found: el.length === 1,
+      color: el.style('overlay-color'),
+      opacity: el.style('overlay-opacity'),
+      padding: el.style('overlay-padding'),
+    };
+  }, id);
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +490,108 @@ async function main() {
     }
     phase(`palette parity (${kindsPresent.size}/7 kinds)`);
 
+    // --- severity parity C# <-> JS (AP 3.4, ADR-010 D1/D4) --------------------
+    // The S2 fixture (--demo --dump-graph after the severity wire-up) carries the
+    // optional sev / below / belowSev fields. Severity owns the cytoscape
+    // overlay-* channel ONLY (kind owns fill+shape, root/External own border); a
+    // flagged node must show its max-severity glow, an unflagged node must show
+    // overlay-opacity 0 (byte-identical to a pre-AP node), and a loaded group
+    // hiding flagged descendants must show the wider/fainter roll-up ring keyed
+    // off belowSev. RED until graph.js copies sev/below/belowSev into `data` and
+    // gains the node[sev=...] / node[below] overlay rules.
+
+    // Anti-vacuous fixture floor: this whole block is meaningless against a
+    // pre-S2 dump. Demand the 19-finding baseline shape is actually present.
+    const flaggedBySev = { error: [], warning: [], info: [] };
+    for (const x of fixture.nodes) {
+      if (x.sev) {
+        assert(x.sev in SEVERITY,
+          `fixture node '${x.id}' has unknown sev '${x.sev}' - not error|warning|info`);
+        flaggedBySev[x.sev].push(x);
+      }
+    }
+    for (const sev of Object.keys(SEVERITY)) {
+      assert(flaggedBySev[sev].length >= 1,
+        `severity fixture floor: --demo --dump-graph must emit >= 1 '${sev}' node (S2 severity wire-up); found 0 - is this a pre-S2 fixture?`);
+    }
+    const belowNodes = fixture.nodes.filter((x) => x.below);
+    assert(belowNodes.length >= 1,
+      'severity fixture floor: --demo --dump-graph must emit >= 1 roll-up node (below>0); found 0');
+    for (const x of belowNodes) {
+      assert(typeof x.below === 'number' && x.below > 0,
+        `roll-up node '${x.id}' must carry a positive integer below, got ${JSON.stringify(x.below)}`);
+      assert(x.belowSev in SEVERITY,
+        `roll-up node '${x.id}' must carry belowSev in {error,warning,info}, got '${x.belowSev}'`);
+    }
+
+    // Three pinned per-severity DNs - real flagged demo baseline objects, each
+    // sev-only (NO own below, so the node[below] rules don't override the
+    // per-sev overlay geometry). Pinned by DN so the assertion names the exact
+    // object; cross-checked against the fixture so a fixture drift fails loudly
+    // here rather than silently re-anchoring onto a different node.
+    const SEV_PINS = {
+      error: 'CN=DL_Nested_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example',
+      warning: 'CN=dl-finance-extra,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example',
+      info: 'CN=DL_App-CRM_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example',
+    };
+    for (const [sev, dn] of Object.entries(SEV_PINS)) {
+      const fx = fixture.nodes.find((x) => x.id === dn);
+      assert(fx !== undefined,
+        `pinned ${sev} DN '${dn}' is missing from the fixture (demo baseline drift - re-pin against --demo --dump-graph)`);
+      assert(fx.sev === sev,
+        `pinned ${sev} DN '${dn}' has sev '${fx.sev}' in the fixture, expected '${sev}'`);
+      assert(fx.below === undefined,
+        `pinned ${sev} DN '${dn}' unexpectedly carries below=${fx.below} - the node[below] ring would override the per-sev overlay; re-pin a sev-only node`);
+
+      const want = SEVERITY_OVERLAY[sev];
+      const got = await overlayOf(page, dn);
+      assert(got.found, `pinned ${sev} DN '${dn}' not found on the rendered graph`);
+      assert(toHex(got.color) === want.color.toUpperCase(),
+        `overlay-color for ${sev} ('${dn}'): rendered '${got.color}' (${toHex(got.color)}) != pinned ${want.color}`);
+      assert(Math.abs(toNumber(got.opacity) - want.opacity) < 1e-6,
+        `overlay-opacity for ${sev} ('${dn}'): rendered ${got.opacity} != pinned ${want.opacity}`);
+      assert(Math.abs(toNumber(got.padding) - want.padding) < 1e-6,
+        `overlay-padding (colorblind-redundant channel) for ${sev} ('${dn}'): rendered ${got.padding} != pinned ${want.padding}`);
+    }
+    phase('severity overlay parity (error/warning/info per pinned DN)');
+
+    // Unflagged node: no sev, no below => no overlay rule matches => the cytoscape
+    // default overlay-opacity 0 => byte-identical render to a pre-AP node.
+    const unflagged = fixture.nodes.find((x) => !x.sev && !x.below && !x.root);
+    assert(unflagged !== undefined,
+      'fixture must contain an unflagged non-root node (overlay-opacity 0 control)');
+    const unflaggedOverlay = await overlayOf(page, unflagged.id);
+    assert(unflaggedOverlay.found, `unflagged control node '${unflagged.id}' not found`);
+    assert(Math.abs(toNumber(unflaggedOverlay.opacity)) < 1e-6,
+      `unflagged node '${unflagged.id}' must render overlay-opacity 0 (no halo), got ${unflaggedOverlay.opacity}`);
+    phase(`severity: unflagged control opacity 0 ('${unflagged.id}')`);
+
+    // Roll-up ring cue: a loaded group hiding flagged descendants shows a WIDER
+    // (padding 10 > every per-sev padding) and FAINTER (opacity 0.30 < every
+    // per-sev opacity) max-severity ring keyed off belowSev. Pinned to a node
+    // that is itself UNFLAGGED (no own sev) so the ring color is unambiguously
+    // the belowSev color, and the wider-than-per-sev geometry is unambiguous.
+    const BELOW_PIN = 'CN=DL_App-CRM_RW,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example';
+    const belowFx = fixture.nodes.find((x) => x.id === BELOW_PIN);
+    assert(belowFx !== undefined,
+      `pinned roll-up DN '${BELOW_PIN}' missing from the fixture (re-pin against --demo --dump-graph)`);
+    assert(belowFx.below > 0 && belowFx.sev === undefined,
+      `pinned roll-up DN '${BELOW_PIN}' must be below>0 and own-sev-free; got below=${belowFx.below}, sev=${belowFx.belowSev === undefined ? '(none)' : belowFx.sev}`);
+    assert(belowFx.belowSev in SEVERITY,
+      `pinned roll-up DN '${BELOW_PIN}' must carry belowSev in {error,warning,info}, got '${belowFx.belowSev}'`);
+    const belowOverlay = await overlayOf(page, BELOW_PIN);
+    assert(belowOverlay.found, `roll-up node '${BELOW_PIN}' not found on the rendered graph`);
+    assert(toHex(belowOverlay.color) === SEVERITY[belowFx.belowSev].toUpperCase(),
+      `roll-up ring color for '${BELOW_PIN}' (belowSev=${belowFx.belowSev}): rendered '${belowOverlay.color}' (${toHex(belowOverlay.color)}) != ${SEVERITY[belowFx.belowSev]}`);
+    assert(Math.abs(toNumber(belowOverlay.opacity) - ROLLUP_OVERLAY.opacity) < 1e-6,
+      `roll-up ring for '${BELOW_PIN}' must be FAINTER than a per-sev halo: overlay-opacity rendered ${belowOverlay.opacity} != ${ROLLUP_OVERLAY.opacity}`);
+    assert(toNumber(belowOverlay.padding) === ROLLUP_OVERLAY.padding,
+      `roll-up ring for '${BELOW_PIN}' must be WIDER than a per-sev halo: overlay-padding rendered ${belowOverlay.padding} != ${ROLLUP_OVERLAY.padding}`);
+    assert(ROLLUP_OVERLAY.padding > Math.max(...Object.values(SEVERITY_OVERLAY).map((o) => o.padding))
+      && ROLLUP_OVERLAY.opacity < Math.min(...Object.values(SEVERITY_OVERLAY).map((o) => o.opacity)),
+      'roll-up geometry invariant broken: padding must exceed and opacity must undercut every per-sev value');
+    phase(`severity: roll-up ring (wider/fainter belowSev cue) ('${BELOW_PIN}')`);
+
     // --- click roundtrip on a comma-containing DN (byte-identical id) --------
     const clickDn = samples.find((s) => s.id.includes(',')).id;
     await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), clickDn);
@@ -579,6 +731,30 @@ async function main() {
     assert(Math.abs(elements.x - newNode.x) < 1e-9 && Math.abs(elements.y - newNode.y) < 1e-9,
       `preset position not honored for post-update node '${newNode.id}': rendered (${elements.x}, ${elements.y}) != mutated fixture (${newNode.x}, ${newNode.y})`);
 
+    // --- severity survives graphUpdate (AP 3.4, ADR-010 D3) ------------------
+    // The remove-all/re-add of graphUpdate (ADR-005 D1) wipes all element data;
+    // severity rides for free ONLY because it is a re-sent wire field (the VM
+    // re-Evaluates before every UpdateGraphAsync). The error pin is part of the
+    // re-fed updatedNodes (= [...fixture.nodes, newNode]) and survives, so its
+    // sev:"error" overlay must re-attach on the LIVE instance. A flagged node
+    // going dark after expand is exactly the regression this pins.
+    const survivorDn = SEV_PINS.error;
+    const survivorOverlay = await overlayOf(page, survivorDn);
+    assert(survivorOverlay.found,
+      `severity-survival pin '${survivorDn}' must still be rendered after graphUpdate`);
+    assert(toHex(survivorOverlay.color) === SEVERITY.error.toUpperCase()
+      && Math.abs(toNumber(survivorOverlay.opacity) - SEVERITY_OVERLAY.error.opacity) < 1e-6
+      && Math.abs(toNumber(survivorOverlay.padding) - SEVERITY_OVERLAY.error.padding) < 1e-6,
+      `error halo must SURVIVE graphUpdate for '${survivorDn}' (re-sent wire field, ADR-010 D3): `
+      + `rendered overlay color '${survivorOverlay.color}' (${toHex(survivorOverlay.color)}) `
+      + `opacity ${survivorOverlay.opacity} padding ${survivorOverlay.padding} `
+      + `!= error ${SEVERITY.error} / ${SEVERITY_OVERLAY.error.opacity} / ${SEVERITY_OVERLAY.error.padding}`);
+    // And an unflagged survivor keeps overlay-opacity 0 across the update.
+    const survivorClean = await overlayOf(page, unflagged.id);
+    assert(survivorClean.found && Math.abs(toNumber(survivorClean.opacity)) < 1e-6,
+      `unflagged node '${unflagged.id}' must keep overlay-opacity 0 after graphUpdate, got ${survivorClean.opacity}`);
+    phase('severity survives graphUpdate (error halo re-attaches, unflagged stays clear)');
+
     // Handler survival: dbltap on the NEWLY ADDED node (comma DN) must still
     // round-trip nodeExpand - the delegated handler is bound on the cy core,
     // so it covers post-update elements iff the instance truly survived.
@@ -611,6 +787,8 @@ async function main() {
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
       + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
       + `${chunks.length} chunks, ${kindsPresent.size}/7 kinds, `
+      + `${flaggedBySev.error.length}/${flaggedBySev.warning.length}/${flaggedBySev.info.length} err/warn/info halos, `
+      + `${belowNodes.length} roll-up rings, `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `4 screenshots -> ${screenshotDir}`);
   } finally {

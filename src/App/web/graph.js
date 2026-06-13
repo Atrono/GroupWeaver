@@ -25,6 +25,8 @@
       n = pendingNodes[i];
       data = { id: n.id, label: n.label, kind: n.kind };
       if (n.root) { data.root = true; }
+      if (n.sev) { data.sev = n.sev; }
+      if (n.below) { data.below = n.below; data.belowSev = n.belowSev; }
       elements.push({ group: 'nodes', data: data, position: { x: n.x, y: n.y } });
     }
     for (i = 0; i < pendingEdges.length; i++) {
@@ -107,6 +109,41 @@
         {
           selector: 'node[?root]',
           style: { width: 30, height: 30, 'border-width': 3, 'border-color': '#E8ECF2' }
+        },
+        // Severity (AP 3.4, ADR-010): owns the overlay-* channel ONLY - the halo
+        // paints behind the node, touching neither the kind fill/shape nor the
+        // root/External border. Appended AFTER node[?root] so these rules win only
+        // on overlay-*. Palette PINNED + parity-tripwired in verify.mjs (SEVERITY).
+        // Monotonic padding (7/6/5) is a colorblind-redundant channel. No `sev`
+        // field => no rule matches => overlay-opacity default 0 => byte-identical.
+        // NO label override anywhere: the kind name stays the only label.
+        {
+          selector: "node[sev='error']",
+          style: { 'overlay-color': '#D13438', 'overlay-opacity': 0.45, 'overlay-padding': 7 }
+        },
+        {
+          selector: "node[sev='warning']",
+          style: { 'overlay-color': '#F7A30B', 'overlay-opacity': 0.45, 'overlay-padding': 6 }
+        },
+        {
+          selector: "node[sev='info']",
+          style: { 'overlay-color': '#4FA3E3', 'overlay-opacity': 0.40, 'overlay-padding': 5 }
+        },
+        // Roll-up ring cue: a loaded group hiding flagged descendants gets a wider,
+        // fainter max-severity glow keyed to belowSev. NOT a number on canvas
+        // (canvas-only cytoscape has no pseudo-elements) - the count is
+        // authoritative in the sidebar (AP 3.4 S4/S5).
+        {
+          selector: 'node[below]',
+          style: { 'overlay-padding': 10, 'overlay-opacity': 0.30, 'overlay-color': '#D13438' }
+        },
+        {
+          selector: "node[below][belowSev='warning']",
+          style: { 'overlay-color': '#F7A30B' }
+        },
+        {
+          selector: "node[below][belowSev='info']",
+          style: { 'overlay-color': '#4FA3E3' }
         },
         {
           selector: "edge[rel='member']",
