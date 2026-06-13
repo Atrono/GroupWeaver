@@ -66,22 +66,38 @@
                  per-node Refresh (forced re-fetch of the selected node, ADR-005 D4).
                  Native chrome BESIDE the graph, ABOVE the AP 2.5 DetailPanelRegion
                  seam - never over GraphHost (ADR-001 airspace guardrail 5). -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8"
-                        Margin="12,12,12,0" HorizontalAlignment="Right">
-              <Button Name="ReloadScopeButton" Content="Reload scope"
-                      ToolTip.Tip="Reload the whole scope from the directory"
-                      Command="{Binding ReloadScopeCommand}" />
-              <Button Name="RefreshButton" Content="Refresh"
-                      ToolTip.Tip="Re-fetch members of the selected node"
-                      Command="{Binding RefreshCommand}" />
-              <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG
-                   via the renderer's cy.png round-trip and save it to a user-picked file.
-                   Native chrome beside the graph, never over GraphHost (ADR-001 airspace
-                   guardrail 5); the command's CanExecute disables it while IsLoading or
-                   with no renderer / export seam. -->
-              <Button Name="ExportGraphImageButton" Content="Export image"
-                      ToolTip.Tip="Save the current graph as a PNG image"
-                      Command="{Binding ExportGraphImageCommand}" />
+            <!-- Two right-aligned rows so the AP 4.2.2 "Design plan" button gets its own
+                 line ABOVE the existing trio — four buttons do not fit one row inside the
+                 fixed 300px detail column, and the existing Reload→Refresh→Export order +
+                 their single-row geometry stay pinned. Both rows live BESIDE GraphHost,
+                 never over it (ADR-001 guardrail 5). -->
+            <StackPanel Grid.Row="0" Spacing="8" Margin="12,12,12,0"
+                        HorizontalAlignment="Right">
+
+              <!-- Design plan (AP 4.2.2 / ADR-014): switch into Plan Mode to author a
+                   proposed structure. The command's CanExecute is armed once the shell
+                   installs the switch callback (when this workspace becomes the step). -->
+              <Button Name="DesignPlanButton" Content="Design plan" HorizontalAlignment="Right"
+                      ToolTip.Tip="Design a proposed structure and validate it live"
+                      Command="{Binding DesignPlanCommand}" />
+
+              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Name="ReloadScopeButton" Content="Reload scope"
+                        ToolTip.Tip="Reload the whole scope from the directory"
+                        Command="{Binding ReloadScopeCommand}" />
+                <Button Name="RefreshButton" Content="Refresh"
+                        ToolTip.Tip="Re-fetch members of the selected node"
+                        Command="{Binding RefreshCommand}" />
+                <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG
+                     via the renderer's cy.png round-trip and save it to a user-picked file.
+                     Native chrome beside the graph, never over GraphHost (ADR-001 airspace
+                     guardrail 5); the command's CanExecute disables it while IsLoading or
+                     with no renderer / export seam. -->
+                <Button Name="ExportGraphImageButton" Content="Export image"
+                        ToolTip.Tip="Save the current graph as a PNG image"
+                        Command="{Binding ExportGraphImageCommand}" />
+              </StackPanel>
+
             </StackPanel>
 
             <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no

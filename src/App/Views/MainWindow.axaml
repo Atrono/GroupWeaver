@@ -24,6 +24,10 @@
       <views:WorkspaceView />
     </DataTemplate>
 
+    <DataTemplate DataType="vm:PlanViewModel">
+      <views:PlanView />
+    </DataTemplate>
+
   </Window.DataTemplates>
 
   <DockPanel>

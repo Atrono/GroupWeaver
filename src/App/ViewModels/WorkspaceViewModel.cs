@@ -100,6 +100,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// default and the export commands stay disarmed (<see cref="CanExportReport"/>).</summary>
     private IExportFileDialogs? _exportDialogs;
 
+    /// <summary>The AP 4.2.2 "Design plan" callback (ADR-014): the shell installs it via
+    /// <see cref="UseDesignPlanCallback"/> when this workspace becomes the current step, so the
+    /// header button can switch into Plan Mode. <c>null</c> until installed — the command then
+    /// stays disarmed (<see cref="CanDesignPlan"/>), keeping every pre-4.2.2 test on the default.</summary>
+    private Action? _onDesignPlan;
+
     public WorkspaceViewModel(
         IDirectoryProvider provider,
         AdObject root,
@@ -372,6 +378,28 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         Report = RuleEngine.Evaluate(Snapshot, _ruleset);
         var below = ComputeBelow(Snapshot, Report);
         await renderer.UpdateGraphAsync(Graph!, Report, below, cancellationToken);
+    }
+
+    /// <summary>True once <see cref="Dispose"/> ran — the dispose-discipline observability the
+    /// shell teardown pins read (AP 4.2.2): the Ist↔Plan round-trip must never flip this.</summary>
+    public bool IsDisposed => _disposed;
+
+    /// <summary>The "Design plan" header button (AP 4.2.2 / ADR-014): switches the shell into
+    /// Plan Mode via the installed callback. Armed iff the callback is installed (the shell
+    /// installs it when this workspace becomes the current step); a stale-armed Execute with no
+    /// callback is a silent no-op.</summary>
+    [RelayCommand(CanExecute = nameof(CanDesignPlan))]
+    private void DesignPlan() => _onDesignPlan?.Invoke();
+
+    private bool CanDesignPlan() => _onDesignPlan is not null;
+
+    /// <summary>Installs the shell's Plan-Mode switch callback (AP 4.2.2 / ADR-014) and re-arms
+    /// <see cref="DesignPlanCommand"/>. Called by the shell when this workspace becomes the
+    /// current step; headless tests reach it through the live shell's <c>OnRootChosen</c>.</summary>
+    public void UseDesignPlanCallback(Action onDesignPlan)
+    {
+        _onDesignPlan = onDesignPlan;
+        DesignPlanCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Installs the real export save-picker seam (AP 4.1 / ADR-013 §5): the
