@@ -32,6 +32,12 @@ public sealed partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // The ruleset every workspace Evaluate runs against (ADR-010 §3) — located
+            // ONCE here (ADR-008 whole-file precedence). EffectiveRuleset.Errors are
+            // carried, surfaced by AP 3.3's settings UI; the locator never throws. The
+            // same locator instance is handed to the shell so a settings Save persists to
+            // its UserRulesetPath (AP 3.3 / ADR-011 §1).
+            var locator = new RulesetLocator();
             var shell = new ShellViewModel(
                 static demo => demo ? new DemoProvider() : (IDirectoryProvider)new LdapProvider(),
                 StartupOptions,
@@ -40,10 +46,8 @@ public sealed partial class App : Application
                 // The ONLY place the real renderer is wired (ADR-004 D5). Headless tests
                 // never reach this: they construct VMs directly (null factory or fakes).
                 static () => new CytoscapeGraphRenderer(),
-                // The ruleset every workspace Evaluate runs against (ADR-010 §3) — located
-                // ONCE here (ADR-008 whole-file precedence). EffectiveRuleset.Errors are
-                // carried, surfaced by AP 3.3's settings UI; the locator never throws.
-                new RulesetLocator().LoadEffective());
+                locator.LoadEffective(),
+                locator);
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
 

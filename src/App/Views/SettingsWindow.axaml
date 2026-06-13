@@ -1,0 +1,637 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:settings="using:GroupWeaver.App.Settings"
+        xmlns:views="using:GroupWeaver.App.Views"
+        xmlns:rules="using:GroupWeaver.Core.Rules"
+        xmlns:model="using:GroupWeaver.Core.Model"
+        x:Class="GroupWeaver.App.Views.SettingsWindow"
+        x:DataType="settings:SettingsViewModel"
+        Title="GroupWeaver Settings"
+        Width="900" Height="640"
+        MinWidth="720" MinHeight="520">
+
+  <Window.Resources>
+
+    <!-- Shared severity-selector item template (AP 3.3 / S6): the E/W/i glyph in the
+         pinned SeverityConverters palette (#D13438/#F7A30B/#4FA3E3) + the name label.
+         Reused by the Naming-tab cards AND the Rules-tab master grid so every severity
+         selector in the editor reads in lock-step with the sidebar glyphs. -->
+    <DataTemplate x:Key="SeverityItemTemplate" x:DataType="rules:RuleSeverity">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Border Width="18" Height="18" CornerRadius="3"
+                Background="{Binding Converter={x:Static views:SeverityConverters.ToBrush}}">
+          <TextBlock Text="{Binding Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- Shared nesting-matrix cell-choice item template (AP 3.3 / S6): a compact colored
+         chip — green ✓ allow, neutral ✗ deny, E/W/i in the ADR-010 palette for a per-cell
+         severity override — so a cell reads as a colored chip without opening its ComboBox.
+         Reused by the 18 matrix cells AND the Unlisted-fallback selector. -->
+    <DataTemplate x:Key="CellChoiceItemTemplate" x:DataType="settings:CellChoice">
+      <Border MinWidth="58" CornerRadius="3" Padding="6,1"
+              Background="{Binding Converter={x:Static views:CellChoiceConverters.ToBrush}}">
+        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+          <TextBlock Text="{Binding Converter={x:Static views:CellChoiceConverters.ToGlyph}}"
+                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     VerticalAlignment="Center" />
+          <TextBlock Text="{Binding}" Foreground="White" FontSize="11"
+                     VerticalAlignment="Center" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
+    <!-- One matrix cell (AP 3.3 / S6): a ContentControl in the 3×6 grid binds a
+         NestingCellEditor as its Content, this template re-scopes the compiled-binding
+         x:DataType to that cell so the ComboBox's SelectedItem="{Binding Choice}" resolves
+         against the cell (and the realized control's DataContext IS the cell — the matrix
+         soundness pin). The chip ItemTemplate renders the colored verdict. -->
+    <DataTemplate x:Key="MatrixCellTemplate" x:DataType="settings:NestingCellEditor">
+      <ComboBox HorizontalAlignment="Stretch"
+                SelectedItem="{Binding Choice}"
+                ItemsSource="{x:Static settings:CellChoiceItems.All}"
+                ItemTemplate="{StaticResource CellChoiceItemTemplate}" />
+    </DataTemplate>
+
+    <!-- One ignore-list row (AP 3.3 / S7): the global ignore list's MatchEntryEditor.
+         dn/name mode toggle over a single Value glob (the UI enforces the dn-XOR-name —
+         BuildRuleset sets exactly one, the Load gate re-checks), a free-form Note TextBox,
+         an optional "does this glob match?" helper, and a Remove button. The endpoint is
+         NEVER shown here (the ignore list is not endpoint-bearing — EndpointEditable=false).
+         #45: the Note is EDITED in a TextBox (Text target — never a format/markup surface);
+         there is no separate tooltip-on-raw-value. Remove binds to the VM (the ItemsControl's
+         DataContext is the SettingsViewModel). -->
+    <DataTemplate x:Key="IgnoreRowTemplate" x:DataType="settings:MatchEntryEditor">
+      <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="2,6">
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
+          <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
+                    SelectedItem="{Binding Mode}">
+            <ComboBox.Items>
+              <settings:EntryMode>Dn</settings:EntryMode>
+              <settings:EntryMode>Name</settings:EntryMode>
+            </ComboBox.Items>
+          </ComboBox>
+          <TextBox Grid.Row="0" Grid.Column="1" Margin="6,0,0,0" Watermark="glob (e.g. *,CN=Builtin,*)"
+                   Text="{Binding Value}" VerticalAlignment="Center" />
+          <!-- Remove binds to the VM (the ItemsControl's DataContext): reflection binding —
+               the parent path is not statically typed under this row's MatchEntryEditor x:DataType. -->
+          <Button Grid.Row="0" Grid.Column="2" Margin="6,0,0,0" Content="Remove"
+                  x:CompileBindings="False"
+                  Command="{Binding $parent[ItemsControl].DataContext.RemoveIgnoreCommand}"
+                  CommandParameter="{Binding}" />
+          <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="6,0,0,0"
+                   Watermark="note (optional)" Text="{Binding Note}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+
+    <!-- One per-rule EXCEPTION row (AP 3.3 / S7): the same MatchEntryEditor, reused by every
+         exception list. The Endpoint ComboBox (Any/Parent/Member) is shown ONLY when
+         EndpointEditable is true — i.e. ONLY for nesting exceptions (the one legal place);
+         naming/circular/empty-group exceptions hide it and Build forces Any. Remove binds to
+         the OWNING editor (the ItemsControl's DataContext is the section editor — Nesting /
+         a naming rule / Circular / EmptyGroup — each exposing RemoveExceptionCommand). #45:
+         the Note is edited in a TextBox (a plain Text target). -->
+    <DataTemplate x:Key="ExceptionRowTemplate" x:DataType="settings:MatchEntryEditor">
+      <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="2,6">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
+          <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
+                    SelectedItem="{Binding Mode}">
+            <ComboBox.Items>
+              <settings:EntryMode>Dn</settings:EntryMode>
+              <settings:EntryMode>Name</settings:EntryMode>
+            </ComboBox.Items>
+          </ComboBox>
+          <TextBox Grid.Row="0" Grid.Column="1" Margin="6,0,0,0" Watermark="glob"
+                   Text="{Binding Value}" VerticalAlignment="Center" />
+          <!-- Endpoint: nesting exceptions only (Any/Parent/Member). -->
+          <ComboBox Grid.Row="0" Grid.Column="2" Margin="6,0,0,0" MinWidth="92" VerticalAlignment="Center"
+                    IsVisible="{Binding EndpointEditable}"
+                    SelectedItem="{Binding Endpoint}">
+            <ComboBox.Items>
+              <rules:MatchEndpoint>Any</rules:MatchEndpoint>
+              <rules:MatchEndpoint>Parent</rules:MatchEndpoint>
+              <rules:MatchEndpoint>Member</rules:MatchEndpoint>
+            </ComboBox.Items>
+          </ComboBox>
+          <!-- Remove binds to the OWNING editor (the ItemsControl's DataContext — Nesting /
+               a naming rule / Circular / EmptyGroup, all exposing RemoveExceptionCommand):
+               reflection binding, since the owner type varies and is not the row's x:DataType. -->
+          <Button Grid.Row="0" Grid.Column="3" Margin="6,0,0,0" Content="Remove"
+                  x:CompileBindings="False"
+                  Command="{Binding $parent[ItemsControl].DataContext.RemoveExceptionCommand}"
+                  CommandParameter="{Binding}" />
+          <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="6,0,0,0"
+                   Watermark="note (optional)" Text="{Binding Note}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+
+  </Window.Resources>
+
+  <!-- The modal settings editor (AP 3.3 / ADR-011 §1): a separate top-level Window
+       (ADR-003 D5's sanctioned escape hatch — never layered over the workspace
+       GraphHost, ADR-001 airspace guardrail 5). The editable mirror tree
+       (SettingsViewModel) is the DataContext; RulesetLoader.Load is the single
+       save/import/apply gate behind the footer. This slice (S5) ships the TabControl
+       shell, the persistent validation band + footer (OUTSIDE the tabs), and the
+       Naming tab with live preview; S6/S7 fill the other tabs. -->
+  <DockPanel>
+
+    <!-- Footer (OUTSIDE the TabControl): Apply = live re-thread, no disk write;
+         Save = live + atomic persist; Cancel closes. S8 wires Apply/Save commands
+         and the shell re-thread; this slice ships the affordance. -->
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#33808080"
+            Padding="12,8">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button Content="Apply" MinWidth="84" Command="{Binding ApplyActionCommand}" />
+        <Button Content="Save" MinWidth="84" IsDefault="True" Command="{Binding SaveActionCommand}" />
+        <Button Content="Cancel" MinWidth="84" IsCancel="True" Click="OnCancelClick" />
+      </StackPanel>
+    </Border>
+
+    <!-- Persistent validation band (OUTSIDE the TabControl, above the footer): the
+         loader's path-addressed errors from the most recent gate or a rejected
+         user-file-on-open. Path and Message bind to SEPARATE Text targets — Message
+         is STRICTLY plain text (#45: untrusted files may carry control chars), never
+         interpolated into a format template or markup surface. Hidden when clean. -->
+    <Border DockPanel.Dock="Bottom"
+            IsVisible="{Binding ValidationErrors.Count}"
+            Background="#22D13438" BorderBrush="#66D13438" BorderThickness="0,1,0,0"
+            Padding="12,8" MaxHeight="160">
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding ValidationErrors}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="rules:RulesetValidationError">
+              <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                <TextBlock Text="{Binding Path}" FontFamily="Consolas,Menlo,monospace"
+                           Opacity="0.7" VerticalAlignment="Top" />
+                <SelectableTextBlock Text="{Binding Message}" Foreground="#D13438"
+                                     TextWrapping="Wrap" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <!-- Invalid-user-file banner (above the tabs): the app is running on the embedded
+         default because the saved file was rejected; the broken file is left
+         byte-unchanged on disk (ADR-011 open-risk #2). -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding RunningOnDefaultBecauseInvalid}"
+            Background="#2EFFB900" BorderBrush="#66FFB900" BorderThickness="0,0,0,1"
+            Padding="12,8">
+      <TextBlock TextWrapping="Wrap"
+                 Text="Your saved ruleset could not be loaded; GroupWeaver is running on the built-in default. Fix the errors below and Save, or Reset to default." />
+    </Border>
+
+    <TabControl Padding="0">
+
+      <!-- Rules master grid (AP 3.3 / S6): one row per rule in the EnumerateRules shape —
+           the nesting matrix, every naming rule (file order), circular, empty-group — each
+           a 2-way Enabled toggle + Severity selector reading/writing THROUGH the owning
+           section editor (RuleRowEditor, so the grid and the per-section tabs can never
+           disagree). The severity selector reuses the shared SeverityItemTemplate, so each
+           row's E/W/i glyph reads in the pinned SeverityConverters palette. -->
+      <TabItem Header="Rules">
+        <ScrollViewer>
+          <StackPanel Margin="12" Spacing="2">
+
+            <TextBlock Opacity="0.6" TextWrapping="Wrap" Margin="2,0,0,8"
+                       Text="Every rule, with its on/off toggle and severity. Edit a rule's details on its own tab (Naming, Matrix); changes here and there stay in sync." />
+
+            <!-- Header row -->
+            <Grid ColumnDefinitions="Auto,*,Auto" Margin="4,0,4,4">
+              <TextBlock Grid.Column="0" Text="On" FontWeight="SemiBold" Opacity="0.7" />
+              <TextBlock Grid.Column="1" Text="Rule" FontWeight="SemiBold" Opacity="0.7"
+                         Margin="10,0,0,0" />
+              <TextBlock Grid.Column="2" Text="Severity" FontWeight="SemiBold" Opacity="0.7"
+                         Margin="10,0,0,0" />
+            </Grid>
+
+            <ItemsControl ItemsSource="{Binding Rules}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settings:RuleRowEditor">
+                  <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="4,6">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                IsChecked="{Binding Enabled}" />
+                      <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Margin="10,0,0,0"
+                                 VerticalAlignment="Center" TextWrapping="NoWrap" />
+                      <ComboBox Grid.Column="2" Margin="10,0,0,0" MinWidth="120"
+                                VerticalAlignment="Center"
+                                SelectedItem="{Binding Severity}"
+                                ItemTemplate="{StaticResource SeverityItemTemplate}">
+                        <ComboBox.Items>
+                          <rules:RuleSeverity>Error</rules:RuleSeverity>
+                          <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                          <rules:RuleSeverity>Info</rules:RuleSeverity>
+                        </ComboBox.Items>
+                      </ComboBox>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="Naming">
+        <ScrollViewer>
+          <ItemsControl ItemsSource="{Binding Naming}" Margin="12">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="settings:NamingRuleEditor">
+
+                <!-- One naming-rule card: Id/Enabled/Severity/Kind/Pattern/Description,
+                     a PreviewSample TextBox, and the live-preview chip. -->
+                <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6"
+                        Padding="12" Margin="0,0,0,10">
+                  <StackPanel Spacing="8">
+
+                    <!-- Header row: enabled toggle, id, severity glyph, kind badge. -->
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                      <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                IsChecked="{Binding Enabled}" />
+                      <TextBox Grid.Column="1" Watermark="rule id" Margin="6,0,0,0"
+                               Text="{Binding Id}" VerticalAlignment="Center" />
+
+                      <!-- Severity selector: each item shows the E/W/i glyph square in
+                           the SeverityConverters palette (parity with the sidebar). -->
+                      <ComboBox Grid.Column="2" Margin="8,0,0,0" MinWidth="120"
+                                VerticalAlignment="Center"
+                                SelectedItem="{Binding Severity}"
+                                ItemTemplate="{StaticResource SeverityItemTemplate}">
+                        <ComboBox.Items>
+                          <rules:RuleSeverity>Error</rules:RuleSeverity>
+                          <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                          <rules:RuleSeverity>Info</rules:RuleSeverity>
+                        </ComboBox.Items>
+                      </ComboBox>
+
+                      <!-- Kind selector: the 6 legal kinds (External pre-filtered — the
+                           loader rejects it), each badged via AdObjectKindConverters. -->
+                      <ComboBox Grid.Column="3" Margin="8,0,0,0" MinWidth="120"
+                                VerticalAlignment="Center"
+                                SelectedItem="{Binding Kind}">
+                        <ComboBox.Items>
+                          <model:AdObjectKind>User</model:AdObjectKind>
+                          <model:AdObjectKind>Computer</model:AdObjectKind>
+                          <model:AdObjectKind>GlobalGroup</model:AdObjectKind>
+                          <model:AdObjectKind>DomainLocalGroup</model:AdObjectKind>
+                          <model:AdObjectKind>UniversalGroup</model:AdObjectKind>
+                          <model:AdObjectKind>OrganizationalUnit</model:AdObjectKind>
+                        </ComboBox.Items>
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="model:AdObjectKind">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <Border MinWidth="30" CornerRadius="3" Padding="4,1"
+                                      Background="{Binding Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                                <TextBlock Text="{Binding Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                           Foreground="White" FontSize="10" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                              </Border>
+                            </StackPanel>
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </Grid>
+
+                    <TextBox Watermark="^GG_..._..._$ (regex)" Text="{Binding Pattern}" />
+                    <TextBox Watermark="description" Text="{Binding Description}" />
+
+                    <!-- Live preview: a candidate sample TextBox + the verdict chip.
+                         The chip's DataContext is the NamingPreviewConverter result over
+                         [Pattern, PreviewSample, Severity] (a throwaway, never-interned
+                         NonBacktracking regex — ADR-009); it renders the verdict glyph in
+                         the verdict brush and a plain-text caption. #45: the PatternInvalid
+                         Message binds to SelectableTextBlock.Text, never a markup surface. -->
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBox Grid.Column="0" Watermark="GG_Vertrieb_Lesen"
+                               Text="{Binding PreviewSample}" />
+                      <!-- The chip carries the NamingPreviewVisual on its Tag (NOT DataContext:
+                           a MultiBinding on DataContext would re-root its own [Pattern,
+                           PreviewSample, Severity] children against the result and read null;
+                           Tag is a plain property, so the children resolve against the card).
+                           The converter compiles a throwaway, never-interned NonBacktracking
+                           regex (ADR-009); the inner controls read Glyph/Brush/Message off the
+                           Tag by ElementName. #45: Message binds to SelectableTextBlock.Text. -->
+                      <Border Grid.Column="1" Name="PreviewChip" Margin="8,0,0,0"
+                              CornerRadius="4" Padding="8,4" VerticalAlignment="Center"
+                              BorderThickness="1" BorderBrush="#33808080">
+                        <Border.Tag>
+                          <MultiBinding Converter="{x:Static views:NamingPreviewConverter.Instance}">
+                            <Binding Path="Pattern" />
+                            <Binding Path="PreviewSample" />
+                            <Binding Path="Severity" />
+                          </MultiBinding>
+                        </Border.Tag>
+                        <StackPanel Orientation="Horizontal" Spacing="6"
+                                    x:CompileBindings="False">
+                          <TextBlock Text="{Binding #PreviewChip.Tag.Glyph}"
+                                     Foreground="{Binding #PreviewChip.Tag.Brush}"
+                                     FontWeight="Bold" VerticalAlignment="Center" />
+                          <!-- Verdict caption: "matches" (Ok) / "would be flagged
+                               ({severity})" (Violation), in the verdict brush. Plain text
+                               (TextBlock.Text); empty for Idle/PatternInvalid (the latter
+                               shows its diagnostic in the Message line below). -->
+                          <TextBlock Text="{Binding #PreviewChip.Tag.Caption}"
+                                     Foreground="{Binding #PreviewChip.Tag.Brush}"
+                                     IsVisible="{Binding #PreviewChip.Tag.Caption, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontWeight="SemiBold" VerticalAlignment="Center" />
+                          <SelectableTextBlock Text="{Binding #PreviewChip.Tag.Message}"
+                                               IsVisible="{Binding #PreviewChip.Tag.Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Opacity="0.8" VerticalAlignment="Center"
+                                               TextWrapping="Wrap" MaxWidth="220" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- Nesting matrix editor (AP 3.3 / S6): a fixed 3×6 explicit grid — rows (parent)
+           GG/DL/UG × columns (member) User/Computer/GG/DL/UG/External (OU excluded, the
+           loader rejects an OU column). Row/column headers are kind badges (AdObjectKind
+           converters) so the AGUDLP lane reads by color. Each of the 18 cells binds to its
+           NestingCellEditor (indexer binding into the canonical parent-major Cells list) so
+           a cell control's DataContext IS the editor — a compact ComboBox over Choice whose
+           items render a colored allow/deny/E/W/i chip. Below: the Unlisted fallback, the
+           rule-wide deny severity, and the nesting Enabled toggle, then the two simple-rule
+           cards (circular + empty-group). -->
+      <TabItem Header="Matrix">
+        <ScrollViewer>
+          <StackPanel Margin="12" Spacing="12">
+
+            <DockPanel>
+              <CheckBox DockPanel.Dock="Right" VerticalAlignment="Center"
+                        Content="Nesting check enabled" IsChecked="{Binding Nesting.Enabled}" />
+              <TextBlock Text="Allowed nesting (parent ← member)" FontWeight="SemiBold"
+                         VerticalAlignment="Center" />
+            </DockPanel>
+
+            <!-- The 3×6 matrix: row 0 = column-header badges, rows 1-3 = the parent bands.
+                 Column 0 = the row-header badge column; columns 1-6 = the member cells. -->
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto"
+                  ColumnDefinitions="Auto,*,*,*,*,*,*" ColumnSpacing="4" RowSpacing="4">
+
+              <!-- Column headers (member kinds), badged. -->
+              <Border Grid.Row="0" Grid.Column="1" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.User}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.User}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="2" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.Computer}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.Computer}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="3" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="4" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="5" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <Border Grid.Row="0" Grid.Column="6" CornerRadius="3" Padding="4,1" MinWidth="30"
+                      Background="{Binding Source={x:Static model:AdObjectKind.External}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.External}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+
+              <!-- Row 1: GlobalGroup parent (cells 0-5). -->
+              <Border Grid.Row="1" Grid.Column="0" CornerRadius="3" Padding="4,1" MinWidth="30" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.GlobalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <ContentControl Grid.Row="1" Grid.Column="1" Content="{Binding Nesting.Cells[0]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="2" Content="{Binding Nesting.Cells[1]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="3" Content="{Binding Nesting.Cells[2]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="4" Content="{Binding Nesting.Cells[3]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="5" Content="{Binding Nesting.Cells[4]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="1" Grid.Column="6" Content="{Binding Nesting.Cells[5]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+
+              <!-- Row 2: DomainLocalGroup parent (cells 6-11). -->
+              <Border Grid.Row="2" Grid.Column="0" CornerRadius="3" Padding="4,1" MinWidth="30" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.DomainLocalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <ContentControl Grid.Row="2" Grid.Column="1" Content="{Binding Nesting.Cells[6]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="2" Content="{Binding Nesting.Cells[7]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="3" Content="{Binding Nesting.Cells[8]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="4" Content="{Binding Nesting.Cells[9]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="5" Content="{Binding Nesting.Cells[10]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="2" Grid.Column="6" Content="{Binding Nesting.Cells[11]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+
+              <!-- Row 3: UniversalGroup parent (cells 12-17). -->
+              <Border Grid.Row="3" Grid.Column="0" CornerRadius="3" Padding="4,1" MinWidth="30" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                <TextBlock Text="{Binding Source={x:Static model:AdObjectKind.UniversalGroup}, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                           Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              </Border>
+              <ContentControl Grid.Row="3" Grid.Column="1" Content="{Binding Nesting.Cells[12]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="2" Content="{Binding Nesting.Cells[13]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="3" Content="{Binding Nesting.Cells[14]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="4" Content="{Binding Nesting.Cells[15]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="5" Content="{Binding Nesting.Cells[16]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+              <ContentControl Grid.Row="3" Grid.Column="6" Content="{Binding Nesting.Cells[17]}" ContentTemplate="{StaticResource MatrixCellTemplate}" />
+
+            </Grid>
+
+            <!-- Fallback + rule-wide deny severity. -->
+            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="6">
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="Unlisted (fallback) →"
+                         VerticalAlignment="Center" />
+              <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="100"
+                        SelectedItem="{Binding Nesting.Unlisted}"
+                        ItemTemplate="{StaticResource CellChoiceItemTemplate}"
+                        ItemsSource="{x:Static settings:CellChoiceItems.All}" />
+
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="Default severity for deny cells →"
+                         VerticalAlignment="Center" />
+              <ComboBox Grid.Row="1" Grid.Column="1" MinWidth="120"
+                        SelectedItem="{Binding Nesting.Severity}"
+                        ItemTemplate="{StaticResource SeverityItemTemplate}">
+                <ComboBox.Items>
+                  <rules:RuleSeverity>Error</rules:RuleSeverity>
+                  <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                  <rules:RuleSeverity>Info</rules:RuleSeverity>
+                </ComboBox.Items>
+              </ComboBox>
+            </Grid>
+
+            <TextBlock Opacity="0.6" TextWrapping="Wrap"
+                       Text="Deny uses the default severity; pick Error/Warning/Info to override one cell." />
+
+            <!-- The two simple-rule cards (circular + empty-group): Enabled + Severity, the
+                 same two rules surfaced as rows in the Rules master grid. Their RuleId is
+                 fixed and invisible (reconstructed from RuleIds on build). -->
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="12">
+              <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8">
+                <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center"
+                          IsChecked="{Binding Circular.Enabled}" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="Circular nesting (A → B → A)"
+                           Margin="8,0,0,0" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="0" Grid.Column="2" MinWidth="120" VerticalAlignment="Center"
+                          SelectedItem="{Binding Circular.Severity}"
+                          ItemTemplate="{StaticResource SeverityItemTemplate}">
+                  <ComboBox.Items>
+                    <rules:RuleSeverity>Error</rules:RuleSeverity>
+                    <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                    <rules:RuleSeverity>Info</rules:RuleSeverity>
+                  </ComboBox.Items>
+                </ComboBox>
+
+                <CheckBox Grid.Row="1" Grid.Column="0" VerticalAlignment="Center"
+                          IsChecked="{Binding EmptyGroup.Enabled}" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="Empty groups"
+                           Margin="8,0,0,0" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="1" Grid.Column="2" MinWidth="120" VerticalAlignment="Center"
+                          SelectedItem="{Binding EmptyGroup.Severity}"
+                          ItemTemplate="{StaticResource SeverityItemTemplate}">
+                  <ComboBox.Items>
+                    <rules:RuleSeverity>Error</rules:RuleSeverity>
+                    <rules:RuleSeverity>Warning</rules:RuleSeverity>
+                    <rules:RuleSeverity>Info</rules:RuleSeverity>
+                  </ComboBox.Items>
+                </ComboBox>
+              </Grid>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- Ignore & Exceptions (AP 3.3 / S7): the global ignore list (MatchEntryEditor rows —
+           dn/name mode toggle + Value glob + Note + Add/Remove; endpoint hidden) followed by
+           the per-rule exception lists. The endpoint Any/Parent/Member control appears ONLY on
+           the nesting exception rows (EndpointEditable=true — the one legal place); every other
+           exception list hides it. #45: every Note is edited in a plain TextBox Text target,
+           never a format/markup surface. Suppression order is global ignore → per-rule
+           exceptions (ADR-008 §5); this tab surfaces both in that order. -->
+      <TabItem Header="Ignore &amp; Exceptions">
+        <ScrollViewer>
+          <StackPanel Margin="12" Spacing="8">
+
+            <!-- Global ignore list. -->
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Add ignore entry"
+                      Command="{Binding AddIgnoreCommand}" />
+              <TextBlock Text="Global ignore list" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,2"
+                       Text="Objects or edges matching any entry are exempt from every check (global ignore → per-rule exceptions → check). A dn entry globs the DN; a name entry globs Name or SamAccountName." />
+            <ItemsControl ItemsSource="{Binding Ignore}"
+                          ItemTemplate="{StaticResource IgnoreRowTemplate}" />
+
+            <!-- Per-rule exceptions: nesting (endpoint editable), each naming rule, circular,
+                 empty-group. The endpoint control is bound to EndpointEditable, so only the
+                 nesting rows render it. -->
+            <TextBlock Text="Per-rule exceptions" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10">
+              <StackPanel Spacing="4">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Add exception"
+                          Command="{Binding Nesting.AddExceptionCommand}" />
+                  <TextBlock Text="Nesting matrix (endpoint: Any / Parent / Member)"
+                             VerticalAlignment="Center" />
+                </DockPanel>
+                <ItemsControl DataContext="{Binding Nesting}" ItemsSource="{Binding Exceptions}"
+                              ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Naming}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settings:NamingRuleEditor">
+                  <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+                    <StackPanel Spacing="4">
+                      <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Add exception"
+                                Command="{Binding AddExceptionCommand}" />
+                        <TextBlock Text="{Binding Id, StringFormat='Naming: {0}'}"
+                                   VerticalAlignment="Center" />
+                      </DockPanel>
+                      <ItemsControl ItemsSource="{Binding Exceptions}"
+                                    ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+              <StackPanel Spacing="4">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Add exception"
+                          Command="{Binding Circular.AddExceptionCommand}" />
+                  <TextBlock Text="Circular nesting" VerticalAlignment="Center" />
+                </DockPanel>
+                <ItemsControl DataContext="{Binding Circular}" ItemsSource="{Binding Exceptions}"
+                              ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+              </StackPanel>
+            </Border>
+
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+              <StackPanel Spacing="4">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Add exception"
+                          Command="{Binding EmptyGroup.AddExceptionCommand}" />
+                  <TextBlock Text="Empty groups" VerticalAlignment="Center" />
+                </DockPanel>
+                <ItemsControl DataContext="{Binding EmptyGroup}" ItemsSource="{Binding Exceptions}"
+                              ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+              </StackPanel>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- File (AP 3.3 / S7): Import / Export / Reset wired through the IRulesetFileDialogs seam
+           (the production StorageProvider adapter is the [I] picker layer). Import replaces the
+           WHOLE mirror from a picked file IF it loads cleanly (ADR-008 whole-file precedence, no
+           merge); Export runs the save gate and writes the gate-re-parsed ruleset to a picked
+           path (blocked + errors if invalid); Reset rebuilds the mirror from the embedded default
+           (in-memory only — no disk write). All gate/replace LOGIC is in the VM (S3); these
+           buttons only invoke it. Save/Apply (footer) persist/re-thread (S8). -->
+      <TabItem Header="File">
+        <StackPanel Margin="16" Spacing="10">
+          <TextBlock FontWeight="SemiBold" Text="Import / Export / Reset" />
+          <TextBlock Opacity="0.6" TextWrapping="Wrap"
+                     Text="Import replaces the whole ruleset from a file (no merge). Export writes the current ruleset to a file (only if it is valid). Reset to default discards edits in memory — nothing is saved until you press Save." />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Import…" MinWidth="110" Command="{Binding ImportCommand}" />
+            <Button Content="Export…" MinWidth="110" Command="{Binding ExportCommand}" />
+            <Button Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </TabItem>
+
+    </TabControl>
+
+  </DockPanel>
+
+</Window>

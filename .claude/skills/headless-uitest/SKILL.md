@@ -45,9 +45,11 @@ tests/GroupWeaver.App.Tests`). The fixture is
 `tests/GroupWeaver.App.Tests/Screenshots/ShellScreenshotTests.cs`: every shipped
 shell state through the REAL pipeline — real DemoProvider, real views, real Skia
 rasterization on Avalonia.Headless (`UseHeadlessDrawing = false`) — written to
-`artifacts/ui/<view>-<W>x<H>.png` at both 1280×720 and 1920×1080:
-`connection-idle`, `connection-error`, `rootpicker-demo`, `rootpicker-demo-tail`,
-`workspace-demo`, `workspace-webview2-missing` — 12 PNGs per run.
+`artifacts/ui/<view>-<W>x<H>.png` at both 1280×720 and 1920×1080 — 16 fixtures,
+32 PNGs per run (connection, root-picker, workspace, detail, violations sidebar,
+and the AP 3.3 `settings-*` set incl. the modal `SettingsWindow` shown via
+`.Show()`). The canonical fixture list lives in `docs/ui-checklist.md` section B —
+keep the two in sync when fixtures change.
 
 **Capture-and-discard rule:** the headless compositor renders one committed
 batch per render-timer tick, so the first `CaptureRenderedFrame()` after a state
