@@ -34,6 +34,20 @@ public class ExampleRulesetTests
     }
 
     [Fact]
+    public void GgNestingForbiddenExample_LoadsWithZeroErrors()
+    {
+        var path = ExamplePath("gg-nesting-forbidden.jsonc");
+        Assert.True(File.Exists(path), $"Example ruleset missing: {path}");
+
+        var result = RulesetLoader.Load(File.ReadAllText(path));
+
+        Assert.Empty(result.Errors);
+        Assert.True(result.Success);
+        Assert.Empty(result.Warnings);
+        Assert.NotNull(result.Ruleset);
+    }
+
+    [Fact]
     public void DefaultStrictAgdlpExample_IsByteIdenticalToEmbeddedDefault_AfterNewlineNormalization()
     {
         var path = ExamplePath("default-strict-agdlp.jsonc");

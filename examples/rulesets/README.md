@@ -7,6 +7,7 @@ comments, see [ADR-008](../../docs/adr/008-rule-model.md)).
 |---|---|
 | `default-strict-agdlp.jsonc` | The built-in default, published for reference: strict AGDLP with the AGUDLP lane (G→U→DL) allowed, `GG_`/`DL_`/`UG_` naming, circularity and empty-group checks, and the full well-known-principals ignore list. Byte-identical to the resource embedded in the app (a test pins this). |
 | `pure-agdlp.jsonc` | A worked example that bans the universal-group lane entirely. Demonstrates matrix cell flips, a per-cell severity override, nesting exceptions with endpoint narrowing, and a per-rule naming exception. |
+| `gg-nesting-forbidden.jsonc` | The default with one surgical change: GlobalGroup-in-GlobalGroup nesting is a hard `error` instead of `allow`. Pairs with the settings editor's single-cell-edit guarantee; full ignore list retained so it is drop-in usable. |
 
 ## Using a file
 
