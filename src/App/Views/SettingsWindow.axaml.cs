@@ -22,6 +22,11 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
     }
 
+    /// <summary>The footer Cancel button: closes the editor, discarding in-memory edits
+    /// (a refused or never-run gate persisted nothing). <c>IsCancel</c> handles the modal
+    /// <c>ShowDialog</c> path; this also closes the non-modal fallback show.</summary>
+    private void OnCancelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close();
+
     /// <summary>Installs the production file-picker seam (AP 3.3 / S7): once the window is
     /// open it owns a <c>TopLevel</c>, so the File-tab Import/Export commands reach the OS
     /// picker through <see cref="StorageProviderRulesetFileDialogs"/>

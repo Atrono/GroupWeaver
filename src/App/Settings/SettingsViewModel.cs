@@ -187,6 +187,30 @@ public sealed partial class SettingsViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>Re-threads the live workspace WITHOUT persisting (AP 3.3 / ADR-011 §3):
+    /// runs the single gate and, on success, fires <see cref="RulesetApplied"/> with the
+    /// gate-re-parsed ruleset — Apply differs from <see cref="Save"/> only in that it never
+    /// writes the user file. On a refused gate nothing fires and the errors surface.
+    /// Returns true on success.</summary>
+    public bool Apply()
+    {
+        if (!RunGate(out var reparsed))
+        {
+            return false;
+        }
+
+        RulesetApplied?.Invoke(reparsed);
+        return true;
+    }
+
+    /// <summary>The footer Apply button (AP 3.3 / S8): live re-thread, no disk write.</summary>
+    [RelayCommand]
+    private void ApplyAction() => Apply();
+
+    /// <summary>The footer Save button (AP 3.3 / S8): live re-thread + atomic persist.</summary>
+    [RelayCommand]
+    private void SaveAction() => Save();
+
     /// <summary>Replaces the WHOLE mirror tree from <paramref name="text"/> (ADR-008
     /// whole-file precedence — no merge) IF it loads cleanly: on success the mirror is
     /// re-seeded from the loader's ruleset, errors and the banner clear, and true is

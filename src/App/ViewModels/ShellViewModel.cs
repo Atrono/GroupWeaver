@@ -1,9 +1,14 @@
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
+using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
+using GroupWeaver.App.Views;
 using GroupWeaver.Core.Providers;
+using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.ViewModels;
 
@@ -18,7 +23,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly Func<bool, IDirectoryProvider> _providerFactory;
     private readonly Func<IGraphRenderer>? _graphRendererFactory;
-    private readonly EffectiveRuleset? _ruleset;
+    private readonly RulesetLocator _locator;
+
+    /// <summary>The ruleset the app is currently running on (ADR-010 §3); settable
+    /// (AP 3.3 / ADR-011 §3) so a settings Apply/Save re-caches it as the new effective
+    /// ruleset — the next workspace inherits it through the existing Shell→RootPicker→
+    /// Workspace thread, and a live workspace is re-threaded via
+    /// <see cref="WorkspaceViewModel.ApplyRulesetAsync"/>.</summary>
+    private EffectiveRuleset? _ruleset;
 
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
@@ -29,11 +41,16 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         StartupOptions startupOptions,
         WebView2RuntimeStatus? webView2Runtime = null,
         Func<IGraphRenderer>? graphRendererFactory = null,
-        EffectiveRuleset? ruleset = null)
+        EffectiveRuleset? ruleset = null,
+        RulesetLocator? locator = null)
     {
         _providerFactory = providerFactory;
         _graphRendererFactory = graphRendererFactory;
         _ruleset = ruleset;
+        // Defaulted (AP 3.3 / ADR-011 §1): App.axaml.cs passes the one composition-root
+        // locator; pre-S8 tests omit it and get the real %APPDATA% layout. Settings
+        // Save persists to its UserRulesetPath; the headless tests inject a temp-dir seam.
+        _locator = locator ?? new RulesetLocator();
 
         // Default = real probe, so harnesses constructing the shell directly behave like
         // the app; S8's headless tests pass an explicit status to force the missing state.
@@ -76,6 +93,65 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>Banner hyperlink: open the runtime's download page in the browser.</summary>
     [RelayCommand]
     private void OpenWebView2DownloadPage() => WebView2Runtime.OpenDownloadPage();
+
+    /// <summary>
+    /// The top command strip's "⚙ Settings" affordance (AP 3.3 / ADR-011 §1): builds the
+    /// settings VM (the <see cref="BuildSettingsViewModel"/> seam already subscribes the
+    /// shell's re-thread to <see cref="SettingsViewModel.RulesetApplied"/>) and shows it
+    /// as a modal <see cref="SettingsWindow"/> over the main window. Reachable on every
+    /// step. <c>ShowDialog</c> is the production-only path (headless-hostile — ADR-011
+    /// open-risk #3): tests drive the SAME re-thread through <see cref="BuildSettingsViewModel"/>
+    /// + <c>SettingsViewModel.Save</c>/<c>Apply</c>, never this command.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSettingsAsync()
+    {
+        var vm = BuildSettingsViewModel();
+        var window = new SettingsWindow { DataContext = vm };
+        if (GetMainWindow() is { } owner)
+        {
+            await window.ShowDialog(owner);
+        }
+        else
+        {
+            window.Show();
+        }
+    }
+
+    /// <summary>
+    /// The shell's settings-VM seam (AP 3.3 / ADR-011 §1/§3): seeds a
+    /// <see cref="SettingsViewModel"/> from the cached <see cref="EffectiveRuleset"/>
+    /// (rejected-file errors carried, finally surfaced) and the injected
+    /// <see cref="RulesetLocator"/>, then subscribes the shell's re-thread to its
+    /// <see cref="SettingsViewModel.RulesetApplied"/> event. On Apply/Save the shell
+    /// re-caches <c>_ruleset</c> as a clean <c>new EffectiveRuleset(saved, true, [])</c>
+    /// and, if a live workspace is the current step, re-threads it via
+    /// <see cref="WorkspaceViewModel.ApplyRulesetAsync"/> — no rebuild, viewport kept.
+    /// This is the seam <see cref="OpenSettingsAsync"/> uses internally and the seam the
+    /// headless integration tests drive directly (the <c>ShowDialog</c> path is <c>[I]</c>).
+    /// </summary>
+    public SettingsViewModel BuildSettingsViewModel()
+    {
+        var effective = _ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, []);
+        var vm = SettingsViewModel.Open(effective, _locator);
+        vm.RulesetApplied += OnRulesetApplied;
+        return vm;
+    }
+
+    private async void OnRulesetApplied(Ruleset ruleset)
+    {
+        _ruleset = new EffectiveRuleset(ruleset, FromUserFile: true, []);
+        if (CurrentStep is WorkspaceViewModel workspace)
+        {
+            await workspace.ApplyRulesetAsync(ruleset);
+        }
+    }
+
+    /// <summary>The desktop main window, the modal owner for <see cref="OpenSettingsAsync"/>;
+    /// <c>null</c> off the classic-desktop lifetime (headless theory) — the seam then
+    /// falls back to a non-modal show, but tests never reach the show at all.</summary>
+    private static Avalonia.Controls.Window? GetMainWindow() =>
+        (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
 
     private void OnConnected(IDirectoryProvider provider, DirectoryConnection connection)
     {

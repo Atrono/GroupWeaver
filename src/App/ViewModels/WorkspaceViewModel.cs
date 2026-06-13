@@ -80,8 +80,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// root and threaded down (ADR-010 §3); a <c>null</c> ctor ruleset resolves to the
     /// embedded default, so every pre-AP-3.4 workspace test stays on the 19-finding
     /// baseline. <see cref="EffectiveRuleset.Errors"/> is carried, not surfaced — AP 3.3
-    /// owns the settings UI that shows them.</summary>
-    private readonly Ruleset _ruleset;
+    /// owns the settings UI that shows them. Settable (AP 3.3 / ADR-011 §3): a settings
+    /// Apply/Save re-threads it via <see cref="ApplyRulesetAsync"/>, and because
+    /// <c>RuleEngine.Evaluate</c> re-reads the field at call time an in-flight pipeline
+    /// picks the new ruleset up in its own Evaluate.</summary>
+    private Ruleset _ruleset;
 
     public WorkspaceViewModel(
         IDirectoryProvider provider,
@@ -277,6 +280,35 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             RecomputeDetailPanel();
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// Re-threads a settings Apply/Save into this LIVE workspace (AP 3.3 / ADR-011 §3):
+    /// swaps the ruleset, then — over the ALREADY-LOADED snapshot — re-Evaluates and
+    /// pushes the fresh report through <see cref="IGraphRenderer.UpdateGraphAsync"/>
+    /// (replace-in-place, viewport-preserving). NEVER <c>GraphBuilder.Build</c> (a
+    /// ruleset-only change leaves topology — and the <see cref="Graph"/> reference —
+    /// untouched) and NEVER <c>ShowGraphAsync</c> (destroy + fit would lose the viewport).
+    /// The exact <see cref="ExpandAsync"/> post-fetch machinery minus the rebuild;
+    /// <see cref="OnReportChanged"/> re-projects the sidebar.
+    ///
+    /// <para><b>IsLoading-gated</b> (ADR-005 D3): with no snapshot yet, or while a load
+    /// is in flight, this ONLY sets the field and returns — no concurrent push. The
+    /// in-flight pipeline's own Evaluate re-reads the now-settable <c>_ruleset</c> at call
+    /// time, so the new ruleset lands via that pipeline's single render, never a second
+    /// update racing it. Settings is modal, so no new gesture starts a load while open.</para>
+    /// </summary>
+    public async Task ApplyRulesetAsync(Ruleset newRuleset, CancellationToken cancellationToken = default)
+    {
+        _ruleset = newRuleset;
+        if (Snapshot is null || IsLoading || GraphRenderer is not { } renderer)
+        {
+            return;
+        }
+
+        Report = RuleEngine.Evaluate(Snapshot, _ruleset);
+        var below = ComputeBelow(Snapshot, Report);
+        await renderer.UpdateGraphAsync(Graph!, Report, below, cancellationToken);
     }
 
     private void OnNodeExpandRequested(string dn)

@@ -148,9 +148,9 @@
     <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#33808080"
             Padding="12,8">
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-        <Button Content="Apply" MinWidth="84" />
-        <Button Content="Save" MinWidth="84" IsDefault="True" />
-        <Button Content="Cancel" MinWidth="84" IsCancel="True" />
+        <Button Content="Apply" MinWidth="84" Command="{Binding ApplyActionCommand}" />
+        <Button Content="Save" MinWidth="84" IsDefault="True" Command="{Binding SaveActionCommand}" />
+        <Button Content="Cancel" MinWidth="84" IsCancel="True" Click="OnCancelClick" />
       </StackPanel>
     </Border>
 

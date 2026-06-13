@@ -49,6 +49,20 @@
       </Grid>
     </Border>
 
+    <!-- Top command strip (AP 3.3 / ADR-011 §1): a thin shell-level bar holding the
+         "Settings" affordance, reachable on every step. DockPanel.Dock=Top places it
+         BELOW the WebView2 banner and ABOVE the step content, so it sits in layout flow
+         and can never overlap the workspace's GraphHost native HWND (ADR-001 airspace
+         guardrail 5). The button opens the modal SettingsWindow (its own top-level Window
+         per ADR-003 D5 - never layered over the graph). -->
+    <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#33808080"
+            Padding="8,4">
+      <Button HorizontalAlignment="Right" Padding="10,4"
+              Command="{Binding OpenSettingsCommand}">
+        <TextBlock Text="⚙ Settings" />
+      </Button>
+    </Border>
+
     <ContentControl Content="{Binding CurrentStep}" />
 
   </DockPanel>
