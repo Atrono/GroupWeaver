@@ -169,14 +169,21 @@ public sealed class WorkspaceLoadTests
             brush.Color.R > brush.Color.G && brush.Color.R > brush.Color.B,
             $"the error foreground must read as red-ish (was {brush.Color})");
 
+        // AP 3.4 S4 (ADR-010 §5) demoted the Refresh/LoadError/DetailPanelRegion stack
+        // to row 2 of the right column's 2*,Auto,3* split — below the violations
+        // sidebar (row 0). The error stays in the right column, above the
+        // DetailPanelRegion seam, never over GraphHost; it no longer tops the whole
+        // column (the sidebar does). Pin the surviving invariants, not the old Y<=150.
         var errorTop = errorBlock.TranslatePoint(new Point(0, 0), view);
+        var detailRegionTop = Region(view, "DetailPanelRegion").TranslatePoint(new Point(0, 0), view);
         Assert.NotNull(errorTop);
+        Assert.NotNull(detailRegionTop);
         Assert.True(
             errorTop.Value.X >= view.Bounds.Width - 320,
             $"the error belongs in the right detail column, beside GraphHost (was at X={errorTop.Value.X})");
         Assert.True(
-            errorTop.Value.Y <= 150,
-            $"the error belongs at the top of the detail column (was at Y={errorTop.Value.Y})");
+            errorTop.Value.Y <= detailRegionTop.Value.Y + 0.5,
+            $"the error belongs above the DetailPanelRegion seam (was at Y={errorTop.Value.Y})");
 
         // GraphHost still shows its placeholder; the error text never enters it.
         var graphHostTexts = VisibleTexts(Region(view, "GraphHost"));
@@ -417,9 +424,10 @@ public sealed class WorkspaceLoadTests
         Assert.True(
             buttonTop.Value.X >= view.Bounds.Width - 320,
             $"the Refresh button belongs in the right detail column (was at X={buttonTop.Value.X})");
-        Assert.True(
-            buttonTop.Value.Y <= 150,
-            $"the Refresh button belongs at the top of the detail column (was at Y={buttonTop.Value.Y})");
+        // AP 3.4 S4 (ADR-010 §5) demoted this stack to row 2 of the right column's
+        // 2*,Auto,3* split — below the violations sidebar — so the Refresh button no
+        // longer tops the whole column. The surviving invariant is that it stays ABOVE
+        // the DetailPanelRegion seam (a future detail panel must not evict it).
         Assert.True(
             buttonTop.Value.Y + refresh.Bounds.Height <= regionTop.Value.Y + 0.5,
             "the Refresh button belongs ABOVE the DetailPanelRegion seam");

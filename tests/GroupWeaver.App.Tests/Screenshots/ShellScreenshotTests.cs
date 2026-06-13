@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
@@ -136,6 +137,57 @@ public sealed class ShellScreenshotTests
         await DriveToWorkspaceAsync(shell);
 
         CapturePng(window, "workspace-webview2-missing", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// AP 3.4 S4 (ADR-010 §5): the violations sidebar topping the right column, above
+    /// the AP 2.5 detail stack (the <c>2*,Auto,3*</c> vertical split, beside GraphHost,
+    /// never over it — ADR-001 airspace). Driven to the settled workspace via the same
+    /// <see cref="DriveToWorkspaceAsync"/> the other workspace frames use, default
+    /// ruleset (the AP 3.2 demo baseline = 19 findings).
+    ///
+    /// DEFERRED to S5 (VM wiring): the workspace VM does not yet expose <c>Report</c>
+    /// /<c>Violations</c> — that integration (Evaluate at LoadAsync/ExpandAsync, the
+    /// <c>ViolationRowModel</c> projection, jump-to-node, selection sync) lands in S5.
+    /// So this fixture pins ONLY what S4 owns: the sidebar VIEW renders inside the right
+    /// column (the new <see cref="ViolationsSidebarView"/> region exists and is
+    /// positioned right of GraphHost), with its design-time/empty collection. The
+    /// populated-19-row screenshot assertions (header "Findings (19)", glyph rows in
+    /// report order, the unchecked-areas hint) are added in S5 when the VM actually
+    /// surfaces the report — until then this is red because neither
+    /// <see cref="ViolationsSidebarView"/> nor the right-column split exists.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceViolations(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
+        Dispatcher.UIThread.RunJobs();
+
+        // S4 fixture soundness: the violations sidebar VIEW actually rendered, and it
+        // lives in the right detail column (right of GraphHost — the airspace pin, as in
+        // DetailPanelViewTests). Its content (real rows) is an S5 concern.
+        var sidebar = Assert.Single(
+            window.GetVisualDescendants().OfType<ViolationsSidebarView>());
+        Assert.True(sidebar.IsEffectivelyVisible, "the violations sidebar must be rendered");
+
+        var graphHost = Assert.Single(window.GetVisualDescendants().OfType<Avalonia.Controls.ContentControl>()
+, c => c.Name == "GraphHost");
+        var sidebarLeft = sidebar.TranslatePoint(new Point(0, 0), window);
+        var graphRight = graphHost.TranslatePoint(
+            new Point(graphHost.Bounds.Width, 0), window);
+        Assert.NotNull(sidebarLeft);
+        Assert.NotNull(graphRight);
+        Assert.True(
+            sidebarLeft.Value.X >= graphRight.Value.X - 0.5,
+            $"the violations sidebar (X={sidebarLeft.Value.X}) must sit right of "
+            + $"GraphHost (right edge X={graphRight.Value.X}) — never over the graph");
+
+        CapturePng(window, "workspace-violations", width, height);
         window.Close();
     }
 

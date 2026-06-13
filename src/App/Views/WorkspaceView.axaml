@@ -45,41 +45,56 @@
         </Panel>
       </ContentControl>
 
+      <!-- Right column (AP 3.4 S4, ADR-010 §5): a vertical split (2*,Auto,3*) of the
+           existing right column - the violations sidebar tops it (row 0), a 1px
+           separator (row 1), and the existing Refresh / LoadError / DetailPanelRegion
+           stack below (row 2). Beside GraphHost, never over it (ADR-001 airspace
+           guardrail 5); GraphHost (col 0) is untouched. -->
       <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
-        <Grid RowDefinitions="Auto,Auto,*">
+        <Grid RowDefinitions="2*,Auto,3*">
 
-          <!-- Detail-column header (AP 2.3 S4, ADR-005 D4): per-node Refresh, a
-               forced re-fetch of the selected node. Native chrome BESIDE the graph,
-               ABOVE the AP 2.5 DetailPanelRegion seam - never over GraphHost
-               (ADR-001 airspace guardrail 5). -->
-          <Button Grid.Row="0" Name="RefreshButton" Content="Refresh"
-                  Margin="12,12,12,0" HorizontalAlignment="Right"
-                  ToolTip.Tip="Re-fetch members of the selected node"
-                  Command="{Binding RefreshCommand}" />
+          <!-- Violations sidebar (AP 3.4): binds the workspace VM's report projection
+               (S5 fills Evaluate); shows the all-clear state until then. -->
+          <views:ViolationsSidebarView Grid.Row="0" />
 
-          <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
-               demo hint - a connection already succeeded). Top of the detail column,
-               never over GraphHost (ADR-001 airspace guardrail 5). -->
-          <TextBlock Grid.Row="1" Margin="12,12,12,0"
-                     Text="{Binding LoadError}"
-                     IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"
-                     Foreground="#C42B1C" TextWrapping="Wrap" />
+          <Border Grid.Row="1" BorderThickness="0,1,0,0" BorderBrush="#33808080" />
 
-          <!-- Detail panel (AP 2.5, ADR-007 D2): the view binds ONLY the immutable
-               DetailPanelModel projection - never an AdObject or the snapshot. The
-               wrapper Panel carries the visibility switch because its DataContext
-               is still the workspace VM; the inner view's is the projection. -->
-          <ContentControl Grid.Row="2" Name="DetailPanelRegion">
-            <Panel>
-              <TextBlock Text="Click a node to inspect it."
-                         IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
-                         Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
-                         HorizontalAlignment="Center" VerticalAlignment="Center" />
-              <Panel IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNotNull}}">
-                <views:DetailPanelView DataContext="{Binding DetailPanel}" />
+          <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
+
+            <!-- Detail-column header (AP 2.3 S4, ADR-005 D4): per-node Refresh, a
+                 forced re-fetch of the selected node. Native chrome BESIDE the graph,
+                 ABOVE the AP 2.5 DetailPanelRegion seam - never over GraphHost
+                 (ADR-001 airspace guardrail 5). -->
+            <Button Grid.Row="0" Name="RefreshButton" Content="Refresh"
+                    Margin="12,12,12,0" HorizontalAlignment="Right"
+                    ToolTip.Tip="Re-fetch members of the selected node"
+                    Command="{Binding RefreshCommand}" />
+
+            <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
+                 demo hint - a connection already succeeded). Top of the detail column,
+                 never over GraphHost (ADR-001 airspace guardrail 5). -->
+            <TextBlock Grid.Row="1" Margin="12,12,12,0"
+                       Text="{Binding LoadError}"
+                       IsVisible="{Binding LoadError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                       Foreground="#C42B1C" TextWrapping="Wrap" />
+
+            <!-- Detail panel (AP 2.5, ADR-007 D2): the view binds ONLY the immutable
+                 DetailPanelModel projection - never an AdObject or the snapshot. The
+                 wrapper Panel carries the visibility switch because its DataContext
+                 is still the workspace VM; the inner view's is the projection. -->
+            <ContentControl Grid.Row="2" Name="DetailPanelRegion">
+              <Panel>
+                <TextBlock Text="Click a node to inspect it."
+                           IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
+                           Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Panel IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                  <views:DetailPanelView DataContext="{Binding DetailPanel}" />
+                </Panel>
               </Panel>
-            </Panel>
-          </ContentControl>
+            </ContentControl>
+
+          </Grid>
 
         </Grid>
       </Border>

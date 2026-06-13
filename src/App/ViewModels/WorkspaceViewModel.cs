@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Graph;
@@ -5,6 +7,7 @@ using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
+using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.ViewModels;
 
@@ -58,6 +61,18 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// or no snapshot exists yet. Pinned by <c>WorkspaceDetailTests.cs</c>.</summary>
     [ObservableProperty]
     private DetailPanelModel? _detailPanel;
+
+    /// <summary>The AP 3.4 rule report (ADR-010 §3) the violations sidebar binds.
+    /// S4 ships it as a stub fixed at <see cref="RuleReport.Empty"/> so the sidebar
+    /// view binds and renders its all-clear state; the S5 VM integration runs
+    /// <c>RuleEngine.Evaluate</c> at LoadAsync/ExpandAsync and assigns the real report
+    /// (which re-projects <see cref="Violations"/> and re-evaluates
+    /// <see cref="HasViolations"/>/<see cref="HasUncheckedAreas"/>). Evaluate is NOT
+    /// wired here — that is S5.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasViolations))]
+    [NotifyPropertyChangedFor(nameof(HasUncheckedAreas))]
+    private RuleReport _report = RuleReport.Empty;
 
     public WorkspaceViewModel(
         IDirectoryProvider provider,
@@ -117,6 +132,28 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>Placeholder hyperlink: open the runtime's download page in the browser.</summary>
     public IRelayCommand OpenWebView2DownloadPageCommand { get; } =
         new RelayCommand(WebView2Runtime.OpenDownloadPage);
+
+    /// <summary>The AP 3.4 violations sidebar rows (ADR-010 §5), in canonical report
+    /// order (unshuffled — ADR-009). S4 ships it empty; the S5 VM integration projects
+    /// <see cref="Report"/>'s <see cref="RuleReport.Violations"/> into it (in
+    /// <c>OnReportChanged</c>, with <see cref="ViolationRowModel.SubjectName"/> resolved
+    /// snapshot-only). Bound by <see cref="Views.ViolationsSidebarView"/>.</summary>
+    public ObservableCollection<ViolationRowModel> Violations { get; } = [];
+
+    /// <summary>Drives the sidebar all-clear state: <c>true</c> when the report has at
+    /// least one finding. Recomputed on <see cref="Report"/> change.</summary>
+    public bool HasViolations => Report.Violations.Count > 0;
+
+    /// <summary>Drives the "unexpanded areas are unchecked" hint: <c>true</c> when the
+    /// report's <see cref="RuleReport.UncheckedDns"/> is non-empty (load-state truth,
+    /// never ignore-filtered — ADR-009). Recomputed on <see cref="Report"/> change.</summary>
+    public bool HasUncheckedAreas => Report.UncheckedDns.Count > 0;
+
+    /// <summary>Jump-to-node (ADR-010 §5): focus + select a finding's anchor DN from a
+    /// sidebar row. S4 ships a NO-OP stub so the row button binds and the view renders;
+    /// the S5 VM integration replaces it with the real <c>FocusAsync</c> + SelectedDn
+    /// wiring (plus <c>CanExecute</c> gating on <see cref="IsLoading"/>). Not wired here.</summary>
+    public IRelayCommand<string> JumpCommand { get; } = new RelayCommand<string>(static _ => { });
 
     /// <summary>
     /// The scope-load-and-render flow kicked off at construction; completes only once

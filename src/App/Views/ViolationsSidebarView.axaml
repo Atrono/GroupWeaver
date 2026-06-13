@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:views="using:GroupWeaver.App.Views"
+             x:Class="GroupWeaver.App.Views.ViolationsSidebarView"
+             x:DataType="vm:WorkspaceViewModel">
+
+  <!-- Violations sidebar (AP 3.4 S4, ADR-010 §5): tops the right column ABOVE the
+       AP 2.5 detail stack (the 2*,Auto,3* vertical split, beside GraphHost, never
+       over it - ADR-001 airspace guardrail 5). Binds the workspace VM's report
+       projection: the canonical-report-order ViolationRowModel rows (S5 fills the
+       projection), the all-clear state, and the "unexpanded areas are unchecked"
+       hint. Severity is NOT a detail-panel attribute (ADR-007) - it lives here and
+       on the graph halos, reading THE one SeverityConverters palette so the sidebar
+       glyph color matches the overlay-color the bundle paints. -->
+  <Grid RowDefinitions="Auto,*,Auto" Margin="12,12,12,8">
+
+    <!-- Header: "Findings (n)". n = Violations.Count (the populated rows; the
+         authoritative roll-up count lives here, not on canvas). -->
+    <TextBlock Grid.Row="0"
+               Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
+               FontSize="15" FontWeight="SemiBold" />
+
+    <!-- The findings list (canonical report order, unshuffled - ADR-009). Each row:
+         severity glyph (colored square + redundant letter from THE one palette),
+         wrapping message, dimmed subject name; the whole row is a flat command
+         button jumping to (focusing + selecting) the finding's anchor DN. -->
+    <ListBox Grid.Row="1" Margin="0,8,0,0"
+             Background="Transparent"
+             ItemsSource="{Binding Violations}">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:ViolationRowModel">
+          <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Padding="4" Background="Transparent" BorderThickness="0"
+                  ToolTip.Tip="{Binding PrimaryDn}"
+                  Command="{Binding $parent[views:ViolationsSidebarView].((vm:WorkspaceViewModel)DataContext).JumpCommand}"
+                  CommandParameter="{Binding PrimaryDn}">
+            <Grid ColumnDefinitions="Auto,*">
+
+              <!-- Severity glyph: colored square (overlay-color parity) + redundant
+                   letter E/W/i - the colorblind-safe channel beside the color. -->
+              <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                      VerticalAlignment="Top"
+                      Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                           Foreground="White" FontSize="12" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+
+              <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+
+            </Grid>
+          </Button>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <!-- All-clear: shown only when there are no findings. The unchecked hint below
+         still fires if areas remain unchecked (clean != fully checked). -->
+    <TextBlock Grid.Row="1" Margin="0,8,0,0"
+               Text="No rule violations found."
+               IsVisible="{Binding !HasViolations}"
+               Opacity="0.7" TextWrapping="Wrap"
+               VerticalAlignment="Top" />
+
+    <!-- "Unexpanded areas are unchecked" hint (PLANNING.md AP 3.4): visible whenever
+         UncheckedDns is non-empty - a load-state honesty notice, never ignore-filtered
+         (ADR-009), shown even in the all-clear state. -->
+    <TextBlock Grid.Row="2" Margin="0,8,0,0"
+               Text="Unexpanded areas are unchecked — expand groups to audit them."
+               IsVisible="{Binding HasUncheckedAreas}"
+               Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+
+  </Grid>
+
+</UserControl>
