@@ -16,9 +16,16 @@ namespace GroupWeaver.App.Views;
 /// <see cref="NamingPreviewKind"/> verdict (including the chip-only
 /// <see cref="NamingPreviewKind.Idle"/>); <see cref="Glyph"/> is the redundant chip
 /// glyph; <see cref="Brush"/> is its fill (an <see cref="ISolidColorBrush"/>);
+/// <see cref="Caption"/> is the human-readable affordance the checklist evidences,
+/// rendered beside the <see cref="Glyph"/> so the chip reads "✓ matches" (Ok) /
+/// "✗ would be flagged ({severity})" (Violation) — the caption is "matches" (Ok, the
+/// <c>✓</c> comes from the green <see cref="Glyph"/>) / "✗ would be flagged ({severity})"
+/// (Violation, leading its own <c>✗</c> since the <see cref="Glyph"/> there is the
+/// colorblind E/W/i letter) — empty for Idle and PatternInvalid (the latter carries its
+/// diagnostic in <see cref="Message"/> instead);
 /// <see cref="Message"/> is the regex compiler's plain-text diagnostic — meaningful
 /// only for <see cref="NamingPreviewKind.PatternInvalid"/>, otherwise empty.
-/// <see cref="Message"/> renders STRICTLY as plain text
+/// Both <see cref="Caption"/> and <see cref="Message"/> render STRICTLY as plain text
 /// (<c>TextBlock.Text</c> / <c>SelectableTextBlock</c>), never a format template or
 /// markup surface (#45: untrusted patterns may carry control chars).
 /// </summary>
@@ -26,6 +33,7 @@ public sealed record NamingPreviewVisual(
     NamingPreviewKind Kind,
     string Glyph,
     IBrush Brush,
+    string Caption,
     string Message);
 
 /// <summary>
@@ -60,6 +68,11 @@ public sealed class NamingPreviewConverter : IMultiValueConverter
     /// <summary>The Ok check mark — the redundant glyph beside the green fill.</summary>
     private const string OkGlyph = "✓";
 
+    /// <summary>The Ok caption — "matches" (the pattern accepts the sample, no firing). The
+    /// chip's <see cref="NamingPreviewVisual.Glyph"/> already paints the leading green <c>✓</c>,
+    /// so the caption reads "✓ matches" in the chip without a doubled glyph (checklist row 136).</summary>
+    private const string OkCaption = "matches";
+
     /// <summary>The PatternInvalid warning glyph (non-<c>✓</c>, distinct from the E/W/i
     /// severity letters).</summary>
     private const string PatternInvalidGlyph = "⚠";
@@ -73,7 +86,8 @@ public sealed class NamingPreviewConverter : IMultiValueConverter
         // (if odd) candidate and falls through to a true evaluation.
         if (sample.Length == 0)
         {
-            return new NamingPreviewVisual(NamingPreviewKind.Idle, string.Empty, PatternInvalidBrush, string.Empty);
+            return new NamingPreviewVisual(
+                NamingPreviewKind.Idle, string.Empty, PatternInvalidBrush, string.Empty, string.Empty);
         }
 
         var result = NamingPreview.Evaluate(pattern, sample);
@@ -89,21 +103,33 @@ public sealed class NamingPreviewConverter : IMultiValueConverter
         return result.Kind switch
         {
             NamingPreviewKind.Ok =>
-                new NamingPreviewVisual(NamingPreviewKind.Ok, OkGlyph, OkBrush, string.Empty),
+                new NamingPreviewVisual(NamingPreviewKind.Ok, OkGlyph, OkBrush, OkCaption, string.Empty),
 
             NamingPreviewKind.PatternInvalid =>
                 new NamingPreviewVisual(
-                    NamingPreviewKind.PatternInvalid, PatternInvalidGlyph, PatternInvalidBrush, result.Message),
+                    NamingPreviewKind.PatternInvalid, PatternInvalidGlyph, PatternInvalidBrush,
+                    string.Empty, result.Message),
 
-            // Violation — derive the glyph + brush from the ONE severity palette for the
-            // owning rule's severity (the ConverterParameter), never a hardcoded color.
+            // Violation — the glyph + brush DERIVED from the ONE severity palette for the
+            // owning rule's severity (the ConverterParameter), never a hardcoded color. The
+            // caption leads with a ✗ and spells the severity out, so the chip reads
+            // "✗ would be flagged (Warning)" (checklist row 136) without decoding the color.
             _ => new NamingPreviewVisual(
                 NamingPreviewKind.Violation,
                 SeverityGlyph(severity, culture),
                 SeverityBrush(severity, culture),
+                ViolationCaption(severity),
                 string.Empty),
         };
     }
+
+    /// <summary>The Violation caption — "✗ would be flagged ({severity})" — the
+    /// human-readable affordance the checklist evidences (row 136). Leads with the <c>✗</c>
+    /// cross and spells the severity out, so the chip reads without decoding the brush color
+    /// (the chip's <see cref="NamingPreviewVisual.Glyph"/> still carries the redundant,
+    /// colorblind-safe E/W/i severity letter — parity with the sidebar palette).</summary>
+    private static string ViolationCaption(RuleSeverity severity) =>
+        $"✗ would be flagged ({severity})";
 
     private static string SeverityGlyph(RuleSeverity severity, CultureInfo culture) =>
         (string)SeverityConverters.ToGlyph.Convert(severity, typeof(string), null, culture)!;

@@ -180,6 +180,14 @@
                           <TextBlock Text="{Binding #PreviewChip.Tag.Glyph}"
                                      Foreground="{Binding #PreviewChip.Tag.Brush}"
                                      FontWeight="Bold" VerticalAlignment="Center" />
+                          <!-- Verdict caption: "matches" (Ok) / "would be flagged
+                               ({severity})" (Violation), in the verdict brush. Plain text
+                               (TextBlock.Text); empty for Idle/PatternInvalid (the latter
+                               shows its diagnostic in the Message line below). -->
+                          <TextBlock Text="{Binding #PreviewChip.Tag.Caption}"
+                                     Foreground="{Binding #PreviewChip.Tag.Brush}"
+                                     IsVisible="{Binding #PreviewChip.Tag.Caption, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontWeight="SemiBold" VerticalAlignment="Center" />
                           <SelectableTextBlock Text="{Binding #PreviewChip.Tag.Message}"
                                                IsVisible="{Binding #PreviewChip.Tag.Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                Opacity="0.8" VerticalAlignment="Center"
