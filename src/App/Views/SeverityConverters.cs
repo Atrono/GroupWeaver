@@ -1,6 +1,9 @@
+using System.Collections;
+using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
+using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Views;
@@ -28,6 +31,25 @@ public static class SeverityConverters
     public static readonly IValueConverter ToGlyph =
         new FuncValueConverter<RuleSeverity, string>(GlyphFor);
 
+    /// <summary>
+    /// Counts the <see cref="ViolationRowModel"/> rows of one severity. Used in a
+    /// <c>MultiBinding</c> whose values are <c>[Violations, Violations.Count]</c> — value[0]
+    /// is the collection to tally, value[1] (the <c>Count</c>) is purely the change trigger
+    /// (binding the collection reference alone never re-fires on in-place Clear/Add, the way
+    /// the projection repopulates). The <c>ConverterParameter</c> is the
+    /// <see cref="RuleSeverity"/> to tally. Drives the sidebar header's per-severity summary
+    /// chips (E n · W n · i n): the three severity glyphs sit ABOVE the scroll fold regardless
+    /// of report order, so every severity's color+letter is evidenced in a static frame (the
+    /// canonical errors-first order otherwise pushes Warning/Info below the fold). A chip whose
+    /// count is 0 is hidden via <see cref="HasSeverity"/>.
+    /// </summary>
+    public static readonly IMultiValueConverter CountForSeverity = new SeverityCountConverter(asBool: false);
+
+    /// <summary>Same tally as <see cref="CountForSeverity"/>, reduced to a bool (count &gt; 0):
+    /// hides a summary chip whose severity has no findings (so a non-demo scope with only
+    /// errors shows one chip, not three empty ones).</summary>
+    public static readonly IMultiValueConverter HasSeverity = new SeverityCountConverter(asBool: true);
+
     private static IBrush BrushFor(RuleSeverity severity) => severity switch
     {
         RuleSeverity.Error => ErrorBrush,
@@ -45,4 +67,30 @@ public static class SeverityConverters
     private static readonly ImmutableSolidColorBrush ErrorBrush = new(Color.Parse("#D13438"));
     private static readonly ImmutableSolidColorBrush WarningBrush = new(Color.Parse("#F7A30B"));
     private static readonly ImmutableSolidColorBrush InfoBrush = new(Color.Parse("#4FA3E3"));
+
+    /// <summary>Counts the rows of the parameter severity in the bound violations
+    /// collection (a <c>MultiBinding</c>: value[0] = collection, value[1] = its Count, the
+    /// in-place-mutation change trigger). <paramref name="asBool"/> selects count &gt; 0 (chip
+    /// visibility, a bool) vs. the count rendered as a string (chip text — returning a string
+    /// because the <c>TextBlock.Text</c> binding target doesn't coerce a boxed int), so both
+    /// header chip channels share one tally.</summary>
+    private sealed class SeverityCountConverter(bool asBool) : IMultiValueConverter
+    {
+        public object Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture)
+        {
+            var count = 0;
+            if (values.Count > 0 && values[0] is IEnumerable rows && parameter is RuleSeverity severity)
+            {
+                foreach (var row in rows)
+                {
+                    if (row is ViolationRowModel { Severity: var s } && s == severity)
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return asBool ? count > 0 : count.ToString(CultureInfo.InvariantCulture);
+        }
+    }
 }

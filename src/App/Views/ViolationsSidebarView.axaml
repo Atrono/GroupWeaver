@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
              xmlns:views="using:GroupWeaver.App.Views"
+             xmlns:rules="using:GroupWeaver.Core.Rules"
              x:Class="GroupWeaver.App.Views.ViolationsSidebarView"
              x:DataType="vm:WorkspaceViewModel">
 
@@ -13,7 +14,7 @@
        hint. Severity is NOT a detail-panel attribute (ADR-007) - it lives here and
        on the graph halos, reading THE one SeverityConverters palette so the sidebar
        glyph color matches the overlay-color the bundle paints. -->
-  <Grid RowDefinitions="Auto,*,Auto" Margin="12,12,12,8">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12,12,12,8">
 
     <!-- Header: "Findings (n)". n = Violations.Count (the populated rows; the
          authoritative roll-up count lives here, not on canvas). -->
@@ -21,11 +22,97 @@
                Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
                FontSize="15" FontWeight="SemiBold" />
 
+    <!-- Per-severity summary chips (E n · W n · i n), each a glyph square in THE one
+         SeverityConverters palette (overlay-color parity with the graph halos) + its
+         count. They top the sidebar so all THREE severity glyphs (#D13438 / #F7A30B /
+         #4FA3E3, with redundant E/W/i letters) are visible above the scroll fold - the
+         canonical errors-first row order otherwise pushes Warning/Info below the fold,
+         un-evidenced in a static frame. Each chip hides when its severity has no findings
+         (HasSeverity), so the all-clear state shows no chips. The chip count re-tallies via
+         a MultiBinding on (Violations, Violations.Count) - the Count is the in-place
+         Clear/Add change trigger (the collection reference never changes). -->
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,6,0,0"
+                IsVisible="{Binding HasViolations}">
+
+      <StackPanel Orientation="Horizontal" Spacing="4">
+        <StackPanel.IsVisible>
+          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
+                        ConverterParameter="{x:Static rules:RuleSeverity.Error}">
+            <Binding Path="Violations" />
+            <Binding Path="Violations.Count" />
+          </MultiBinding>
+        </StackPanel.IsVisible>
+        <Border Width="18" Height="18" CornerRadius="3"
+                Background="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToBrush}}">
+          <TextBlock Text="E" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
+          <TextBlock.Text>
+            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
+                          ConverterParameter="{x:Static rules:RuleSeverity.Error}">
+              <Binding Path="Violations" />
+              <Binding Path="Violations.Count" />
+            </MultiBinding>
+          </TextBlock.Text>
+        </TextBlock>
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" Spacing="4">
+        <StackPanel.IsVisible>
+          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
+                        ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
+            <Binding Path="Violations" />
+            <Binding Path="Violations.Count" />
+          </MultiBinding>
+        </StackPanel.IsVisible>
+        <Border Width="18" Height="18" CornerRadius="3"
+                Background="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToBrush}}">
+          <TextBlock Text="W" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
+          <TextBlock.Text>
+            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
+                          ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
+              <Binding Path="Violations" />
+              <Binding Path="Violations.Count" />
+            </MultiBinding>
+          </TextBlock.Text>
+        </TextBlock>
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" Spacing="4">
+        <StackPanel.IsVisible>
+          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
+                        ConverterParameter="{x:Static rules:RuleSeverity.Info}">
+            <Binding Path="Violations" />
+            <Binding Path="Violations.Count" />
+          </MultiBinding>
+        </StackPanel.IsVisible>
+        <Border Width="18" Height="18" CornerRadius="3"
+                Background="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToBrush}}">
+          <TextBlock Text="i" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
+          <TextBlock.Text>
+            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
+                          ConverterParameter="{x:Static rules:RuleSeverity.Info}">
+              <Binding Path="Violations" />
+              <Binding Path="Violations.Count" />
+            </MultiBinding>
+          </TextBlock.Text>
+        </TextBlock>
+      </StackPanel>
+
+    </StackPanel>
+
     <!-- The findings list (canonical report order, unshuffled - ADR-009). Each row:
          severity glyph (colored square + redundant letter from THE one palette),
          wrapping message, dimmed subject name; the whole row is a flat command
          button jumping to (focusing + selecting) the finding's anchor DN. -->
-    <ListBox Grid.Row="1" Margin="0,8,0,0"
+    <ListBox Grid.Row="2" Margin="0,8,0,0"
              Background="Transparent"
              ItemsSource="{Binding Violations}">
       <ListBox.ItemTemplate>
@@ -61,7 +148,7 @@
 
     <!-- All-clear: shown only when there are no findings. The unchecked hint below
          still fires if areas remain unchecked (clean != fully checked). -->
-    <TextBlock Grid.Row="1" Margin="0,8,0,0"
+    <TextBlock Grid.Row="2" Margin="0,8,0,0"
                Text="No rule violations found."
                IsVisible="{Binding !HasViolations}"
                Opacity="0.7" TextWrapping="Wrap"
@@ -70,7 +157,7 @@
     <!-- "Unexpanded areas are unchecked" hint (PLANNING.md AP 3.4): visible whenever
          UncheckedDns is non-empty - a load-state honesty notice, never ignore-filtered
          (ADR-009), shown even in the all-clear state. -->
-    <TextBlock Grid.Row="2" Margin="0,8,0,0"
+    <TextBlock Grid.Row="3" Margin="0,8,0,0"
                Text="Unexpanded areas are unchecked — expand groups to audit them."
                IsVisible="{Binding HasUncheckedAreas}"
                Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
