@@ -396,6 +396,43 @@ public class RulesetLoaderTests
         }
     }
 
+    // --- Explicit "endpoint": "any" is the spelled-out default, legal anywhere -
+
+    [Fact]
+    public void Load_ExplicitEndpointAny_InAnIgnoreEntry_IsClean()
+    {
+        // Only NARROWING (parent/member) is illegal outside nesting exceptions;
+        // "any" spells out the default and binds identically to an absent token
+        // (ConvertEndpoint returns before the narrowing check).
+        var json = MutateBaseline(
+            "{ \"dn\": \"*,CN=Builtin,*\", \"note\": \"builtins\" }",
+            "{ \"dn\": \"*,CN=Builtin,*\", \"endpoint\": \"any\", \"note\": \"builtins\" }");
+
+        var result = RulesetLoader.Load(json);
+
+        Assert.Empty(result.Errors);
+        Assert.True(result.Success);
+        Assert.Equal(
+            new MatchEntry { Dn = "*,CN=Builtin,*", Note = "builtins" },
+            Assert.Single(result.Ruleset!.Ignore));
+    }
+
+    [Fact]
+    public void Load_ExplicitEndpointAny_InANamingExceptionEntry_IsClean()
+    {
+        var json = MutateBaseline(
+            "{ \"name\": \"SalesTeamGlobal\", \"note\": \"grandfathered\" }",
+            "{ \"name\": \"SalesTeamGlobal\", \"endpoint\": \"any\", \"note\": \"grandfathered\" }");
+
+        var result = RulesetLoader.Load(json);
+
+        Assert.Empty(result.Errors);
+        Assert.True(result.Success);
+        Assert.Equal(
+            new MatchEntry { Name = "SalesTeamGlobal", Note = "grandfathered" },
+            Assert.Single(Assert.Single(result.Ruleset!.Naming).Exceptions));
+    }
+
     // --- Collect-all: every independent semantic error in one pass ------------
 
     [Fact]
