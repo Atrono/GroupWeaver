@@ -40,6 +40,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     [NotifyCanExecuteChangedFor(nameof(JumpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReloadScopeCommand))]
     private bool _isLoading;
 
     /// <summary>Inline load/renderer error; <c>null</c> hides the error block.</summary>
@@ -243,7 +244,22 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         HighlightActiveRows(SelectedDn);
     }
 
-    private async Task LoadAsync(CancellationToken cancellationToken)
+    /// <summary>The ctor-load entry point (kept by name — <see cref="Initialization"/>
+    /// still routes through it); a thin delegate to the shared <see cref="RunScopeLoadAsync"/>
+    /// body now reused by <see cref="ReloadScopeAsync"/> (issue #30).</summary>
+    private Task LoadAsync(CancellationToken cancellationToken) => RunScopeLoadAsync(cancellationToken);
+
+    /// <summary>
+    /// The shared whole-scope load body (issue #30): <c>LoadScopeAsync</c> → fresh
+    /// <see cref="DirectorySnapshot"/> → <c>GraphBuilder.Build</c> → re-Evaluate against
+    /// the LIVE <c>_ruleset</c> → <see cref="IGraphRenderer.ShowGraphAsync"/> (replace-all,
+    /// NEVER <c>UpdateGraphAsync</c> — the topology is wholesale-new, so viewport
+    /// preservation is meaningless). The <c>Snapshot =</c> assignment MUST precede
+    /// <c>Report =</c>: <see cref="OnReportChanged"/> resolves subject names against the
+    /// CURRENT snapshot, so a reorder would name findings off the stale snapshot. Reused by
+    /// the ctor load and reload — one composition, one render contract.
+    /// </summary>
+    private async Task RunScopeLoadAsync(CancellationToken cancellationToken)
     {
         IsLoading = true;
         try
@@ -281,6 +297,38 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             IsLoading = false;
         }
     }
+
+    /// <summary>
+    /// Whole-scope reload (issue #30): re-runs <see cref="RunScopeLoadAsync"/> over
+    /// <see cref="RootDn"/> — a fresh <see cref="DirectorySnapshot"/> rebuilt from scratch,
+    /// so node-Refresh ex-member orphans and out-of-scope lazy expansions vanish by
+    /// construction (no pruning code; snapshot stays append-only). Clears
+    /// <see cref="SelectedDn"/> (the selected node may not survive the rebuild) and
+    /// <see cref="LoadError"/> BEFORE the await — the panel re-projects null and highlights
+    /// clear up front. Re-Evaluates against the LIVE <c>_ruleset</c> (honors a settings
+    /// Apply since first load), exactly like the ctor load. A stale-armed Execute
+    /// (busy/disposed/renderer-less) is dropped, never queued — <c>RelayCommand.Execute</c>
+    /// ignores <c>CanExecute</c>, so the guard is re-checked here (same discipline as
+    /// <see cref="Refresh"/>).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanReloadScope))]
+    private async Task ReloadScopeAsync()
+    {
+        if (_disposed || IsLoading || GraphRenderer is null)
+        {
+            return;
+        }
+
+        SelectedDn = null;
+        LoadError = null;
+        await RunScopeLoadAsync(_cts.Token);
+    }
+
+    /// <summary>Armed iff a renderer exists (the AP 2.5 seam allows selection without one —
+    /// nothing to reload-render then) and the ONE global busy gate is idle (ADR-005 D3).
+    /// Selection-INDEPENDENT — reload always re-loads the root, never the selection — so it
+    /// stays armed with nothing selected, unlike <see cref="CanRefresh"/>.</summary>
+    private bool CanReloadScope() => !IsLoading && GraphRenderer is not null;
 
     /// <summary>
     /// Re-threads a settings Apply/Save into this LIVE workspace (AP 3.3 / ADR-011 §3):

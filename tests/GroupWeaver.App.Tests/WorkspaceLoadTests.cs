@@ -453,6 +453,85 @@ public sealed class WorkspaceLoadTests
         window.Close();
     }
 
+    // --- the Reload-scope button view pin (issue #30 S2, discharges ADR-005 D4 follow-up) -
+
+    [AvaloniaFact]
+    public async Task ReloadScopeButton_SitsBesideGraphHost_LeftOfRefresh_ArmedWithNoSelection_WithTooltip()
+    {
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(Provider(SmallSnapshot()), () => fake);
+        var (window, view) = ShowWorkspace(vm);
+        await vm.Initialization;
+        Dispatcher.UIThread.RunJobs();
+
+        // The named header button (a seam-name pin like RefreshButton/GraphHost),
+        // labelled "Reload scope" — shipped UI strings are English (ADR-005 D4).
+        var reload = Assert.Single(
+            view.GetVisualDescendants().OfType<Button>(), b => b.Name == "ReloadScopeButton");
+        Assert.True(reload.IsEffectivelyVisible);
+        Assert.Contains("Reload scope", VisibleTexts(reload));
+
+        // Bound to ReloadScopeCommand — the SAME command instance the VM exposes, not
+        // some other RelayCommand. (Refresh and Reload must not be cross-wired.)
+        Assert.Same(vm.ReloadScopeCommand, reload.Command);
+
+        // Native chrome BESIDE GraphHost, never inside/over it (ADR-001 airspace
+        // guardrail 5): it lives in the right detail column, ABOVE the AP 2.5
+        // DetailPanelRegion seam (a future detail panel must not be able to evict it).
+        var detailRegion = Region(view, "DetailPanelRegion");
+        Assert.DoesNotContain(reload, Region(view, "GraphHost").GetVisualDescendants());
+        Assert.DoesNotContain(reload, detailRegion.GetVisualDescendants());
+
+        var reloadTop = reload.TranslatePoint(new Point(0, 0), view);
+        var regionTop = detailRegion.TranslatePoint(new Point(0, 0), view);
+        Assert.NotNull(reloadTop);
+        Assert.NotNull(regionTop);
+        Assert.True(
+            reloadTop.Value.X >= view.Bounds.Width - 320,
+            $"the Reload scope button belongs in the right detail column, beside GraphHost (was at X={reloadTop.Value.X})");
+        Assert.True(
+            reloadTop.Value.Y + reload.Bounds.Height <= regionTop.Value.Y + 0.5,
+            "the Reload scope button belongs ABOVE the DetailPanelRegion seam");
+
+        // Order in the shared header row: Reload scope is the LEFT sibling of Refresh
+        // (the surviving header invariant — Reload then Refresh, never the reverse).
+        var refresh = Assert.Single(
+            view.GetVisualDescendants().OfType<Button>(), b => b.Name == "RefreshButton");
+        var reloadLeft = reload.TranslatePoint(new Point(0, 0), view);
+        var refreshLeft = refresh.TranslatePoint(new Point(0, 0), view);
+        Assert.NotNull(reloadLeft);
+        Assert.NotNull(refreshLeft);
+        Assert.True(
+            reloadLeft.Value.X + reload.Bounds.Width <= refreshLeft.Value.X + 0.5,
+            $"Reload scope must sit LEFT of Refresh with no overlap (Reload right edge "
+            + $"{reloadLeft.Value.X + reload.Bounds.Width}, Refresh left {refreshLeft.Value.X})");
+
+        // Tooltip: pinned present and non-empty; the wording is the implementer's.
+        var tip = Assert.IsType<string>(ToolTip.GetTip(reload));
+        Assert.False(string.IsNullOrWhiteSpace(tip), "the Reload scope tooltip must say something");
+
+        // KEYSTONE for the button: CanExecute is selection-INDEPENDENT. Unlike Refresh
+        // (disabled above with no selection), Reload reloads the WHOLE scope, so it is
+        // ARMED with nothing selected the instant the busy gate releases — and the
+        // rendered button reflects that (IsEffectivelyEnabled, not just CanExecute).
+        Assert.Null(vm.SelectedDn);
+        Assert.False(vm.IsLoading);
+        Assert.True(
+            reload.IsEffectivelyEnabled,
+            "Reload scope must be enabled with NO selection — it reloads the whole scope, not a node");
+
+        // A selection (or lack thereof) never changes that: selecting a non-fetchable
+        // User disables Refresh but leaves Reload armed.
+        fake.RaiseNodeClicked(AdaDn, "User");
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(refresh.IsEffectivelyEnabled, "anchor: a User selection disarms Refresh");
+        Assert.True(
+            reload.IsEffectivelyEnabled,
+            "Reload scope stays armed regardless of the current selection");
+
+        window.Close();
+    }
+
     [Fact]
     public async Task RendererError_ReusesLoadError_AndLeavesIsLoadingAlone()
     {
@@ -471,7 +550,140 @@ public sealed class WorkspaceLoadTests
         Assert.False(vm.IsLoading, "a renderer error report must not touch IsLoading");
     }
 
+    // --- the Reload-scope command (issue #30 S1, discharges ADR-005 D4 follow-up) ---------
+
+    [Fact]
+    public async Task ReloadScope_ReRunsLoadScopeAsync_ASecondTime_AndShowsTheFreshGraph_NeverUpdates()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // The ctor load is the first LoadScopeAsync; the rebuilt graph rode ShowGraphAsync.
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.Single(fake.ShownGraphs);
+        Assert.Empty(fake.UpdatedGraphs);
+
+        // A fresh whole-scope load: LoadScopeAsync runs a SECOND time, from the SAME root.
+        await ReloadAndSettle(vm);
+
+        Assert.Equal(2, provider.LoadScopeCalls);
+        Assert.Equal(RootDn, provider.LoadScopeBaseDn);
+
+        // KEYSTONE: reload is replace-all — it lands in ShownGraphs (destroy+fit), NEVER
+        // UpdatedGraphs (the in-place verb Refresh/expand use). This is the single
+        // assertion that distinguishes whole-scope reload from a node Refresh.
+        Assert.Equal(2, fake.ShownGraphs.Count);
+        Assert.Empty(fake.UpdatedGraphs);
+
+        // The most recent shown model is the VM's current graph (rebuilt from scratch).
+        Assert.Same(fake.ShownGraphs[^1], vm.Graph);
+        Assert.Equal("5 objects, 7 edges", vm.GraphSummary);
+        Assert.False(vm.IsLoading);
+        Assert.Null(vm.LoadError);
+    }
+
+    [Fact]
+    public async Task ReloadScope_ClearsTheSelection_AndDropsTheDetailPanel()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // Select an in-scope object first: the detail panel projects it (snapshot-only).
+        fake.RaiseNodeClicked(CircleADn, "GlobalGroup");
+        Assert.Equal(CircleADn, vm.SelectedDn);
+        Assert.NotNull(vm.DetailPanel);
+
+        await ReloadAndSettle(vm);
+
+        // Reload resets the selection up front (the selected DN may not survive a fresh
+        // scope load): SelectedDn -> null, and the panel re-projects to null with it.
+        Assert.Null(vm.SelectedDn);
+        Assert.Null(vm.DetailPanel);
+    }
+
+    [Fact]
+    public async Task ReloadScope_ClearsAStaleLoadError_UpFront()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // A renderer error has populated the ONE inline error surface.
+        fake.RaiseRendererError("graph.js", "cytoscape exploded");
+        Assert.NotNull(vm.LoadError);
+
+        await ReloadAndSettle(vm);
+
+        // Every new whole-scope attempt clears the inline error (load policy, like LoadAsync).
+        Assert.Null(vm.LoadError);
+    }
+
+    [Fact]
+    public async Task ReloadScope_RecomputesTheGraphSummary_FromTheFreshlyLoadedScope()
+    {
+        // The reload returns a DIFFERENT scope than the ctor load: the summary (drawn
+        // counts) must track the freshly loaded snapshot, not the original.
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        Assert.Equal("5 objects, 7 edges", vm.GraphSummary);
+
+        // A smaller scope next time: just the root OU plus one well-named group, no cycle,
+        // no External endpoint => 2 nodes, 1 containment edge.
+        var smaller = new DirectorySnapshot();
+        smaller.AddObject(Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit));
+        smaller.AddObject(Obj("GG_Sales_Staff", "CN=GG_Sales_Staff,OU=Lab,DC=stub,DC=lab"));
+        provider.LoadScopeResult = Task.FromResult(smaller);
+
+        await ReloadAndSettle(vm);
+
+        Assert.Equal("2 objects, 1 edges", vm.GraphSummary);
+        Assert.Same(vm.Snapshot, smaller);
+    }
+
+    [Fact]
+    public async Task ReloadScope_OverANewScope_DropsTheOrphanExMemberNode_NoPruningCode()
+    {
+        // The crux of issue #30: a fresh LoadScopeAsync rebuilds the snapshot from
+        // scratch, so an object present only in the FIRST scope vanishes by construction
+        // — no DirectorySnapshot.RemoveObject, no graph-layer prune.
+        var provider = Provider(SmallSnapshot()); // contains Ada Lovelace
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        Assert.Contains(vm.Graph!.Nodes, n => Dn.Comparer.Equals(n.Dn, AdaDn));
+
+        // The directory no longer returns Ada at all on the next whole-scope load.
+        var withoutAda = new DirectorySnapshot();
+        withoutAda.AddObject(Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit));
+        withoutAda.AddObject(Obj("GG_Circle_A", CircleADn));
+        withoutAda.AddObject(Obj("GG_Circle_B", CircleBDn));
+        withoutAda.SetMembers(CircleADn, [CircleBDn]);
+        withoutAda.SetMembers(CircleBDn, [CircleADn]); // the cycle still closes — must terminate
+        provider.LoadScopeResult = Task.FromResult(withoutAda);
+
+        await ReloadAndSettle(vm);
+
+        // Ada is gone from the rebuilt graph entirely — no orphan ex-member node lingers.
+        Assert.DoesNotContain(vm.Graph!.Nodes, n => Dn.Comparer.Equals(n.Dn, AdaDn));
+        Assert.Same(vm.Snapshot, withoutAda);
+    }
+
     // --- helpers -------------------------------------------------------------------------------
+
+    /// <summary>Invokes <c>ReloadScopeCommand</c> and awaits the scope-load pipeline it
+    /// kicks off. <c>ReloadScopeCommand</c> is an async RelayCommand, so its
+    /// <c>ExecuteAsync</c> task is the observable handle to await before asserting.</summary>
+    private static async Task ReloadAndSettle(WorkspaceViewModel vm)
+    {
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+    }
 
     private static AdObject Obj(
         string name, string dn, AdObjectKind kind = AdObjectKind.GlobalGroup) =>

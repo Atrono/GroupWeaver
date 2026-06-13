@@ -1033,6 +1033,169 @@ public sealed class WorkspaceExpandTests
         // so the Refresh pin is the complete null-renderer surface (review finding 2).
     }
 
+    // --- (o) Reload-scope command: arming matrix + busy-gate drop-not-queue (issue #30) -
+
+    [Fact]
+    public async Task ReloadScope_CanExecute_IsIndependentOfTheSelection_ArmedWithNoSelectionWhileIdle()
+    {
+        var snapshot = KindScope();
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // Reload always reloads the ROOT, so unlike Refresh it needs NO selection:
+        // armed the instant the busy gate releases, with nothing selected.
+        Assert.Null(vm.SelectedDn);
+        Assert.True(
+            vm.ReloadScopeCommand.CanExecute(null),
+            "Reload must arm with no selection — it reloads the whole scope, not a node");
+
+        // A non-fetchable selection (a User) leaves it armed — selection is irrelevant.
+        vm.SelectedDn = AdaDn;
+        Assert.False(vm.RefreshCommand.CanExecute(null)); // anchor: Refresh needs fetchable
+        Assert.True(
+            vm.ReloadScopeCommand.CanExecute(null),
+            "Reload stays armed regardless of what (if anything) is selected");
+
+        // And a group selection keeps it armed too.
+        vm.SelectedDn = CircleADn;
+        Assert.True(vm.ReloadScopeCommand.CanExecute(null));
+
+        Assert.Equal(0, provider.GetObjectCalls); // arming never touches the provider
+        Assert.Equal(0, provider.GetMembersCalls);
+    }
+
+    [Fact]
+    public async Task ReloadScope_CanExecute_IsFalseWhileBusy_AndCanExecuteChangedTracksIsLoading()
+    {
+        var loadGate = new TaskCompletionSource<DirectorySnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = Provider(new DirectorySnapshot());
+        provider.LoadScopeResult = loadGate.Task;
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+
+        // The ONE global busy gate (IsLoading) is held by the initial scope load — Reload
+        // must be disarmed even though it has no selection dependency.
+        Assert.True(vm.IsLoading);
+        Assert.False(vm.ReloadScopeCommand.CanExecute(null));
+
+        loadGate.SetResult(CircleScope());
+        await vm.Initialization;
+
+        // The gate released: Reload arms, and CanExecuteChanged tracked the IsLoading flip.
+        Assert.True(vm.ReloadScopeCommand.CanExecute(null));
+
+        var raised = 0;
+        vm.ReloadScopeCommand.CanExecuteChanged += (_, _) => raised++;
+
+        // Gate the reload's fresh scope load so the busy window is observable.
+        var reloadGate = new TaskCompletionSource<DirectorySnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.LoadScopeResult = reloadGate.Task;
+        var reload = vm.ReloadScopeCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsLoading);
+        Assert.False(vm.ReloadScopeCommand.CanExecute(null));
+        Assert.True(raised >= 1, "CanExecuteChanged must fire when IsLoading turns on");
+
+        var raisedWhileBusy = raised;
+        reloadGate.SetResult(CircleScope());
+        await reload;
+
+        Assert.False(vm.IsLoading);
+        Assert.True(vm.ReloadScopeCommand.CanExecute(null));
+        Assert.True(raised > raisedWhileBusy, "CanExecuteChanged must fire when IsLoading turns off");
+    }
+
+    [Fact]
+    public async Task ReloadExecute_WhileTheInitialScopeLoadIsInFlight_IsDropped_LoadScopeCallsUnchanged()
+    {
+        // Gate the INITIAL load through LoadScopeOverride: the ctor load is in flight and
+        // holds the busy gate. A reload gesture mid-pipeline is dropped, never queued —
+        // LoadScopeAsync must NOT be invoked a second time.
+        var loadGate = new TaskCompletionSource<DirectorySnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = Provider(new DirectorySnapshot());
+        provider.LoadScopeOverride = _ => loadGate.Task;
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+
+        Assert.True(vm.IsLoading);
+        Assert.Equal(1, provider.LoadScopeCalls); // the in-flight ctor load
+
+        // RelayCommand.Execute does NOT consult CanExecute — the VM must re-guard and drop.
+        var reload = vm.ReloadScopeCommand.ExecuteAsync(null);
+
+        // Dropped means NOTHING new: no second LoadScopeAsync, no extra show, gate untouched.
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.True(reload.IsCompleted, "a dropped reload settles immediately — it never started a pipeline");
+        Assert.True(vm.IsLoading);
+
+        // Release the initial load; the dropped reload was NOT queued behind it.
+        loadGate.SetResult(CircleScope());
+        await vm.Initialization;
+
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.False(vm.IsLoading);
+
+        // Not disarmed, merely dropped: a fresh reload after the gate releases is honored.
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+        Assert.Equal(2, provider.LoadScopeCalls);
+    }
+
+    [Fact]
+    public async Task ReloadExecute_WhileAnExpandFetchIsInFlight_IsDropped_NotQueued()
+    {
+        var snapshot = GroupScope(SalesDn);
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        Assert.Equal(1, provider.LoadScopeCalls);
+
+        // An expand fetch holds the ONE global busy gate.
+        var fetchGate = new TaskCompletionSource<IReadOnlyList<AdObject>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.GetMembersHandler = (_, _) => fetchGate.Task;
+        fake.RaiseNodeExpandRequested(SalesDn, "GlobalGroup");
+        Assert.True(vm.IsLoading);
+
+        // A reload during the in-flight expand is dropped — no whole-scope reload races
+        // the expand's replace-in-place update.
+        var reload = vm.ReloadScopeCommand.ExecuteAsync(null);
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.True(reload.IsCompleted);
+
+        fetchGate.SetResult([]);
+        await vm.Expansion;
+
+        // The dropped reload never replayed after the expand completed.
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.False(vm.IsLoading);
+    }
+
+    [Fact]
+    public async Task ReloadExecute_WithoutARenderer_IsASilentNoOp_NoLoad_NoCrash()
+    {
+        var snapshot = CircleScope();
+        var provider = Provider(snapshot);
+        var vm = RendererlessWorkspace(provider);
+        await vm.Initialization;
+        Assert.Null(vm.GraphRenderer);
+        Assert.Equal(1, provider.LoadScopeCalls);
+
+        // No renderer => nothing to show => Reload disarmed and a direct Execute is inert
+        // (the pipeline would dereference a null renderer). Mirrors the Refresh null-renderer pin.
+        Assert.False(vm.ReloadScopeCommand.CanExecute(null));
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.Null(vm.LoadError);
+        Assert.False(vm.IsLoading);
+    }
+
     // --- helpers ------------------------------------------------------------------------
 
     private static AdObject Obj(

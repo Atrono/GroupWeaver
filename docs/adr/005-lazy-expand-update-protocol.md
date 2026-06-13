@@ -61,6 +61,20 @@ null-vs-empty load-state contract; nothing here may fabricate it.
   AP 2.4's visited-DN tracking stays out of this package.
 - Orphan ex-member nodes and whole-scope reload are explicit follow-ups.
 
+**Reload scope (issue #30, 2026-06-13):** `ReloadScopeCommand` re-runs
+`LoadScopeAsync(RootDn)` → fresh `DirectorySnapshot` → `GraphBuilder.Build` →
+`ShowGraphAsync` (destroy+fit; the viewport reset is honest — topology is
+wholesale-new, so `UpdateGraphAsync`'s in-place preservation is meaningless).
+It clears `SelectedDn`/`LoadError`, re-Evaluates against the *live* ruleset, and
+shares one `RunScopeLoadAsync` body with the ctor load (single build site).
+Because the fresh snapshot's `Objects` are rebuilt from scratch, reload has no
+ex-member objects — it cures the D4 orphan residual **by construction, with no
+pruning code**. The snapshot stays append-only (no `RemoveObject`). Graph-layer
+reachability pruning for the node-Refresh-without-reload residual is deferred to
+its own follow-up issue and would need its own ADR: it breaks `GraphBuilder`
+totality (ADR-004 D1 / ADR-009 D6) and creates graph-vs-report node-set
+divergence (a pruned node could still carry a finding the sidebar lists).
+
 ## Rejected alternatives
 
 Full re-show per expand (destroy+fit loses viewport, flashes); id-based diff

@@ -61,14 +61,20 @@
 
           <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
 
-            <!-- Detail-column header (AP 2.3 S4, ADR-005 D4): per-node Refresh, a
-                 forced re-fetch of the selected node. Native chrome BESIDE the graph,
-                 ABOVE the AP 2.5 DetailPanelRegion seam - never over GraphHost
-                 (ADR-001 airspace guardrail 5). -->
-            <Button Grid.Row="0" Name="RefreshButton" Content="Refresh"
-                    Margin="12,12,12,0" HorizontalAlignment="Right"
-                    ToolTip.Tip="Re-fetch members of the selected node"
-                    Command="{Binding RefreshCommand}" />
+            <!-- Detail-column header (AP 2.3 S4 / issue #30): whole-scope Reload
+                 (selection-independent, re-runs LoadScopeAsync for the root) beside
+                 per-node Refresh (forced re-fetch of the selected node, ADR-005 D4).
+                 Native chrome BESIDE the graph, ABOVE the AP 2.5 DetailPanelRegion
+                 seam - never over GraphHost (ADR-001 airspace guardrail 5). -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8"
+                        Margin="12,12,12,0" HorizontalAlignment="Right">
+              <Button Name="ReloadScopeButton" Content="Reload scope"
+                      ToolTip.Tip="Reload the whole scope from the directory"
+                      Command="{Binding ReloadScopeCommand}" />
+              <Button Name="RefreshButton" Content="Refresh"
+                      ToolTip.Tip="Re-fetch members of the selected node"
+                      Command="{Binding RefreshCommand}" />
+            </StackPanel>
 
             <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
                  demo hint - a connection already succeeded). Top of the detail column,
