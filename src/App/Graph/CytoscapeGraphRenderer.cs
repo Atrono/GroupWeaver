@@ -30,7 +30,6 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private TaskCompletionSource? _loaded;
     private TaskCompletionSource? _focused;
     private NativeWebView? _webView;
-    private Uri? _indexUri;
     private bool _navigated;
     private bool _commandInFlight;
 
@@ -239,8 +238,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// <c>Handled = true</c> swallows every <c>window.open</c>/target=_blank request
     /// rather than spawning an out-of-frame WebView2 window.</item>
     /// <item><see cref="NativeWebView.NavigationStarted"/> →
-    /// <c>Cancel = true</c> for any document other than the initial
-    /// <c>index.html</c>, pinning the WebView to the bundle we shipped.</item>
+    /// <c>Cancel = true</c> for any non-<c>file://</c> document, pinning the WebView
+    /// to local content. This app only ever serves a local <c>file://</c> page, so a
+    /// scheme check both always admits the legitimate <c>index.html</c> load and
+    /// blocks the realistic threat — a main-frame navigation to a remote URL.</item>
     /// </list>
     /// The CoreWebView2Settings the wrapper does NOT surface managed accessors for —
     /// <c>AreDefaultContextMenusEnabled</c>, <c>IsStatusBarEnabled</c>,
@@ -255,20 +256,27 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         webView.NavigationStarted += OnNavigationStarted;
     }
 
-    /// <summary>Allows only the initial <c>index.html</c> document; cancels any other
-    /// navigation (links, redirects, drag-and-drop URLs) so the WebView can never
-    /// leave the vendored bundle.</summary>
+    /// <summary>
+    /// Locality guard (#52): ALLOWS any local <c>file://</c> document — the only
+    /// thing this app ever serves (the vendored <c>index.html</c> bundle) — and
+    /// CANCELS every non-<c>file</c> scheme (http/https/…), i.e. a main-frame
+    /// navigation to a remote URL. Matching on scheme rather than the exact
+    /// <c>index.html</c> URI is robust by construction: WebView2 may report the
+    /// initial <c>file://</c> URI with different drive-letter casing, space
+    /// percent-encoding, or trailing form than the <see cref="Uri"/> we navigated
+    /// with, and an over-strict equality check there would cancel the legitimate
+    /// load and blank the graph. The scheme is invariant under that canonicalization,
+    /// so file:// is always admitted. A missing request URI is treated as allow:
+    /// the app's own load must never be cancelled on absent information (fail open).
+    /// </summary>
     private void OnNavigationStarted(object? sender, WebViewNavigationStartingEventArgs e)
     {
-        if (_indexUri is null || !UriEquals(e.Request, _indexUri))
+        if (e.Request is { Scheme: var scheme } &&
+            !scheme.Equals(Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
         {
             e.Cancel = true;
         }
     }
-
-    private static bool UriEquals(Uri? a, Uri b) =>
-        a is not null && Uri.Compare(
-            a, b, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.Ordinal) == 0;
 
     /// <summary>Navigates on the FIRST attach only — the page (and its accumulated
     /// cytoscape state) must survive re-attach, not reload over it.</summary>
@@ -283,10 +291,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
         // new Uri(<absolute path>) yields a properly percent-encoded file:/// URI
         // (spaces → %20 etc.) — the GraphSpike navigation pattern (ADR-004 D6).
-        // Recorded BEFORE Navigate so the NavigationStarted guard recognizes this
-        // first document as the one allowed target and cancels everything else.
-        _indexUri = new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html"));
-        webView.Navigate(_indexUri);
+        // It is always file://, so the NavigationStarted scheme guard always admits
+        // it regardless of how WebView2 later canonicalizes the reported URI.
+        var indexUri = new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html"));
+        webView.Navigate(indexUri);
     }
 
     /// <summary>
