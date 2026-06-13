@@ -104,6 +104,86 @@ public sealed class GraphMessageParserTests
         Assert.Equal(2, loaded.EdgeCount);
     }
 
+    // --- pngExported (AP 4.1 S6, ADR-013; the cy.png() round-trip's inbound half) -------
+    //
+    // graph.js exportPng handler sends, verbatim (spec "Final graph-image design (PNG)"):
+    //   window.bridge.send({ type:'pngExported', data: <bare base64>,
+    //                        width: cy.width(), height: cy.height() });
+    // `data` is a BARE base64 string (cy.png({ output:'base64' }) — no `data:` prefix);
+    // it carries image bytes only, never an untrusted token.
+    //
+    // F1 (BINDING/CRITICAL): CytoscapeGraphRenderer.HandleMessage routes EVERY
+    // UnknownMessage to RendererError → the VM sets LoadError. So a well-formed
+    // `pngExported` MUST parse to PngExportedMessage and NOT to UnknownMessage —
+    // otherwise the happy-path export would fire a spurious renderer error. These
+    // tests pin exactly that: valid → PngExportedMessage (NOT Unknown).
+    //
+    // The renderer-seam round-trip (IGraphRenderer.ExportPngAsync arming the
+    // _pngReady TCS off this message) is Playwright-verified (verify.mjs PNG-magic
+    // phase, S7) and seam-pinned alongside the fake-renderer canned-PNG impl in S6 —
+    // the FakeGraphRenderer/IGraphRenderer have no ExportPng surface yet, so it cannot
+    // be unit-pinned here without a real WebView.
+
+    [Fact]
+    public void Parse_PngExported_ExtractsBase64DataAndDimensions()
+    {
+        // A realistic (tiny) bare base64 PNG payload as graph.js sends it.
+        const string Base64Png =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+        var message = GraphMessageParser.Parse(
+            $$"""{"type":"pngExported","data":"{{Base64Png}}","width":800,"height":600}""");
+
+        // F1: MUST be PngExportedMessage, NOT UnknownMessage (an Unknown trips RendererError).
+        var png = Assert.IsType<PngExportedMessage>(message);
+        Assert.Equal(Base64Png, png.Data);
+        Assert.Equal(800, png.Width);
+        Assert.Equal(600, png.Height);
+    }
+
+    [Fact]
+    public void Parse_PngExported_WidthAndHeightAreOptional_DefaultToZero()
+    {
+        // width/height are diagnostics only — data alone is the contract. Missing
+        // dimensions default to 0 (TryGetInt), they NEVER demote a valid payload to
+        // Unknown (which would trip RendererError per F1).
+        var message = GraphMessageParser.Parse(
+            """{"type":"pngExported","data":"aGVsbG8="}""");
+
+        var png = Assert.IsType<PngExportedMessage>(message);
+        Assert.Equal("aGVsbG8=", png.Data);
+        Assert.Equal(0, png.Width);
+        Assert.Equal(0, png.Height);
+    }
+
+    [Fact]
+    public void Parse_PngExported_ExtraFieldsAreTolerated()
+    {
+        // Forward-compatible like every other message: later graph.js diagnostics
+        // (e.g. scale/full echoes) must not break the parse.
+        var message = GraphMessageParser.Parse(
+            """{"type":"pngExported","data":"aGVsbG8=","width":640,"height":480,"scale":2,"full":false}""");
+
+        var png = Assert.IsType<PngExportedMessage>(message);
+        Assert.Equal("aGVsbG8=", png.Data);
+        Assert.Equal(640, png.Width);
+        Assert.Equal(480, png.Height);
+    }
+
+    [Theory]
+    [InlineData("""{"type":"pngExported","width":800,"height":600}""")] // data missing
+    [InlineData("""{"type":"pngExported","data":null,"width":800,"height":600}""")] // data null
+    [InlineData("""{"type":"pngExported","data":123,"width":800,"height":600}""")] // data not a string
+    public void Parse_PngExported_MissingOrInvalidData_ReturnsUnknown(string raw)
+    {
+        // `data` is the sole required field; without a string `data` the message
+        // cannot carry image bytes, so it falls back to UnknownMessage (which the
+        // renderer's exportPng path never receives on a happy path — F1).
+        var unknown = Assert.IsType<UnknownMessage>(GraphMessageParser.Parse(raw));
+
+        Assert.Equal(raw, unknown.Raw);
+    }
+
     // --- the Unknown fallback ----------------------------------------------------------
 
     [Fact]
@@ -159,6 +239,7 @@ public sealed class GraphMessageParserTests
     [InlineData("""{"type":42}""")]
     [InlineData("{]")]
     [InlineData("}{")]
+    [InlineData("""{"type":"pngExported","data":""")] // truncated pngExported mid-string
     public void Parse_Garbage_NeverThrows_ReturnsUnknown(string raw)
     {
         GraphMessage? message = null;

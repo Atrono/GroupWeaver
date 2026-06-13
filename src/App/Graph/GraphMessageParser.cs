@@ -47,6 +47,7 @@ public static class GraphMessageParser
                 "nodeExpand" => ParseNodeExpand(root, json),
                 "focused" => new FocusedMessage(),
                 "jsError" => ParseJsError(root, json),
+                "pngExported" => ParsePngExported(root, json),
                 _ => new UnknownMessage(json, $"unknown message type '{type}'"),
             };
         }
@@ -71,6 +72,21 @@ public static class GraphMessageParser
         TryGetString(root, "source", out var source) && TryGetString(root, "message", out var message)
             ? new JsErrorMessage(source, message)
             : new UnknownMessage(raw, "jsError: string 'source' and 'message' are required");
+
+    // `data` (the base64 image) is the sole required field — without it the message
+    // carries no bytes. `width`/`height` are diagnostics: optional, default 0 (never
+    // demoting a valid payload to Unknown, which would trip RendererError per ADR-013 F1).
+    private static GraphMessage ParsePngExported(JsonElement root, string raw)
+    {
+        if (!TryGetString(root, "data", out var data))
+        {
+            return new UnknownMessage(raw, "pngExported: string 'data' is required");
+        }
+
+        TryGetInt(root, "width", out var width);
+        TryGetInt(root, "height", out var height);
+        return new PngExportedMessage(data, width, height);
+    }
 
     private static bool TryGetString(JsonElement obj, string name, out string value)
     {
