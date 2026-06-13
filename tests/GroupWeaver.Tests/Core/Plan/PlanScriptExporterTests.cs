@@ -93,6 +93,77 @@ public class PlanScriptExporterTests
         Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
     }
 
+    // --- Header-token hardening: ToolVersion + BaseOuDn control-char gate -----------------
+    //
+    // The pre-v0.2 /security-review found that the header tokens travel two different
+    // paths. BaseOuDn flows through Ps1() (the single-quoted-literal choke point that
+    // also rejects control chars), but ToolVersion is appended RAW into the header
+    // comment line — the one token that bypasses the c < ' ' gate every other token
+    // crosses. Non-exploitable today (ToolVersion is a build-time constant) but a CR/LF
+    // in it would terminate the comment line and start a fresh PowerShell statement.
+    // The fix routes ToolVersion through a shared control-char guard that REJECTS control
+    // chars but does NOT single-quote it (it lives in a comment, so a clean version reads
+    // (GroupWeaver 0.2.0), unquoted). These three tests pin that hardening.
+
+    [Theory]
+    [InlineData('\r')] // carriage return — would split the comment into a fresh statement
+    [InlineData('\n')] // line feed — same comment-break injection vector
+    public void ToPowerShell_ToolVersionWithControlCharacter_ThrowsPlanScriptException(char control)
+    {
+        // PINS finding A: ToolVersion must cross the same control-char gate every other
+        // token does (parity with the SAM/Name rejection above). A CR/LF here would end
+        // the "# Generated : ..." comment and turn the trailing text into a live
+        // statement — so a control char in ToolVersion must be REJECTED, never emitted.
+        // RED until the implementer routes ToolVersion through the shared guard (today
+        // line 103 appends header.ToolVersion raw).
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+        var header = new PlanScriptHeader(
+            BaseOuDn: BaseOu,
+            ToolVersion: "0.2.0" + control,
+            GeneratedAt: Header.GeneratedAt);
+
+        Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, header));
+    }
+
+    [Fact]
+    public void ToPowerShell_BaseOuDnWithControlCharacter_ThrowsPlanScriptException()
+    {
+        // PINS finding B (regression pin for the EXISTING protection): BaseOuDn never
+        // passes PlanModel.AddNode's author-time gate (it is set straight on the
+        // PlanModel ctor / PlanScriptHeader), so the exporter's own Ps1() gate is its
+        // sole defense. Already GREEN today — BaseOuDn flows through Ps1() at both the
+        // "# Base OU" comment and the $BaseOU assignment — this test pins that guarantee
+        // so a future refactor cannot silently drop it.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+        var header = new PlanScriptHeader(
+            BaseOuDn: "OU=AGDLP-Lab\r,DC=agdlp,DC=lab",
+            ToolVersion: "0.2.0",
+            GeneratedAt: Header.GeneratedAt);
+
+        Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, header));
+    }
+
+    [Fact]
+    public void ToPowerShell_CleanToolVersion_AppearsUnquotedInTheHeaderComment()
+    {
+        // PINS that the fix gates WITHOUT single-quoting: ToolVersion lives in a comment,
+        // not a PowerShell literal, so a clean version must read (GroupWeaver 0.2.0) —
+        // NOT (GroupWeaver '0.2.0'). This passes against the current raw-append exporter
+        // and MUST still pass after the fix; it goes RED if the implementer wrongly
+        // routes ToolVersion through Ps1() (which would add the single quotes). It is the
+        // guardrail that keeps the hardening from over-quoting the comment value.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // Header.ToolVersion is "0.2.0"; the comment must show it bare, unquoted.
+        Assert.Contains("(GroupWeaver 0.2.0)", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("(GroupWeaver '0.2.0')", script, StringComparison.Ordinal);
+    }
+
     // --- Creation order: groups BEFORE member-add lines ----------------------------------
 
     [Fact]

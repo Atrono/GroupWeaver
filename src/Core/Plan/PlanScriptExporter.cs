@@ -100,7 +100,7 @@ public static class PlanScriptExporter
         sb.Append("# Generated : ")
             .Append(FormatTimestamp(header.GeneratedAt))
             .Append(" (GroupWeaver ")
-            .Append(header.ToolVersion)
+            .Append(Guard(header.ToolVersion))
             .Append(')')
             .Append(Eol);
         sb.Append("# Objects   : ")
@@ -179,11 +179,17 @@ public static class PlanScriptExporter
 
     /// <summary>
     /// THE choke point: wraps <paramref name="raw"/> as a PowerShell single-quoted
-    /// literal with the embedded quote doubled. A control character is rejected here
-    /// (defense-in-depth: <see cref="PlanModel.AddNode"/> rejects it at author time too),
-    /// never emitted. This is the only way an untrusted token reaches the output.
+    /// literal with the embedded quote doubled, after running it through
+    /// <see cref="Guard"/>. A control character is rejected (defense-in-depth:
+    /// <see cref="PlanModel.AddNode"/> rejects it at author time too), never emitted.
+    /// This is the only way an untrusted token reaches the output.
     /// </summary>
-    private static string Ps1(string raw)
+    private static string Ps1(string raw) =>
+        "'" + Guard(raw).Replace("'", "''", StringComparison.Ordinal) + "'";
+
+    /// <summary>Rejects a token carrying a control character (defense-in-depth: PlanModel
+    /// rejects it at author time too) — the gate every emitted token passes through.</summary>
+    private static string Guard(string raw)
     {
         foreach (var c in raw)
         {
@@ -194,7 +200,7 @@ public static class PlanScriptExporter
             }
         }
 
-        return "'" + raw.Replace("'", "''", StringComparison.Ordinal) + "'";
+        return raw;
     }
 
     private static string ScopeKeyword(PlanCreatableKind kind) => kind switch
