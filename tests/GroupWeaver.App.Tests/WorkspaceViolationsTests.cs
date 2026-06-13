@@ -378,6 +378,84 @@ public sealed class WorkspaceViolationsTests
         explicitDefault.Dispose();
     }
 
+    // --- (g) Reload-scope re-Evaluates: fresh report, fresh frontier (issue #30 S1) -----
+
+    [Fact(Timeout = 60_000)]
+    public async Task ReloadScope_ReYieldsTheNineteenFindingBaseline_ThroughAFreshShow_NotAnUpdate()
+    {
+        var (vm, fake) = await DemoWorkspaceAsync(); // null ruleset => embedded default
+
+        // The ctor load already produced the baseline and pushed it via ShowGraphAsync.
+        Assert.Equal(19, vm.Report.Violations.Count);
+        Assert.Single(fake.ShownReports);
+        Assert.Empty(fake.UpdatedReports);
+
+        var reportBefore = vm.Report;
+
+        // A whole-scope reload re-Evaluates the freshly loaded scope against the LIVE
+        // ruleset (re-read at Evaluate time, like LoadAsync): the 19-finding baseline
+        // recomputes verbatim, in canonical report order (ADR-009).
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+
+        Assert.NotSame(reportBefore, vm.Report); // a fresh evaluation, not the stale instance
+        Assert.Equal(
+            ExpectedBaseline,
+            vm.Report.Violations.Select(v => (v.RuleId, v.Severity, string.Join("", v.Dns))).ToArray());
+        Assert.Equal(19, vm.Violations.Count); // OnReportChanged re-projected the sidebar
+        Assert.True(vm.HasViolations);
+
+        // KEYSTONE on the report channel: reload is replace-all — the fresh report rode a
+        // SECOND ShowGraphAsync, NEVER an UpdateGraphAsync (the in-place verb).
+        Assert.Equal(2, fake.ShownReports.Count);
+        Assert.Same(vm.Report, fake.ShownReports[^1]);
+        Assert.Empty(fake.UpdatedReports);
+
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ReloadScope_RecomputesUncheckedAreas_AgainstTheFreshFrontier()
+    {
+        var (vm, _) = await DemoWorkspaceAsync();
+
+        // The full demo scope surfaces exactly the two raw builtin member DNs as unchecked
+        // (load-state truth — ADR-009).
+        Assert.Equal(new[] { DomainAdminsDn, PrintOperatorsDn }, vm.Report.UncheckedDns);
+        Assert.True(vm.HasUncheckedAreas);
+
+        // A reload rebuilds the snapshot from scratch: the frontier resets to exactly what
+        // the fresh whole-scope load found — the same two builtin DNs, recomputed truthfully
+        // (never carried over from the old snapshot).
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+
+        Assert.Equal(new[] { DomainAdminsDn, PrintOperatorsDn }, vm.Report.UncheckedDns);
+        Assert.True(vm.HasUncheckedAreas);
+
+        vm.Dispose();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ReloadScope_ClearsAStaleSelectionHighlight_AndDropsTheDetailPanel()
+    {
+        var (vm, _) = await DemoWorkspaceAsync();
+
+        // Select a finding anchor: its two sidebar rows highlight and the detail panel projects it.
+        vm.SelectedDn = DlFinanceExtraDn;
+        Assert.Equal(2, vm.Violations.Count(r => r.IsActive));
+        Assert.NotNull(vm.DetailPanel);
+
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+
+        // Reload clears the selection up front: no row stays lit, the panel drops to null,
+        // and OnReportChanged re-projected fresh rows over which the (null) selection
+        // highlights nothing.
+        Assert.Null(vm.SelectedDn);
+        Assert.Null(vm.DetailPanel);
+        Assert.DoesNotContain(vm.Violations, r => r.IsActive);
+
+        vm.Dispose();
+    }
+
     // --- stub-fixture DNs ---------------------------------------------------------------
 
     private const string StubRootDn = "OU=Lab,DC=stub,DC=lab";

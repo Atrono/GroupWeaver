@@ -471,7 +471,140 @@ public sealed class WorkspaceLoadTests
         Assert.False(vm.IsLoading, "a renderer error report must not touch IsLoading");
     }
 
+    // --- the Reload-scope command (issue #30 S1, discharges ADR-005 D4 follow-up) ---------
+
+    [Fact]
+    public async Task ReloadScope_ReRunsLoadScopeAsync_ASecondTime_AndShowsTheFreshGraph_NeverUpdates()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // The ctor load is the first LoadScopeAsync; the rebuilt graph rode ShowGraphAsync.
+        Assert.Equal(1, provider.LoadScopeCalls);
+        Assert.Single(fake.ShownGraphs);
+        Assert.Empty(fake.UpdatedGraphs);
+
+        // A fresh whole-scope load: LoadScopeAsync runs a SECOND time, from the SAME root.
+        await ReloadAndSettle(vm);
+
+        Assert.Equal(2, provider.LoadScopeCalls);
+        Assert.Equal(RootDn, provider.LoadScopeBaseDn);
+
+        // KEYSTONE: reload is replace-all — it lands in ShownGraphs (destroy+fit), NEVER
+        // UpdatedGraphs (the in-place verb Refresh/expand use). This is the single
+        // assertion that distinguishes whole-scope reload from a node Refresh.
+        Assert.Equal(2, fake.ShownGraphs.Count);
+        Assert.Empty(fake.UpdatedGraphs);
+
+        // The most recent shown model is the VM's current graph (rebuilt from scratch).
+        Assert.Same(fake.ShownGraphs[^1], vm.Graph);
+        Assert.Equal("5 objects, 7 edges", vm.GraphSummary);
+        Assert.False(vm.IsLoading);
+        Assert.Null(vm.LoadError);
+    }
+
+    [Fact]
+    public async Task ReloadScope_ClearsTheSelection_AndDropsTheDetailPanel()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // Select an in-scope object first: the detail panel projects it (snapshot-only).
+        fake.RaiseNodeClicked(CircleADn, "GlobalGroup");
+        Assert.Equal(CircleADn, vm.SelectedDn);
+        Assert.NotNull(vm.DetailPanel);
+
+        await ReloadAndSettle(vm);
+
+        // Reload resets the selection up front (the selected DN may not survive a fresh
+        // scope load): SelectedDn -> null, and the panel re-projects to null with it.
+        Assert.Null(vm.SelectedDn);
+        Assert.Null(vm.DetailPanel);
+    }
+
+    [Fact]
+    public async Task ReloadScope_ClearsAStaleLoadError_UpFront()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // A renderer error has populated the ONE inline error surface.
+        fake.RaiseRendererError("graph.js", "cytoscape exploded");
+        Assert.NotNull(vm.LoadError);
+
+        await ReloadAndSettle(vm);
+
+        // Every new whole-scope attempt clears the inline error (load policy, like LoadAsync).
+        Assert.Null(vm.LoadError);
+    }
+
+    [Fact]
+    public async Task ReloadScope_RecomputesTheGraphSummary_FromTheFreshlyLoadedScope()
+    {
+        // The reload returns a DIFFERENT scope than the ctor load: the summary (drawn
+        // counts) must track the freshly loaded snapshot, not the original.
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        Assert.Equal("5 objects, 7 edges", vm.GraphSummary);
+
+        // A smaller scope next time: just the root OU plus one well-named group, no cycle,
+        // no External endpoint => 2 nodes, 1 containment edge.
+        var smaller = new DirectorySnapshot();
+        smaller.AddObject(Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit));
+        smaller.AddObject(Obj("GG_Sales_Staff", "CN=GG_Sales_Staff,OU=Lab,DC=stub,DC=lab"));
+        provider.LoadScopeResult = Task.FromResult(smaller);
+
+        await ReloadAndSettle(vm);
+
+        Assert.Equal("2 objects, 1 edges", vm.GraphSummary);
+        Assert.Same(vm.Snapshot, smaller);
+    }
+
+    [Fact]
+    public async Task ReloadScope_OverANewScope_DropsTheOrphanExMemberNode_NoPruningCode()
+    {
+        // The crux of issue #30: a fresh LoadScopeAsync rebuilds the snapshot from
+        // scratch, so an object present only in the FIRST scope vanishes by construction
+        // — no DirectorySnapshot.RemoveObject, no graph-layer prune.
+        var provider = Provider(SmallSnapshot()); // contains Ada Lovelace
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        Assert.Contains(vm.Graph!.Nodes, n => Dn.Comparer.Equals(n.Dn, AdaDn));
+
+        // The directory no longer returns Ada at all on the next whole-scope load.
+        var withoutAda = new DirectorySnapshot();
+        withoutAda.AddObject(Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit));
+        withoutAda.AddObject(Obj("GG_Circle_A", CircleADn));
+        withoutAda.AddObject(Obj("GG_Circle_B", CircleBDn));
+        withoutAda.SetMembers(CircleADn, [CircleBDn]);
+        withoutAda.SetMembers(CircleBDn, [CircleADn]); // the cycle still closes — must terminate
+        provider.LoadScopeResult = Task.FromResult(withoutAda);
+
+        await ReloadAndSettle(vm);
+
+        // Ada is gone from the rebuilt graph entirely — no orphan ex-member node lingers.
+        Assert.DoesNotContain(vm.Graph!.Nodes, n => Dn.Comparer.Equals(n.Dn, AdaDn));
+        Assert.Same(vm.Snapshot, withoutAda);
+    }
+
     // --- helpers -------------------------------------------------------------------------------
+
+    /// <summary>Invokes <c>ReloadScopeCommand</c> and awaits the scope-load pipeline it
+    /// kicks off. <c>ReloadScopeCommand</c> is an async RelayCommand, so its
+    /// <c>ExecuteAsync</c> task is the observable handle to await before asserting.</summary>
+    private static async Task ReloadAndSettle(WorkspaceViewModel vm)
+    {
+        await vm.ReloadScopeCommand.ExecuteAsync(null);
+    }
 
     private static AdObject Obj(
         string name, string dn, AdObjectKind kind = AdObjectKind.GlobalGroup) =>
