@@ -26,10 +26,9 @@ test; **[I]** = interactive/manual — cannot be evidenced by a static frame.
 - [ ] Live workspace mount: the real app's WebView shows the rendered graph (in-page legend top-left, no airspace violation) and the status row carries the graph summary [S:workspace-live-graph]
 - [ ] Lazy-expand responds: dbltap round-trips `nodeExpand` — including on a node the update itself added (handlers are bound on the cy core and survive) — and the result lands replace-in-place on the LIVE instance: viewport untouched (no fit), post-update `loaded` counts match the mutated set, the dropped membership edge gone (ADR-005 D1) [P graphUpdate phase] [S:graph-expanded]
 - [ ] Expanded vs. collapsed state distinguishable by kind resolution (ADR-005 D5): unexpanded frontier nodes render External (dashed gray); expansion restyles them to their true kind color/shape — no extra badge to judge [S:graph-expanded — the post-update node shows its true kind at label zoom] [T:WorkspaceExpandTests — External frontier resolved via GetObjectAsync]
-
-### Future (owned later — judge when the owning AP lands)
-
-- [ ] Severity colors (red/yellow/info) and roll-up badge ("⚠ n below") readable at default zoom → AP 3.4
+- [ ] Severity halo distinct from kind (AP 3.4, ADR-010): a flagged node shows a colored OVERLAY glow (Error #D13438 thick / Warning #F7A30B medium / Info #4FA3E3 thin) behind its kind-colored, kind-shaped body — severity never reuses fill, shape, or border; monotonic padding (7/6/5) is a redundant colorblind channel [S:graph-focus] [P severity palette parity C#↔JS: #D13438/#F7A30B/#4FA3E3] [P overlay-color per sev class]
+- [ ] Severity survives lazy expand: after graphUpdate the re-Evaluated halos re-attach on the live instance (wire field re-sent), unflagged nodes keep overlay-opacity 0, frontier-resolved nodes re-judged by true kind [P sev present on post-update elements] [S:graph-expanded]
+- [ ] Roll-up cue: a loaded group hiding flagged descendants shows a wider/fainter max-severity ring at fit zoom (the exact "n below" count is authoritative in the sidebar — canvas-only cytoscape has no numeric badge) [S:graph-overview] [P node[below] overlay-padding]
 
 ## B. Native chrome (Avalonia)
 
@@ -38,7 +37,7 @@ renders every shipped shell state via real Skia (real DemoProvider, real views) 
 `artifacts/ui/<view>-<W>x<H>.png` at **both** 1280×720 and 1920×1080:
 `connection-idle`, `connection-error`, `rootpicker-demo`, `rootpicker-demo-tail`,
 `workspace-demo`, `workspace-webview2-missing`, `workspace-detail`,
-`workspace-detail-frontier` — 16 PNGs per run.
+`workspace-detail-frontier`, `workspace-violations` — 18 PNGs per run.
 
 Evidence tags: **[S:name]** = judge from the `name-*.png` pair; **[I]** = interactive
 or transient — cannot be evidenced by a static frame; covered by headless tests
@@ -102,7 +101,19 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 - [ ] Dimmed/secondary text (DNs, hints, status bar) still legible at both sizes [S: every pair]
 - [ ] Centered layouts (Connect card, picker column, placeholders) stay centered, not stretched or stuck to a corner, at 1920×1080 [S: every -1920x1080]
 
+### Violations sidebar (AP 3.4)
+
+`workspace-violations` drives the demo default ruleset (the 19-finding baseline:
+4 error / 3 warning / 12 info) into the right-column split.
+
+- [ ] Sidebar tops the right column ABOVE the detail stack (vertical split, beside GraphHost, never over the graph — ADR-001 airspace); header "Findings (n)" [S:workspace-violations]
+- [ ] Severity-summary chip strip in the header evidences all three severities above the fold: E/W/i glyph squares in the palette (#D13438/#F7A30B/#4FA3E3) + counts (demo: E 4 · W 3 · i 12) [S:workspace-violations] [T:ShellScreenshotTests — chip brushes + counts pinned]
+- [ ] Rows in canonical report order: severity glyph (color + redundant letter E/W/i), wrapping message, dimmed subject name; glyph colors match the graph halos [S:workspace-violations]
+- [ ] "Unexpanded areas are unchecked" hint visible whenever UncheckedDns is non-empty (demo: the two ignored builtin DNs), shown even in the all-clear state [S:workspace-violations]
+- [ ] All-clear: "No rule violations found." when Violations is empty; hint still shows if areas remain unchecked [I — WorkspaceViolationsTests]
+- [ ] Jump-to-node: a row frames the node (FocusAsync) and selects it (detail panel syncs); disabled while loading; raw-External anchors never error [I — WorkspaceViolationsTests]
+- [ ] Selection sync: a graph nodeClick highlights matching sidebar row(s); multiple findings on one DN all highlight [I — WorkspaceViolationsTests]
+
 ### Future (not shipped yet — judge when the owning AP lands)
 
-- [ ] Settings/rule editor (Phase 3): live preview updates; import/export present
-- [ ] Violation sidebar (AP 3.4): list with jump-to-node; "unexpanded areas are unchecked" notice visible
+- [ ] Settings/rule editor (AP 3.3): live preview updates; matrix editor; import/export present
