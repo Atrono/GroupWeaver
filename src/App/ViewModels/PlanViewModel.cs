@@ -46,9 +46,64 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     private RuleReport _report = RuleReport.Empty;
 
     /// <summary>DN of the last tapped plan node — the selection seam (carried verbatim;
-    /// DN strings are never canonicalized, data-model rule).</summary>
+    /// DN strings are never canonicalized, data-model rule). The setter re-resolves
+    /// <see cref="SelectedNodeRow"/> and the sidebar highlight in <see cref="OnSelectedDnChanged"/>.</summary>
     [ObservableProperty]
     private string? _selectedDn;
+
+    /// <summary>The add-object name box (AP 4.2.3). The DN is formed from it on Add;
+    /// a blank/whitespace name disarms <see cref="AddObjectCommand"/>.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddObjectCommand))]
+    private string _newObjectName = "";
+
+    /// <summary>The add-object kind combo selection. <see cref="NewObjectIsUser"/> derives the
+    /// SAM box visibility from it; kept across a successful add (repeat-add the same kind).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(NewObjectIsUser))]
+    private PlanCreatableKind _newObjectKind = PlanCreatableKind.GlobalGroup;
+
+    /// <summary>The add-object SAM box (only meaningful for <see cref="PlanCreatableKind.User"/>;
+    /// a group never receives it — the add command passes null for a group).</summary>
+    [ObservableProperty]
+    private string _newObjectSam = "";
+
+    /// <summary>The inline edit error: the last <c>PlanConflictException.Message</c> a rejected
+    /// mutation surfaced; CLEARED (null) on every successful mutation. The one error surface.</summary>
+    [ObservableProperty]
+    private string? _editError;
+
+    /// <summary>The rename box (pre-filled from the selected row's Name); blank disarms
+    /// <see cref="RenameSelectedCommand"/>.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RenameSelectedCommand))]
+    private string _renameText = "";
+
+    /// <summary>The Objects-list selection (AP 4.2.3): changing it drives
+    /// <see cref="SelectedDn"/> + <see cref="RenameText"/> + the command guards in
+    /// <see cref="OnSelectedNodeRowChanged"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedNode))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RenameSelectedCommand))]
+    private PlanNodeRowModel? _selectedNodeRow;
+
+    /// <summary>The membership-form PARENT combo selection (a group, from
+    /// <see cref="GroupNodes"/>). Notifies <see cref="AddMemberCommand"/> CanExecute.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddMemberCommand))]
+    private PlanNodeRowModel? _memberParentRow;
+
+    /// <summary>The membership-form CHILD combo selection (any node, from
+    /// <see cref="Nodes"/>). Notifies <see cref="AddMemberCommand"/> CanExecute.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddMemberCommand))]
+    private PlanNodeRowModel? _memberChildRow;
+
+    /// <summary>Re-entrancy guard for the <see cref="SelectedDn"/>↔<see cref="SelectedNodeRow"/>
+    /// round-trip (it terminates naturally — SetProperty short-circuits on equal DN strings —
+    /// but the guard makes the two setters one-directional per edit, never racing).</summary>
+    private bool _syncingSelection;
 
     public PlanViewModel(
         string baseOuDn,
@@ -111,10 +166,279 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     /// is empty by construction. Exposed for sidebar parity with the workspace.</summary>
     public bool HasUncheckedAreas => Report.UncheckedDns.Count > 0;
 
+    /// <summary>The four <see cref="PlanCreatableKind"/> values the add-object kind combo
+    /// binds (AP 4.2.3) — the VM-exposed static items source (no <c>ObjectDataProvider</c>).</summary>
+    public IReadOnlyList<PlanCreatableKind> CreatableKinds { get; } =
+    [
+        PlanCreatableKind.User,
+        PlanCreatableKind.GlobalGroup,
+        PlanCreatableKind.DomainLocalGroup,
+        PlanCreatableKind.UniversalGroup,
+    ];
+
+    /// <summary>Every authored node, ordered by Name (OrdinalIgnoreCase, then Dn for stability)
+    /// — bound by the Objects list AND the membership CHILD combo. Rebuilt by
+    /// <see cref="RefreshAuthoredCollections"/> after every mutation.</summary>
+    public ObservableCollection<PlanNodeRowModel> Nodes { get; } = [];
+
+    /// <summary>The group-kind subset of <see cref="Nodes"/> (<c>PlanKindMap.IsGroup</c>), same
+    /// ordering — bound by the membership PARENT combo (only a group can have members).</summary>
+    public ObservableCollection<PlanNodeRowModel> GroupNodes { get; } = [];
+
+    /// <summary>Every authored edge as a "parent ← child" row (names resolved via
+    /// <c>Plan.TryGetNode</c>, DN fallback), ordered by parent Name then child Name — bound by
+    /// the Memberships list. Rebuilt by <see cref="RefreshAuthoredCollections"/>.</summary>
+    public ObservableCollection<PlanEdgeRowModel> Memberships { get; } = [];
+
+    /// <summary>True while the SAM box is meaningful — derived from <see cref="NewObjectKind"/>
+    /// (only <see cref="PlanCreatableKind.User"/>). Drives the SAM box visibility.</summary>
+    public bool NewObjectIsUser => NewObjectKind == PlanCreatableKind.User;
+
+    /// <summary>True while a node row is selected — the selected-node action block visibility
+    /// and the Remove/Rename command guards.</summary>
+    public bool HasSelectedNode => SelectedNodeRow is not null;
+
     /// <summary>Back to the Ist workspace (ADR-014): invokes the shell-supplied callback,
     /// which restores the SAME workspace instance — never a reload, never a dispose.</summary>
     [RelayCommand]
     private void Back() => _onBackToExplore?.Invoke();
+
+    // ===== AP 4.2.3 editor commands: form -> model mutation -> collections -> revalidate =====
+    // Each mutating command catches PlanConflictException into EditError (a value, never a
+    // throw to the user), rebuilds the authored collections, then runs the EXISTING live-
+    // validation loop with the VM's own token. No code path writes to AD — a plan is an
+    // in-memory authoring model projected to a snapshot for the unchanged engine.
+
+    /// <summary>Authors a node from the add-object form (AP 4.2.3). SAM only for a User
+    /// (the form derives <see cref="NewObjectIsUser"/> from the kind). A conflict surfaces
+    /// into <see cref="EditError"/> and the form is RETAINED so the user can fix it; a success
+    /// clears the error + the name/SAM boxes (the kind stays, for repeat adds).</summary>
+    [RelayCommand(CanExecute = nameof(CanAddObject))]
+    private async Task AddObjectAsync()
+    {
+        try
+        {
+            Plan.AddNode(
+                NewObjectKind,
+                NewObjectName.Trim(),
+                NewObjectIsUser && !string.IsNullOrWhiteSpace(NewObjectSam) ? NewObjectSam.Trim() : null);
+        }
+        catch (PlanConflictException ex)
+        {
+            EditError = ex.Message;
+            return;
+        }
+
+        EditError = null;
+        NewObjectName = "";
+        NewObjectSam = "";
+        RefreshAuthoredCollections();
+        await RevalidateAsync(_cts.Token);
+    }
+
+    private bool CanAddObject() => !string.IsNullOrWhiteSpace(NewObjectName);
+
+    /// <summary>Removes the selected node and cascades its incident edges (the model's
+    /// RemoveNode cascade), clears the selection, and revalidates.</summary>
+    [RelayCommand(CanExecute = nameof(HasSelectedNode))]
+    private async Task RemoveSelectedAsync()
+    {
+        Plan.RemoveNode(SelectedNodeRow!.Dn);
+        EditError = null;
+        SelectedNodeRow = null;
+        SelectedDn = null;
+        RefreshAuthoredCollections();
+        await RevalidateAsync(_cts.Token);
+    }
+
+    /// <summary>Renames the selected node (replace-by-DN; the DN is identity). The selection
+    /// FOLLOWS the rename (SelectedDn = the new DN, SelectedNodeRow re-resolved, RenameText
+    /// tracks the new name); incident memberships keep their endpoints (rewritten). A conflict
+    /// (unknown DN or rename onto an existing different DN) surfaces into
+    /// <see cref="EditError"/> with no change.</summary>
+    [RelayCommand(CanExecute = nameof(CanRenameSelected))]
+    private async Task RenameSelectedAsync()
+    {
+        var dn = SelectedNodeRow!.Dn;
+        var newName = RenameText.Trim();
+        try
+        {
+            Plan.RenameNode(dn, newName);
+        }
+        catch (PlanConflictException ex)
+        {
+            EditError = ex.Message;
+            return;
+        }
+
+        EditError = null;
+        RefreshAuthoredCollections();
+        // The new DN is the rename's identity; selecting it re-resolves SelectedNodeRow to the
+        // renamed row and seeds RenameText with the new name (OnSelectedDnChanged).
+        SelectedDn = Plan.FormDn(newName);
+        await RevalidateAsync(_cts.Token);
+    }
+
+    private bool CanRenameSelected() => HasSelectedNode && !string.IsNullOrWhiteSpace(RenameText);
+
+    /// <summary>Authors a membership from the form (AP 4.2.3): the parent (a group) lists the
+    /// child. Idempotent (no error if the edge already existed — the model returns false). A
+    /// conflict (unknown endpoint / non-group parent — guarded against by CanExecute) surfaces
+    /// into <see cref="EditError"/>. A self-membership and cycles are AUTHORABLE (ADR-014) — the
+    /// model does not reject them; the engine reports them as findings.</summary>
+    [RelayCommand(CanExecute = nameof(CanAddMember))]
+    private async Task AddMemberAsync()
+    {
+        try
+        {
+            Plan.AddEdge(MemberParentRow!.Dn, MemberChildRow!.Dn);
+        }
+        catch (PlanConflictException ex)
+        {
+            EditError = ex.Message;
+            return;
+        }
+
+        EditError = null;
+        RefreshAuthoredCollections();
+        await RevalidateAsync(_cts.Token);
+    }
+
+    /// <summary>Armed iff both endpoints are selected AND the parent row is a group (a user can
+    /// never have members — the model would throw, so the command guards via CanExecute).</summary>
+    private bool CanAddMember() =>
+        MemberParentRow is not null
+        && MemberChildRow is not null
+        && PlanKindMap.IsGroup(MemberParentRow.Kind);
+
+    /// <summary>Removes a membership row (the per-row Remove the memberships list binds) and
+    /// revalidates.</summary>
+    [RelayCommand]
+    private async Task RemoveMemberAsync(PlanEdgeRowModel row)
+    {
+        Plan.RemoveEdge(row.ParentDn, row.ChildDn);
+        EditError = null;
+        RefreshAuthoredCollections();
+        await RevalidateAsync(_cts.Token);
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="Nodes"/>/<see cref="GroupNodes"/>/<see cref="Memberships"/> from the
+    /// model after a mutation, then re-resolves <see cref="SelectedNodeRow"/>/
+    /// <see cref="MemberParentRow"/>/<see cref="MemberChildRow"/> to the NEW row instances
+    /// matching their current DN under <c>Dn.Comparer</c> (so a rebuild never drops a live
+    /// selection; a vanished DN resets that reference to null). The combos/list bind THESE
+    /// instances, so selection must use them. Does NOT call <see cref="RevalidateAsync"/> — each
+    /// command runs that separately (it is async).
+    /// </summary>
+    private void RefreshAuthoredCollections()
+    {
+        var ordered = Plan.Nodes
+            .OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(n => n.Dn, Dn.Comparer)
+            .Select(n => new PlanNodeRowModel(n.Dn, n.Name, n.Kind))
+            .ToList();
+
+        Nodes.Clear();
+        GroupNodes.Clear();
+        foreach (var row in ordered)
+        {
+            Nodes.Add(row);
+            if (PlanKindMap.IsGroup(row.Kind))
+            {
+                GroupNodes.Add(row);
+            }
+        }
+
+        var edges = Plan.Edges
+            .Select(e => new PlanEdgeRowModel(
+                e.ParentDn, NameOf(e.ParentDn), e.ChildDn, NameOf(e.ChildDn)))
+            .OrderBy(e => e.ParentName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(e => e.ChildName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Memberships.Clear();
+        foreach (var edge in edges)
+        {
+            Memberships.Add(edge);
+        }
+
+        // Re-resolve the three live row references to the fresh instances (or null if gone).
+        // SelectedNodeRow is re-resolved through its own setter so SelectedDn/RenameText follow.
+        SelectedNodeRow = Resolve(Nodes, SelectedNodeRow?.Dn);
+        MemberParentRow = Resolve(GroupNodes, MemberParentRow?.Dn);
+        MemberChildRow = Resolve(Nodes, MemberChildRow?.Dn);
+    }
+
+    /// <summary>The fresh <paramref name="rows"/> instance whose Dn matches <paramref name="dn"/>
+    /// under <c>Dn.Comparer</c>, or null (no match / null DN).</summary>
+    private static PlanNodeRowModel? Resolve(IEnumerable<PlanNodeRowModel> rows, string? dn) =>
+        dn is null ? null : rows.FirstOrDefault(r => Dn.Comparer.Equals(r.Dn, dn));
+
+    /// <summary>The display name of an authored DN (the edge-row resolver), falling back to the
+    /// DN itself if somehow absent — never a provider call.</summary>
+    private string NameOf(string dn) => Plan.TryGetNode(dn, out var node) ? node.Name : dn;
+
+    /// <summary>
+    /// Selection sync (mirrors <see cref="WorkspaceViewModel.OnSelectedDnChanged"/>): re-resolves
+    /// <see cref="SelectedNodeRow"/> to the <see cref="Nodes"/> row whose Dn matches the new
+    /// selection, and flips <see cref="ViolationRowModel.IsActive"/> on every <see cref="Violations"/>
+    /// row whose <c>PrimaryDn</c> matches (by ANCHOR, never by member-endpoint). The
+    /// <see cref="_syncingSelection"/> guard keeps the SelectedDn↔SelectedNodeRow round-trip
+    /// one-directional per edit.
+    /// </summary>
+    partial void OnSelectedDnChanged(string? value)
+    {
+        if (!_syncingSelection)
+        {
+            _syncingSelection = true;
+            try
+            {
+                SelectedNodeRow = Resolve(Nodes, value);
+            }
+            finally
+            {
+                _syncingSelection = false;
+            }
+        }
+
+        HighlightActiveRows();
+    }
+
+    /// <summary>The Objects-list selection drives the rest of the selection state (AP 4.2.3):
+    /// <see cref="SelectedDn"/> = the row's Dn and <see cref="RenameText"/> = the row's Name (so
+    /// the rename box pre-fills). Guarded by <see cref="_syncingSelection"/> so the round-trip
+    /// from <see cref="OnSelectedDnChanged"/> does not re-enter.</summary>
+    partial void OnSelectedNodeRowChanged(PlanNodeRowModel? value)
+    {
+        RenameText = value?.Name ?? "";
+        if (_syncingSelection)
+        {
+            return;
+        }
+
+        _syncingSelection = true;
+        try
+        {
+            SelectedDn = value?.Dn;
+        }
+        finally
+        {
+            _syncingSelection = false;
+        }
+    }
+
+    /// <summary>Re-applies the sidebar highlight over the current rows (the
+    /// <see cref="OnReportChanged"/> re-projection and the selection setters both call it), so a
+    /// selection that persists across a re-Evaluate keeps lighting its anchor (mirrors
+    /// <see cref="WorkspaceViewModel"/>'s <c>HighlightActiveRows</c>).</summary>
+    private void HighlightActiveRows()
+    {
+        foreach (var row in Violations)
+        {
+            row.IsActive = SelectedDn is not null && Dn.Comparer.Equals(row.PrimaryDn, SelectedDn);
+        }
+    }
 
     /// <summary>
     /// The live-validate inner loop (mirrors <see cref="WorkspaceViewModel.ApplyRulesetAsync"/>):
@@ -180,6 +504,10 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
             Violations.Add(new ViolationRowModel(
                 violation.Severity, violation.Message, subject, violation.PrimaryDn));
         }
+
+        // Re-apply the selection-sync highlight over the fresh rows (a persisting selection
+        // keeps lighting its anchor across a re-Evaluate) — mirrors the workspace.
+        HighlightActiveRows();
     }
 
     /// <summary>The AP 3.4 roll-up below-map — a COPY of
