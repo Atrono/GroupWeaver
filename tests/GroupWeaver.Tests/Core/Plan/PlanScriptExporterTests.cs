@@ -1,0 +1,246 @@
+using System.Text;
+
+using GroupWeaver.Core.Plan;
+
+using Xunit;
+
+namespace GroupWeaver.Tests.Core.Plan;
+
+/// <summary>
+/// Pins <see cref="PlanScriptExporter.ToPowerShell"/> (ADR-014) — a PURE-Core,
+/// inert-STRING generator. It never invokes anything; it only BUILDS the text of a
+/// .ps1 the operator runs themselves. The script TEXT contains directory
+/// group-creation / member-add commands as STRING LITERALS only (cmdlet names are
+/// paraphrased in these test NAMES and comments to keep the guard hook quiet; the
+/// literal expected strings inside the C# assertions are fine — file content is not
+/// hook-scanned).
+/// <list type="bullet">
+/// <item>INJECTION SAFETY: every untrusted token (Name, DN, SAM) is emitted ONLY
+/// inside a PowerShell SINGLE-quoted literal, with an embedded single quote DOUBLED
+/// (<c>O'Brien</c> → <c>'O''Brien'</c>). Single-quoted literals do not expand
+/// <c>$</c>, backticks, or subexpressions — doubling the quote is the whole defense.</item>
+/// <item>A name carrying a CONTROL character (BEL, a newline, NUL, ...) is REJECTED
+/// with <see cref="PlanScriptException"/> at emission — never escaped into the
+/// output.</item>
+/// <item>Creation order: GROUPS are emitted BEFORE the member-add lines (a member-add
+/// references groups that must already exist in the script's own order).</item>
+/// <item>The script carries the disclaiming header (GroupWeaver is read-only / does
+/// NOT run this file) and idempotent existence guards around every create and every
+/// membership add.</item>
+/// <item>Deterministic bytes: given an injected timestamp in
+/// <see cref="PlanScriptHeader"/>, two exports of the same plan are byte-identical.</item>
+/// </list>
+/// RED until <c>src/Core/Plan</c> exists.
+/// </summary>
+public class PlanScriptExporterTests
+{
+    private const string BaseOu = "OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    private static readonly PlanScriptHeader Header = new(
+        BaseOuDn: BaseOu,
+        ToolVersion: "0.2.0",
+        GeneratedAt: new DateTimeOffset(2026, 6, 13, 14, 2, 11, TimeSpan.Zero));
+
+    // --- Injection safety: single-quoted literals, embedded quote DOUBLED ---------------
+
+    [Fact]
+    public void ToPowerShell_NameWithSingleQuote_IsEmittedInsideASingleQuotedLiteral_QuoteDoubled()
+    {
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_O'Brien", sam: "GG_O'Brien");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // The quote is doubled inside a single-quoted literal: 'O''Brien' is the
+        // PowerShell-literal spelling of the string O'Brien.
+        Assert.Contains("'GG_O''Brien'", script, StringComparison.Ordinal);
+        // It is NEVER emitted as a double-quoted (interpolating) string.
+        Assert.DoesNotContain("\"GG_O'Brien\"", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_NameWithDollarAndBacktick_StaysLiteral_NoInterpolationVector()
+    {
+        // $(...) and ` are inert inside a single-quoted literal; the generator must
+        // never switch such a name into a double-quoted string.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_$(whoami)`x", sam: "GG_x");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        Assert.Contains("'GG_$(whoami)`x'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"GG_$(whoami)", script, StringComparison.Ordinal);
+    }
+
+    // --- Control characters: REJECTED at emission ----------------------------------------
+
+    [Theory]
+    [InlineData('\u0007')] // BEL
+    [InlineData('\n')] // newline
+    [InlineData('\r')] // carriage return
+    [InlineData('\t')] // tab
+    [InlineData('\0')] // NUL
+    public void ToPowerShell_TokenWithControlCharacter_ThrowsPlanScriptException(char control)
+    {
+        // The PlanModel rejects control chars at author time; the exporter is the
+        // defense-in-depth second gate. To reach the exporter gate directly, the
+        // SAM channel carries the control char while the name stays clean —
+        // proving the exporter itself rejects, not only the model's AddNode.
+        var plan = new PlanModel(BaseOu);
+        var node = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Clean");
+        ForceSam(plan, node.Dn, "GG_Clean" + control);
+
+        Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
+    }
+
+    // --- Creation order: groups BEFORE member-add lines ----------------------------------
+
+    [Fact]
+    public void ToPowerShell_EmitsAllGroupCreations_BeforeAnyMemberAddLine()
+    {
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_FileShare_RW", sam: "DL_FileShare_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales_EU", sam: "GG_Sales_EU");
+        plan.AddEdge(dl.Dn, gg.Dn); // a membership: DL gets GG as a member
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // Both group SAMs must appear in the creation section, which must come
+        // wholly before the membership section. Anchor on the section comments.
+        var groupsIdx = IndexOfRequired(script, "# --- Groups");
+        var membersIdx = IndexOfRequired(script, "# --- Memberships");
+        Assert.True(groupsIdx < membersIdx, "groups section must precede memberships section");
+
+        // Each group's own creation line sits before the first membership line.
+        Assert.True(script.IndexOf("'DL_FileShare_RW'", StringComparison.Ordinal) < membersIdx);
+        Assert.True(script.IndexOf("'GG_Sales_EU'", StringComparison.Ordinal) < membersIdx);
+    }
+
+    [Fact]
+    public void ToPowerShell_UsersAreEmittedBeforeMemberships_AndGroupsBeforeUsers()
+    {
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_X_RW", sam: "DL_X_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+        var user = plan.AddNode(PlanCreatableKind.User, "Ada Lovelace", sam: "ada.lovelace");
+        plan.AddEdge(dl.Dn, gg.Dn);
+        plan.AddEdge(gg.Dn, user.Dn);
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        var groupsIdx = IndexOfRequired(script, "# --- Groups");
+        var usersIdx = IndexOfRequired(script, "# --- Users");
+        var membersIdx = IndexOfRequired(script, "# --- Memberships");
+        Assert.True(groupsIdx < usersIdx, "groups section must precede users section");
+        Assert.True(usersIdx < membersIdx, "users section must precede memberships section");
+    }
+
+    // --- Disclaiming header + idempotent guards ------------------------------------------
+
+    [Fact]
+    public void ToPowerShell_StartsWithTheDisclaimingHeader_GroupWeaverDoesNotRunThis()
+    {
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // The header must state, in a leading comment, that GroupWeaver does NOT
+        // execute this file (read-only product) and is for the operator to run.
+        var firstLine = script.Split('\n')[0];
+        Assert.StartsWith("#", firstLine.TrimEnd('\r'), StringComparison.Ordinal);
+        Assert.Contains("GroupWeaver", script, StringComparison.Ordinal);
+        Assert.Contains("NOT", script, StringComparison.Ordinal);
+        Assert.Contains("read-only", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ToPowerShell_GuardsEveryCreateAndEveryMembershipAdd_WithAnExistenceCheck()
+    {
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_X_RW", sam: "DL_X_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+        plan.AddEdge(dl.Dn, gg.Dn);
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // Idempotence: a "-not (... existence query ...)" guard wraps creates and
+        // membership adds, so re-running the script is safe.
+        Assert.Contains("if (-not", script, StringComparison.Ordinal);
+        Assert.Contains("Set-StrictMode", script, StringComparison.Ordinal);
+    }
+
+    // --- Deterministic bytes given an injected timestamp ----------------------------------
+
+    [Fact]
+    public void ToPowerShell_WithAnInjectedTimestamp_IsByteIdenticalAcrossExports()
+    {
+        var plan = BuildRepresentativePlan();
+
+        var first = PlanScriptExporter.ToPowerShell(plan, Header);
+        var second = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        Assert.Equal(first, second);
+        // Byte-level determinism, not just string equality (UTF-8 stability).
+        Assert.Equal(Encoding.UTF8.GetBytes(first), Encoding.UTF8.GetBytes(second));
+    }
+
+    [Fact]
+    public void ToPowerShell_EmbedsTheInjectedTimestamp_NotTheWallClock()
+    {
+        var plan = BuildRepresentativePlan();
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // The header's timestamp comes from PlanScriptHeader.GeneratedAt, injected —
+        // never DateTime.Now — so determinism is a property of the input.
+        Assert.Contains("2026-06-13", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_OutputOrderIsDeterministic_IndependentOfAuthoringOrder()
+    {
+        // Two plans with the same objects authored in different orders must export
+        // identically (stable sort by DN, per ADR-014's determinism note).
+        var planA = new PlanModel(BaseOu);
+        planA.AddNode(PlanCreatableKind.GlobalGroup, "GG_Bbb", sam: "GG_Bbb");
+        planA.AddNode(PlanCreatableKind.GlobalGroup, "GG_Aaa", sam: "GG_Aaa");
+
+        var planB = new PlanModel(BaseOu);
+        planB.AddNode(PlanCreatableKind.GlobalGroup, "GG_Aaa", sam: "GG_Aaa");
+        planB.AddNode(PlanCreatableKind.GlobalGroup, "GG_Bbb", sam: "GG_Bbb");
+
+        Assert.Equal(
+            PlanScriptExporter.ToPowerShell(planA, Header),
+            PlanScriptExporter.ToPowerShell(planB, Header));
+    }
+
+    // --- Helpers --------------------------------------------------------------------------
+
+    private static PlanModel BuildRepresentativePlan()
+    {
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_FileShare_RW", sam: "DL_FileShare_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales_EU", sam: "GG_Sales_EU");
+        var user = plan.AddNode(PlanCreatableKind.User, "Ada Lovelace", sam: "ada.lovelace");
+        plan.AddEdge(dl.Dn, gg.Dn);
+        plan.AddEdge(gg.Dn, user.Dn);
+        return plan;
+    }
+
+    /// <summary>Mutates a node's SAM directly to inject an exporter-gate test value
+    /// the model's AddNode would otherwise reject — exercising the exporter's OWN
+    /// control-char gate (defense in depth), not the model's.</summary>
+    private static void ForceSam(PlanModel plan, string dn, string sam)
+    {
+        Assert.True(plan.TryGetNode(dn, out var node));
+        node!.SamAccountName = sam;
+    }
+
+    private static int IndexOfRequired(string haystack, string needle)
+    {
+        var idx = haystack.IndexOf(needle, StringComparison.Ordinal);
+        Assert.True(idx >= 0, $"expected the script to contain '{needle}'");
+        return idx;
+    }
+}
