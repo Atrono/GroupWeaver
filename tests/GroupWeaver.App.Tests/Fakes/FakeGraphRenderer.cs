@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 
 using GroupWeaver.App.Graph;
+using GroupWeaver.Core.Diff;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Rules;
 
@@ -77,6 +78,26 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// never-completing, or faulted — injected per test.</summary>
     public Task FocusResult { get; set; } = Task.CompletedTask;
 
+    /// <summary>Every UNION model received by <see cref="ShowDiffGraphAsync"/>, in call order
+    /// (ADR-015 Slice 6 / #66 — the Gap step's wholesale destroy+fit gap-topology push; kept
+    /// on its OWN channel, never <see cref="ShownGraphs"/>, so the gap render path is
+    /// distinguishable from a severity <see cref="ShowGraphAsync"/>).</summary>
+    public List<GraphModel> ShownDiffGraphs { get; } = [];
+
+    /// <summary>Every <see cref="SnapshotDiff"/> received by <see cref="ShowDiffGraphAsync"/>,
+    /// in call order (the diff supplies the per-element Added/Removed/Common/Unchecked status;
+    /// the fake records it so the gap push is pinnable — no <see cref="RuleReport"/> rides
+    /// alongside it: the gap view shows the DIFF, not severity).</summary>
+    public List<SnapshotDiff> ShownDiffs { get; } = [];
+
+    /// <summary>The cancellation token observed by each <see cref="ShowDiffGraphAsync"/> call.</summary>
+    public List<CancellationToken> ShowDiffGraphTokens { get; } = [];
+
+    /// <summary>Task returned by <see cref="ShowDiffGraphAsync"/>: completed (default),
+    /// never-completing, or faulted — injected per test (mirrors
+    /// <see cref="ShowGraphResult"/>).</summary>
+    public Task ShowDiffGraphResult { get; set; } = Task.CompletedTask;
+
     /// <summary>The eight-byte PNG file signature (89 50 4E 47 0D 0A 1A 0A) — the canned
     /// "image bytes" the AP 4.1 S8 graph-image export tests pin: a non-null
     /// <see cref="ExportPngAsync"/> result the VM must write VERBATIM to the picked
@@ -136,6 +157,22 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
         FocusCalls.Add(dns);
         FocusTokens.Add(cancellationToken);
         return FocusResult;
+    }
+
+    /// <summary>ADR-015 Slice 6 (#66): records the union graph + the diff + the observed token
+    /// (each on its own channel) and returns the injected <see cref="ShowDiffGraphResult"/>.
+    /// Overrides the <see cref="IGraphRenderer.ShowDiffGraphAsync"/> default no-op (mirroring
+    /// the <see cref="ShowGraphAsync"/> recording shape) so the Gap step's wholesale gap push
+    /// is pinnable.</summary>
+    public Task ShowDiffGraphAsync(
+        GraphModel union,
+        SnapshotDiff diff,
+        CancellationToken cancellationToken = default)
+    {
+        ShownDiffGraphs.Add(union);
+        ShownDiffs.Add(diff);
+        ShowDiffGraphTokens.Add(cancellationToken);
+        return ShowDiffGraphResult;
     }
 
     /// <summary>AP 4.1 S8 (ADR-013): records the call + observed token and returns the
