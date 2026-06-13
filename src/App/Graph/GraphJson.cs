@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using GroupWeaver.Core.Diff;
 using GroupWeaver.Core.Graph;
+using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Graph;
@@ -47,7 +49,27 @@ public static class GraphJson
         GraphModel model,
         RuleReport report,
         IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap) =>
-        Serialize(new FlatDto(MapNodes(model.Nodes, report, belowMap), MapEdges(model.Edges)));
+        SerializeFlat(model, report, belowMap, nodeDiffMap: null, edgeDiffMap: null);
+
+    /// <summary>
+    /// Serializes the whole model with the AP 3.4 severity join AND the v0.3 gap-analysis
+    /// diff channel (ADR-015 Slice 4): each node/membership edge gains an omit-when-null
+    /// <c>diff</c> token from <paramref name="nodeDiffMap"/> /
+    /// <paramref name="edgeDiffMap"/>, forwarded into the SAME shared
+    /// <see cref="MapNodes"/>/<see cref="MapEdges"/> path so flat and chunked output can
+    /// never drift. Two <c>null</c> diff maps yield byte-identical output to the
+    /// severity-only overload (the <c>diff</c> field is omitted), so every pre-Slice-4
+    /// flat/severity test stays green.
+    /// </summary>
+    public static string SerializeFlat(
+        GraphModel model,
+        RuleReport report,
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        IReadOnlyDictionary<string, DiffStatus>? nodeDiffMap,
+        IReadOnlyDictionary<MembershipEdge, DiffStatus>? edgeDiffMap) =>
+        Serialize(new FlatDto(
+            MapNodes(model.Nodes, report, belowMap, nodeDiffMap),
+            MapEdges(model.Edges, edgeDiffMap)));
 
     /// <summary>Serializes a wire DTO with the shared options — every wire string
     /// (flat and chunked) goes through here.</summary>
@@ -65,7 +87,8 @@ public static class GraphJson
     internal static List<NodeDto> MapNodes(
         IReadOnlyList<GraphNode> nodes,
         RuleReport report,
-        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap) =>
+        IReadOnlyDictionary<string, (int Count, RuleSeverity Sev)>? belowMap,
+        IReadOnlyDictionary<string, DiffStatus>? diffMap = null) =>
         [.. nodes.Select(n =>
         {
             var sev = report.MaxSeverityByDn.TryGetValue(n.Dn, out var s) ? SeverityWire.ToToken(s) : null;
@@ -77,9 +100,13 @@ public static class GraphJson
                 belowSev = SeverityWire.ToToken(roll.Sev);
             }
 
+            var diff = diffMap is not null && diffMap.TryGetValue(n.Dn, out var ds)
+                ? DiffWire.ToToken(ds)
+                : null;
+
             return new NodeDto(
                 n.Dn, n.Label, n.Kind.ToString(), n.X, n.Y,
-                Root: n.IsRoot ? true : null, Sev: sev, Below: below, BelowSev: belowSev);
+                Root: n.IsRoot ? true : null, Sev: sev, Below: below, BelowSev: belowSev, Diff: diff);
         })];
 
     /// <summary>The lowercase wire token for a <see cref="RuleSeverity"/>
@@ -96,19 +123,51 @@ public static class GraphJson
         };
     }
 
+    /// <summary>The lowercase wire token for a <see cref="DiffStatus"/>
+    /// (<c>"added"</c>/<c>"removed"</c>/<c>"unchecked"</c>), DECOUPLED from the enum
+    /// names (ADR-015 Slice 4) — the JS gap-overlay selectors key off these tokens.
+    /// <see cref="DiffStatus.Common"/> maps to <c>null</c> so an unchanged element omits
+    /// the <c>diff</c> key and stays byte-identical to the pre-diff wire; this mirrors
+    /// <see cref="SeverityWire"/>.</summary>
+    internal static class DiffWire
+    {
+        public static string? ToToken(DiffStatus status) => status switch
+        {
+            DiffStatus.Added => "added",
+            DiffStatus.Removed => "removed",
+            DiffStatus.Unchecked => "unchecked",
+            _ => null,
+        };
+    }
+
     /// <summary>The ONE edge mapping code path, shared with <see cref="GraphChunker"/>:
     /// per-kind <c>m</c>/<c>c</c> id counters in model edge order, membership flipped
     /// (s := member, t := group), containment as-is (s := container).</summary>
-    internal static List<EdgeDto> MapEdges(IReadOnlyList<GraphEdge> edges)
+    internal static List<EdgeDto> MapEdges(
+        IReadOnlyList<GraphEdge> edges,
+        IReadOnlyDictionary<MembershipEdge, DiffStatus>? edgeDiffMap = null)
     {
         var dtos = new List<EdgeDto>(edges.Count);
         var membershipCount = 0;
         var containmentCount = 0;
         foreach (var edge in edges)
         {
-            dtos.Add(edge.Kind == GraphEdgeKind.Membership
-                ? new EdgeDto($"m{membershipCount++}", S: edge.ChildDn, T: edge.ParentDn, Rel: "member")
-                : new EdgeDto($"c{containmentCount++}", S: edge.ParentDn, T: edge.ChildDn, Rel: "contains"));
+            if (edge.Kind == GraphEdgeKind.Membership)
+            {
+                var diff = edgeDiffMap is not null
+                    && edgeDiffMap.TryGetValue(new MembershipEdge(edge.ParentDn, edge.ChildDn), out var ds)
+                        ? DiffWire.ToToken(ds)
+                        : null;
+                dtos.Add(new EdgeDto(
+                    $"m{membershipCount++}", S: edge.ChildDn, T: edge.ParentDn, Rel: "member", Diff: diff));
+            }
+            else
+            {
+                // Containment is never membership: it never reads the edge diff map, even
+                // on a (parent, child) key hit (ADR-015 Slice 4).
+                dtos.Add(new EdgeDto(
+                    $"c{containmentCount++}", S: edge.ParentDn, T: edge.ChildDn, Rel: "contains", Diff: null));
+            }
         }
 
         return dtos;
@@ -129,10 +188,17 @@ public static class GraphJson
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Root,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Sev,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Below,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BelowSev);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BelowSev,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Diff);
 
-    /// <summary>Wire edge in drawn orientation.</summary>
-    internal sealed record EdgeDto(string Id, string S, string T, string Rel);
+    /// <summary>Wire edge in drawn orientation. <paramref name="Diff"/> (ADR-015 Slice 4)
+    /// is the omit-when-null gap-analysis token, present only on membership edges.</summary>
+    internal sealed record EdgeDto(
+        string Id,
+        string S,
+        string T,
+        string Rel,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Diff);
 
     /// <summary>The flat <c>--dump-graph</c> document shape.</summary>
     private sealed record FlatDto(IReadOnlyList<NodeDto> Nodes, IReadOnlyList<EdgeDto> Edges);
