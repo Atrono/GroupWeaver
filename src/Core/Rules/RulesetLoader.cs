@@ -307,7 +307,10 @@ public static class RulesetLoader
 
         try
         {
-            _ = new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
+            _ = new Regex(
+                pattern,
+                RegexOptions.NonBacktracking | RegexOptions.CultureInvariant,
+                GlobMatcher.RegexMatchTimeout);
         }
         catch (NotSupportedException ex)
         {

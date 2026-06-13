@@ -135,7 +135,10 @@ public static class RuleEngine
             // must not intern into process memory. NonBacktracking keeps
             // matching linear-time on untrusted files; the pattern is anchored
             // as written and case-SENSITIVE (inline (?i) supported).
-            var regex = new Regex(rule.Pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant);
+            var regex = new Regex(
+                rule.Pattern,
+                RegexOptions.NonBacktracking | RegexOptions.CultureInvariant,
+                GlobMatcher.RegexMatchTimeout);
 
             foreach (var obj in snapshot.Objects)
             {
