@@ -41,7 +41,7 @@ namespace GroupWeaver.App.Settings;
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly RulesetLocator _locator;
-    private readonly IRulesetFileDialogs _dialogs;
+    private IRulesetFileDialogs _dialogs;
 
     private SettingsViewModel(RulesetLocator locator, IRulesetFileDialogs dialogs)
     {
@@ -127,6 +127,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         return vm;
     }
 
+    /// <summary>Installs the real file-picker seam (AP 3.3 / S7): the production
+    /// <see cref="SettingsWindow"/> calls this from its own <c>TopLevel</c>
+    /// (<c>StorageProviderRulesetFileDialogs</c>) once it is attached, so the
+    /// Import/Export commands reach the OS picker. Headless tests leave the
+    /// null/fake seam in place. Idempotent — the last writer wins.</summary>
+    public void UseFileDialogs(IRulesetFileDialogs dialogs) => _dialogs = dialogs;
+
     /// <summary>Mirrors <paramref name="ruleset"/> into a fresh editable tree.</summary>
     public static SettingsViewModel LoadFrom(Ruleset ruleset)
     {
@@ -207,6 +214,23 @@ public sealed partial class SettingsViewModel : ObservableObject
         Seed(RulesetLoader.LoadDefault());
         RunningOnDefaultBecauseInvalid = false;
     }
+
+    /// <summary>The File-tab Reset button (AP 3.3 / S7): rebuilds the mirror from the
+    /// embedded default via <see cref="ResetToDefault"/> — in-memory only, no disk write.</summary>
+    [RelayCommand]
+    private void Reset() => ResetToDefault();
+
+    /// <summary>The Ignore-tab Add button (AP 3.3 / S7): appends a fresh, empty dn-mode
+    /// global ignore entry (endpoint hidden) for the user to fill in. The gate
+    /// re-checks dn/name validity on the next Save/Export.</summary>
+    [RelayCommand]
+    private void AddIgnore() =>
+        Ignore.Add(new MatchEntryEditor { Mode = EntryMode.Dn });
+
+    /// <summary>The Ignore-tab per-row Remove button (AP 3.3 / S7): drops
+    /// <paramref name="entry"/> from the global ignore list.</summary>
+    [RelayCommand]
+    private void RemoveIgnore(MatchEntryEditor entry) => Ignore.Remove(entry);
 
     /// <summary>Import via the file-dialog seam: a picked file's text is fed to
     /// <see cref="ImportFrom"/> (whole-file replace + gate); a cancelled pick

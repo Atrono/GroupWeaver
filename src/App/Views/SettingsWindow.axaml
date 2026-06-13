@@ -57,6 +57,80 @@
                 ItemTemplate="{StaticResource CellChoiceItemTemplate}" />
     </DataTemplate>
 
+    <!-- One ignore-list row (AP 3.3 / S7): the global ignore list's MatchEntryEditor.
+         dn/name mode toggle over a single Value glob (the UI enforces the dn-XOR-name —
+         BuildRuleset sets exactly one, the Load gate re-checks), a free-form Note TextBox,
+         an optional "does this glob match?" helper, and a Remove button. The endpoint is
+         NEVER shown here (the ignore list is not endpoint-bearing — EndpointEditable=false).
+         #45: the Note is EDITED in a TextBox (Text target — never a format/markup surface);
+         there is no separate tooltip-on-raw-value. Remove binds to the VM (the ItemsControl's
+         DataContext is the SettingsViewModel). -->
+    <DataTemplate x:Key="IgnoreRowTemplate" x:DataType="settings:MatchEntryEditor">
+      <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="2,6">
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
+          <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
+                    SelectedItem="{Binding Mode}">
+            <ComboBox.Items>
+              <settings:EntryMode>Dn</settings:EntryMode>
+              <settings:EntryMode>Name</settings:EntryMode>
+            </ComboBox.Items>
+          </ComboBox>
+          <TextBox Grid.Row="0" Grid.Column="1" Margin="6,0,0,0" Watermark="glob (e.g. *,CN=Builtin,*)"
+                   Text="{Binding Value}" VerticalAlignment="Center" />
+          <!-- Remove binds to the VM (the ItemsControl's DataContext): reflection binding —
+               the parent path is not statically typed under this row's MatchEntryEditor x:DataType. -->
+          <Button Grid.Row="0" Grid.Column="2" Margin="6,0,0,0" Content="Remove"
+                  x:CompileBindings="False"
+                  Command="{Binding $parent[ItemsControl].DataContext.RemoveIgnoreCommand}"
+                  CommandParameter="{Binding}" />
+          <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="6,0,0,0"
+                   Watermark="note (optional)" Text="{Binding Note}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+
+    <!-- One per-rule EXCEPTION row (AP 3.3 / S7): the same MatchEntryEditor, reused by every
+         exception list. The Endpoint ComboBox (Any/Parent/Member) is shown ONLY when
+         EndpointEditable is true — i.e. ONLY for nesting exceptions (the one legal place);
+         naming/circular/empty-group exceptions hide it and Build forces Any. Remove binds to
+         the OWNING editor (the ItemsControl's DataContext is the section editor — Nesting /
+         a naming rule / Circular / EmptyGroup — each exposing RemoveExceptionCommand). #45:
+         the Note is edited in a TextBox (a plain Text target). -->
+    <DataTemplate x:Key="ExceptionRowTemplate" x:DataType="settings:MatchEntryEditor">
+      <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="2,6">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
+          <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
+                    SelectedItem="{Binding Mode}">
+            <ComboBox.Items>
+              <settings:EntryMode>Dn</settings:EntryMode>
+              <settings:EntryMode>Name</settings:EntryMode>
+            </ComboBox.Items>
+          </ComboBox>
+          <TextBox Grid.Row="0" Grid.Column="1" Margin="6,0,0,0" Watermark="glob"
+                   Text="{Binding Value}" VerticalAlignment="Center" />
+          <!-- Endpoint: nesting exceptions only (Any/Parent/Member). -->
+          <ComboBox Grid.Row="0" Grid.Column="2" Margin="6,0,0,0" MinWidth="92" VerticalAlignment="Center"
+                    IsVisible="{Binding EndpointEditable}"
+                    SelectedItem="{Binding Endpoint}">
+            <ComboBox.Items>
+              <rules:MatchEndpoint>Any</rules:MatchEndpoint>
+              <rules:MatchEndpoint>Parent</rules:MatchEndpoint>
+              <rules:MatchEndpoint>Member</rules:MatchEndpoint>
+            </ComboBox.Items>
+          </ComboBox>
+          <!-- Remove binds to the OWNING editor (the ItemsControl's DataContext — Nesting /
+               a naming rule / Circular / EmptyGroup, all exposing RemoveExceptionCommand):
+               reflection binding, since the owner type varies and is not the row's x:DataType. -->
+          <Button Grid.Row="0" Grid.Column="3" Margin="6,0,0,0" Content="Remove"
+                  x:CompileBindings="False"
+                  Command="{Binding $parent[ItemsControl].DataContext.RemoveExceptionCommand}"
+                  CommandParameter="{Binding}" />
+          <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="6,0,0,0"
+                   Watermark="note (optional)" Text="{Binding Note}" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+
   </Window.Resources>
 
   <!-- The modal settings editor (AP 3.3 / ADR-011 §1): a separate top-level Window
@@ -449,14 +523,111 @@
         </ScrollViewer>
       </TabItem>
 
+      <!-- Ignore & Exceptions (AP 3.3 / S7): the global ignore list (MatchEntryEditor rows —
+           dn/name mode toggle + Value glob + Note + Add/Remove; endpoint hidden) followed by
+           the per-rule exception lists. The endpoint Any/Parent/Member control appears ONLY on
+           the nesting exception rows (EndpointEditable=true — the one legal place); every other
+           exception list hides it. #45: every Note is edited in a plain TextBox Text target,
+           never a format/markup surface. Suppression order is global ignore → per-rule
+           exceptions (ADR-008 §5); this tab surfaces both in that order. -->
       <TabItem Header="Ignore &amp; Exceptions">
-        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
-                   Text="The ignore and exception lists are added in a later slice." />
+        <ScrollViewer>
+          <StackPanel Margin="12" Spacing="8">
+
+            <!-- Global ignore list. -->
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Add ignore entry"
+                      Command="{Binding AddIgnoreCommand}" />
+              <TextBlock Text="Global ignore list" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,2"
+                       Text="Objects or edges matching any entry are exempt from every check (global ignore → per-rule exceptions → check). A dn entry globs the DN; a name entry globs Name or SamAccountName." />
+            <ItemsControl ItemsSource="{Binding Ignore}"
+                          ItemTemplate="{StaticResource IgnoreRowTemplate}" />
+
+            <!-- Per-rule exceptions: nesting (endpoint editable), each naming rule, circular,
+                 empty-group. The endpoint control is bound to EndpointEditable, so only the
+                 nesting rows render it. -->
+            <TextBlock Text="Per-rule exceptions" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10">
+              <StackPanel Spacing="4">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Add exception"
+                          Command="{Binding Nesting.AddExceptionCommand}" />
+                  <TextBlock Text="Nesting matrix (endpoint: Any / Parent / Member)"
+                             VerticalAlignment="Center" />
+                </DockPanel>
+                <ItemsControl DataContext="{Binding Nesting}" ItemsSource="{Binding Exceptions}"
+                              ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Naming}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="settings:NamingRuleEditor">
+                  <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+                    <StackPanel Spacing="4">
+                      <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Add exception"
+                                Command="{Binding AddExceptionCommand}" />
+                        <TextBlock Text="{Binding Id, StringFormat='Naming: {0}'}"
+                                   VerticalAlignment="Center" />
+                      </DockPanel>
+                      <ItemsControl ItemsSource="{Binding Exceptions}"
+                                    ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+              <StackPanel Spacing="4">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Add exception"
+                          Command="{Binding Circular.AddExceptionCommand}" />
+                  <TextBlock Text="Circular nesting" VerticalAlignment="Center" />
+                </DockPanel>
+                <ItemsControl DataContext="{Binding Circular}" ItemsSource="{Binding Exceptions}"
+                              ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+              </StackPanel>
+            </Border>
+
+            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+              <StackPanel Spacing="4">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Add exception"
+                          Command="{Binding EmptyGroup.AddExceptionCommand}" />
+                  <TextBlock Text="Empty groups" VerticalAlignment="Center" />
+                </DockPanel>
+                <ItemsControl DataContext="{Binding EmptyGroup}" ItemsSource="{Binding Exceptions}"
+                              ItemTemplate="{StaticResource ExceptionRowTemplate}" />
+              </StackPanel>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
 
+      <!-- File (AP 3.3 / S7): Import / Export / Reset wired through the IRulesetFileDialogs seam
+           (the production StorageProvider adapter is the [I] picker layer). Import replaces the
+           WHOLE mirror from a picked file IF it loads cleanly (ADR-008 whole-file precedence, no
+           merge); Export runs the save gate and writes the gate-re-parsed ruleset to a picked
+           path (blocked + errors if invalid); Reset rebuilds the mirror from the embedded default
+           (in-memory only — no disk write). All gate/replace LOGIC is in the VM (S3); these
+           buttons only invoke it. Save/Apply (footer) persist/re-thread (S8). -->
       <TabItem Header="File">
-        <TextBlock Margin="16" Opacity="0.6" TextWrapping="Wrap"
-                   Text="Import / Export / Reset are added in a later slice." />
+        <StackPanel Margin="16" Spacing="10">
+          <TextBlock FontWeight="SemiBold" Text="Import / Export / Reset" />
+          <TextBlock Opacity="0.6" TextWrapping="Wrap"
+                     Text="Import replaces the whole ruleset from a file (no merge). Export writes the current ruleset to a file (only if it is valid). Reset to default discards edits in memory — nothing is saved until you press Save." />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Import…" MinWidth="110" Command="{Binding ImportCommand}" />
+            <Button Content="Export…" MinWidth="110" Command="{Binding ExportCommand}" />
+            <Button Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
+          </StackPanel>
+        </StackPanel>
       </TabItem>
 
     </TabControl>

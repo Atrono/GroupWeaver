@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Settings;
@@ -29,6 +30,15 @@ public sealed partial class SimpleRuleEditor : ObservableObject
 
     /// <summary>Per-rule exceptions (endpoint hidden).</summary>
     public ObservableCollection<MatchEntryEditor> Exceptions { get; } = [];
+
+    /// <summary>Appends a fresh dn-mode exception (endpoint hidden — circular/empty-group
+    /// exceptions are not endpoint-bearing, forced to Any on build).</summary>
+    [RelayCommand]
+    private void AddException() => Exceptions.Add(new MatchEntryEditor { Mode = EntryMode.Dn });
+
+    /// <summary>Removes <paramref name="entry"/> from the exception list.</summary>
+    [RelayCommand]
+    private void RemoveException(MatchEntryEditor entry) => Exceptions.Remove(entry);
 
     /// <summary>Seeds the editor from <paramref name="rule"/>, keeping its fixed
     /// <see cref="SimpleRule.RuleId"/> so it is reconstructed exactly on build.</summary>

@@ -711,6 +711,263 @@ public sealed class ShellScreenshotTests
         }
     }
 
+    // --- Settings window: Ignore & Exceptions tab (AP 3.3 / S7) -----------------------------------
+
+    /// <summary>The control char the plain-text note pins (#45 / ADR-011 §4): a BEL (<c></c>)
+    /// followed by an ANSI SGR red-foreground escape (<c>[31m</c>). An untrusted ruleset file
+    /// can carry exactly this in a <c>note</c>; the editor must render it as INERT plain text — the
+    /// BEL never rings, the escape never colors the terminal/markup — verbatim, ordinal, byte-for-byte
+    /// (the dedicated <c>MatchEntryNotePlainTextTests</c> pins the rendered <c>Text</c>; here the
+    /// fixture only needs the string to round into the captured surface).</summary>
+    private const string ControlCharNote = "[31mwould-color-a-terminal";
+
+    /// <summary>
+    /// AP 3.3 / S7 (ADR-011; spec "Ignore + exceptions" + "ui-checklist additions"): the modal
+    /// <see cref="SettingsWindow"/>'s <b>Ignore &amp; Exceptions</b> tab rendered standalone — the
+    /// same headless seam the other settings fixtures pin (<c>.Show()</c>, NOT <c>ShowDialog</c>;
+    /// open-risk #3), capturing <c>settings-ignore-{W}x{H}.png</c> at both checklist sizes for the
+    /// ui-verifier to judge against the new section-B "Ignore + exceptions" row.
+    ///
+    /// <para>The VM is seeded from <see cref="RulesetLoader.LoadDefault"/> through the mirror
+    /// (<see cref="SettingsViewModel.LoadFrom"/>) — the demo-mode-safe default, never a lab file.
+    /// The default ships the full built-in ignore set (the strict-AGDLP suppression entries), so the
+    /// captured list is the canonical global-ignore shape: dn/name mode toggle, the glob value, and
+    /// the plain-text note per row. To evidence the per-rule EXCEPTION surface in the SAME frame —
+    /// specifically the endpoint control that is legal ONLY on a nesting exception (Any/Parent/Member)
+    /// — one nesting exception is seeded (<c>vm.Nesting.Exceptions</c>, the one endpoint-EDITABLE
+    /// list) with <c>Endpoint=Member</c>; and to pin #45 in the captured surface its
+    /// <see cref="MatchEntryEditor.Note"/> carries a <see cref="ControlCharNote">control char</see>
+    /// that must render as inert plain text.</para>
+    ///
+    /// <para>Beyond the PNG, <see cref="AssertIgnoreTabSurface"/> pins fixture soundness the PNG
+    /// can't: every one of the built-in ignore entries AND the one nesting exception backs a realized,
+    /// bound control in the visual tree (so the list can never silently drop rows and still look
+    /// plausible), the nesting exception's <see cref="MatchEntryEditor.EndpointEditable"/> is true
+    /// (the endpoint control's presence is bound to it — naming/simple exceptions hide it), and the
+    /// control-char note is rendered VERBATIM into a <c>TextBlock</c>/<c>SelectableTextBlock</c>
+    /// (#45 — never interpreted, never a markup surface). <b>RED</b> until
+    /// <c>src/App/Views/SettingsWindow.axaml(.cs)</c>'s Ignore &amp; Exceptions tab binds
+    /// <see cref="SettingsViewModel.Ignore"/> and the per-rule exception lists (today the tab is a
+    /// placeholder TextBlock — no ignore row or endpoint control realizes).</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_Ignore(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        // Soundness BEFORE the window: the default ships the full built-in ignore set (the
+        // strict-AGDLP suppression entries) — the canonical global-ignore shape the capture wants.
+        // The exact count is DERIVED from the live default mirror (it is 24 dn entries today; the
+        // task prompt's "23" is stale — the default carries 24), never a brittle literal that would
+        // fail this fixture for an off-by-one rather than for the missing Ignore tab. A >= floor
+        // guards against an empty list so the captured surface is never a stub.
+        var ignoreCount = vm.Ignore.Count;
+        Assert.True(ignoreCount >= 20, $"the default must ship the full built-in ignore set; got {ignoreCount}");
+
+        // One nesting exception, the only place an endpoint (Any/Parent/Member) is legal: it must
+        // load endpoint-EDITABLE (the endpoint control's presence binds to this) and carries a
+        // control-char note so the captured surface evidences the #45 plain-text rendering.
+        var nestingException = MatchEntryEditor.LoadFrom(
+            new MatchEntry { Dn = "CN=Svc-Backup,OU=Service,*", Note = ControlCharNote, Endpoint = MatchEndpoint.Member },
+            endpointEditable: true);
+        Assert.True(
+            nestingException.EndpointEditable,
+            "a nesting exception must be endpoint-editable (the endpoint control's presence binds to it)");
+        Assert.Equal(MatchEndpoint.Member, nestingException.Endpoint);
+        vm.Nesting.Exceptions.Add(nestingException);
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the Ignore & Exceptions tab to the front so its lists (the captured surface) realize.
+        SelectTab(window, "Ignore");
+        Dispatcher.UIThread.RunJobs();
+
+        // The ignore rows + the nesting exception (with its endpoint control + plain-text note)
+        // actually realized — the soundness pins the PNG can't make.
+        AssertIgnoreTabSurface(window, vm, nestingException);
+
+        CaptureWindowPng(window, "settings-ignore", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the Ignore &amp; Exceptions tab (AP 3.3 / S7): the realized window
+    /// (a) backs EVERY one of the 23 <see cref="SettingsViewModel.Ignore"/> entries AND the seeded
+    /// nesting <paramref name="nestingException"/> with a bound, effectively-visible control (located
+    /// via the <see cref="MatchEntryEditor"/> instances themselves, which the tab binds as each row's
+    /// DataContext) — so the list can never silently drop rows and still look plausible in a static
+    /// frame; and (b) renders the control-char note VERBATIM into a <c>TextBlock</c> /
+    /// <c>SelectableTextBlock</c> editing control's text or content (#45 — never interpreted as a BEL
+    /// or an ANSI escape, never a markup surface). The endpoint control's presence is asserted at the
+    /// model level (<c>EndpointEditable</c> true) by the caller; this pin proves the row realized.
+    /// </summary>
+    private static void AssertIgnoreTabSurface(
+        SettingsWindow window, SettingsViewModel vm, MatchEntryEditor nestingException)
+    {
+        Assert.NotEmpty(vm.Ignore); // the canonical built-in ignore set (24 entries in the default)
+
+        var boundDataContexts = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Control>()
+            .Where(c => c.IsEffectivelyVisible)
+            .Select(c => c.DataContext)
+            .ToHashSet();
+
+        foreach (var entry in vm.Ignore)
+        {
+            Assert.True(
+                boundDataContexts.Contains(entry),
+                $"the ignore list must realize a bound row control for '{entry.Value}'");
+        }
+
+        Assert.True(
+            boundDataContexts.Contains(nestingException),
+            "the nesting exception list must realize a bound row control (with its endpoint control)");
+
+        // #45: the control-char note rendered VERBATIM somewhere in frame — a TextBlock or
+        // SelectableTextBlock whose Text is byte/ordinal-equal to the seeded note (the BEL and the
+        // ANSI escape are inert characters, never interpreted). A TextBox EDITING the note (Text ==
+        // the note) is also fine — the rule is "never a format/markup surface", not "never editable".
+        var verbatim = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Any(t => string.Equals(t.Text, ControlCharNote, StringComparison.Ordinal))
+            || window.GetVisualDescendants()
+                .OfType<Avalonia.Controls.TextBox>()
+                .Any(t => string.Equals(t.Text, ControlCharNote, StringComparison.Ordinal));
+
+        Assert.True(
+            verbatim,
+            "the control-char note must render VERBATIM (TextBlock/SelectableTextBlock/TextBox), "
+            + "never interpreted as a BEL or ANSI escape and never a markup surface (#45)");
+    }
+
+    // --- Settings window: Validation banner + error panel (AP 3.3 / S7) ---------------------------
+
+    /// <summary>The error path the validation fixture seeds — the loader's own path shape for a
+    /// rejected severity token (the <c>$.circular.severity</c> defect the <c>SettingsValidationTests</c>
+    /// broken-file arm also produces), so the captured panel reads as a real loader finding.</summary>
+    private const string ValidationErrorPath = "$.circular.severity";
+
+    /// <summary>
+    /// AP 3.3 / S7 (ADR-011; spec "Validation panel + invalid-file-on-open" + "ui-checklist
+    /// additions"): the modal <see cref="SettingsWindow"/> opened on a REJECTED user file rendered
+    /// standalone — same headless seam (<c>.Show()</c>, NOT <c>ShowDialog</c>), capturing
+    /// <c>settings-validation-{W}x{H}.png</c> at both checklist sizes for the ui-verifier to judge
+    /// the persistent validation band + the invalid-user-file banner against the new section-B rows.
+    ///
+    /// <para>The VM is seeded the production way for the invalid-on-open path:
+    /// <see cref="SettingsViewModel.Open"/> over an <see cref="EffectiveRuleset"/> whose
+    /// <see cref="EffectiveRuleset.Errors"/> is non-empty and <see cref="EffectiveRuleset.FromUserFile"/>
+    /// is false (the app is running on the embedded default because the saved file was rejected — the
+    /// AP 3.4 errors that were threaded but unsurfaced finally appear). That seeds the mirror from the
+    /// default, sets <c>RunningOnDefaultBecauseInvalid</c> (the banner), and surfaces the errors into
+    /// the validation panel. One seeded error's <see cref="RulesetValidationError.Message"/> carries a
+    /// <see cref="ControlCharNote">control char</see> so the captured panel ALSO evidences #45: the
+    /// loader message is plain text (<c>SelectableTextBlock.Text</c>), never a markup/format surface.
+    /// The locator is a temp-dir seam (never real <c>%APPDATA%</c>) and <c>Open</c> writes nothing.</para>
+    ///
+    /// <para><see cref="AssertValidationSurface"/> pins fixture soundness the PNG can't: the banner is
+    /// flagged, every seeded error backs a realized row whose Path and Message render as SEPARATE plain
+    /// <c>Text</c> targets (never interpolated into one format template), and the control-char message
+    /// renders VERBATIM (#45). <b>RED</b> until the validation band + banner are wired AND the Ignore/File
+    /// tabs exist (the window is constructed regardless, but the S7 surface is what makes the capture a
+    /// faithful settings-validation frame).</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_Validation(int width, int height)
+    {
+        using var dir = new TempArtifactDir();
+        var locator = new RulesetLocator(dir.Path);
+
+        // The rejected-user-file effective: the app runs on the embedded default, carrying the
+        // loader's path-addressed errors. One message carries a control char to pin #45 in the panel.
+        var errors = new List<RulesetValidationError>
+        {
+            new("$.schemaVersion", "Unsupported schemaVersion 99 (this build understands version 1)."),
+            new(ValidationErrorPath, "Unknown severity token; " + ControlCharNote),
+        };
+        var effective = new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, errors);
+
+        var vm = SettingsViewModel.Open(effective, locator);
+
+        // Soundness BEFORE the window: the invalid-on-open seam flagged the banner and surfaced the
+        // EXACT errors (no parallel validator — the locator's carried list, verbatim).
+        Assert.True(vm.RunningOnDefaultBecauseInvalid, "an invalid user file on open must flag the banner");
+        Assert.Equal(errors, vm.ValidationErrors.ToList());
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // The banner + error panel actually realized — the soundness pins the PNG can't make.
+        AssertValidationSurface(window, vm);
+
+        CaptureWindowPng(window, "settings-validation", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the validation band + invalid-file banner (AP 3.3 / S7): the realized
+    /// window (a) flags <see cref="SettingsViewModel.RunningOnDefaultBecauseInvalid"/>; (b) renders,
+    /// for every seeded <see cref="RulesetValidationError"/>, its <c>Path</c> AND its <c>Message</c> as
+    /// SEPARATE plain <c>Text</c> targets — the message into a <c>TextBlock</c>/<c>SelectableTextBlock</c>,
+    /// NEVER interpolated into one "{path} — {message}" template (so an untrusted message can never
+    /// reach a format/markup surface, #45); and (c) renders the control-char message VERBATIM
+    /// (byte/ordinal-equal). Located structurally (the error rows are not named controls): the panel's
+    /// realized text blocks must include each error's Path and each error's Message as distinct strings.
+    /// </summary>
+    private static void AssertValidationSurface(SettingsWindow window, SettingsViewModel vm)
+    {
+        Assert.True(vm.RunningOnDefaultBecauseInvalid);
+        Assert.NotEmpty(vm.ValidationErrors);
+
+        // Every realized text-bearing control's verbatim Text (TextBlock covers SelectableTextBlock,
+        // which derives from it; the band binds Message to SelectableTextBlock.Text per #45).
+        var renderedTexts = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text))
+            .Select(t => t.Text!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var error in vm.ValidationErrors)
+        {
+            // Path and Message are SEPARATE Text targets — each appears verbatim and on its own
+            // (never fused into one "{path} — {message}" interpolation that would make the message
+            // part of a format string). The Message equality is ORDINAL so the control-char message
+            // is pinned byte-for-byte (#45).
+            Assert.Contains(error.Path, renderedTexts);
+            Assert.Contains(error.Message, renderedTexts);
+        }
+    }
+
+    /// <summary>A self-deleting temp dir for the validation fixture's <see cref="RulesetLocator"/>
+    /// seam — <see cref="SettingsViewModel.Open"/> writes nothing on the invalid-on-open path, but the
+    /// locator must never point at real <c>%APPDATA%</c> from a screenshot test (demo-mode discipline).</summary>
+    private sealed class TempArtifactDir : IDisposable
+    {
+        public string Path { get; } =
+            Directory.CreateTempSubdirectory("groupweaver-settings-validation-fixture-").FullName;
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     /// <summary>Brings the <see cref="Avalonia.Controls.TabItem"/> whose header text contains
     /// <paramref name="header"/> to the front of the window's <see cref="Avalonia.Controls.TabControl"/>,
     /// so its content is realized for capture. Header match is substring + ordinal-ignore-case so

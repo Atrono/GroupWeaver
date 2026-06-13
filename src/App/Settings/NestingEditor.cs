@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
 
@@ -76,6 +77,16 @@ public sealed partial class NestingEditor : ObservableObject
 
     /// <summary>The cell editor for <paramref name="parent"/>←<paramref name="member"/>.</summary>
     public NestingCellEditor Cell(AdObjectKind parent, AdObjectKind member) => _cells[(parent, member)];
+
+    /// <summary>Appends a fresh dn-mode exception. Nesting is the one exception list whose
+    /// endpoint is editable (Any/Parent/Member), so the new row is endpoint-editable.</summary>
+    [RelayCommand]
+    private void AddException() =>
+        Exceptions.Add(new MatchEntryEditor { Mode = EntryMode.Dn, EndpointEditable = true });
+
+    /// <summary>Removes <paramref name="entry"/> from the exception list.</summary>
+    [RelayCommand]
+    private void RemoveException(MatchEntryEditor entry) => Exceptions.Remove(entry);
 
     /// <summary>Seeds the editor from <paramref name="rule"/>: every grid cell adopts
     /// its effective verdict, but only cells that were genuinely present in the source
