@@ -110,6 +110,7 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 
 - [ ] Sidebar tops the right column ABOVE the detail stack (vertical split, beside GraphHost, never over the graph — ADR-001 airspace); header "Findings (n)" [S:workspace-violations]
 - [ ] Severity-summary chip strip in the header evidences all three severities above the fold: E/W/i glyph squares in the palette (#D13438/#F7A30B/#4FA3E3) + counts (demo: E 4 · W 3 · i 12) [S:workspace-violations] [T:ShellScreenshotTests — chip brushes + counts pinned]
+- [ ] Report-export pair (AP 4.1, ADR-013 §6): "Export CSV" + "Export HTML" buttons right-aligned in the header row, legible, not crowding the title or the chip strip below; tooltips present; enabled once a load completes (CanExportReport → Snapshot is not null), greyed pre-load [S:workspace-violations]
 - [ ] Rows in canonical report order: severity glyph (color + redundant letter E/W/i), wrapping message, dimmed subject name; glyph colors match the graph halos [S:workspace-violations]
 - [ ] "Unexpanded areas are unchecked" hint visible whenever UncheckedDns is non-empty (demo: the two ignored builtin DNs), shown even in the all-clear state [S:workspace-violations]
 - [ ] All-clear: "No rule violations found." when Violations is empty; hint still shows if areas remain unchecked [I — WorkspaceViolationsTests]
