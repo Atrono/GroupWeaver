@@ -1,0 +1,140 @@
+{
+  // GroupWeaver default ruleset - strict AGDLP (the AGUDLP G->U->DL lane is allowed).
+  // Comments and trailing commas are legal in this file. Copy, edit, share.
+  // NOTE: the settings editor does not preserve // comments on save - put durable
+  // remarks into the "note" fields, which are data and survive every round-trip.
+  // Glob syntax in dn/name fields: * = any characters (commas included), ? = exactly
+  // one character, everything else literal; matching is case-insensitive.
+  "schemaVersion": 1,
+  "name": "GroupWeaver default (strict AGDLP)",
+  "description": "Accounts only in global groups; G->DL and G->U->DL lanes allowed; GG_/DL_/UG_ naming; circular and empty groups checked separately.",
+  "author": "GroupWeaver",
+
+  "nesting": {
+    "enabled": true,
+    "severity": "error",   // applies to every "deny" cell
+    "unlisted": "deny",    // verdict for any row/column not listed below (fails closed)
+    // Rows = containing group (parent). Columns = direct member.
+    // Cells: "allow" | "deny" (rule severity) | "error"/"warning"/"info" (that severity).
+    "matrix": {
+      "GlobalGroup": {
+        "User": "allow",            // A -> G: the whole point
+        "Computer": "allow",        // machine accounts in role groups are normal
+        "GlobalGroup": "allow",     // role-group nesting (AGGDLP) is conformant
+        "DomainLocalGroup": "deny", // AD itself forbids this; seeing it means broken data
+        "UniversalGroup": "deny",   // likewise
+        "External": "allow"         // out-of-scope members are routine on scoped loads
+      },
+      "DomainLocalGroup": {
+        "User": "deny",             // accounts go in global groups, never directly in DLs
+        "Computer": "deny",
+        "GlobalGroup": "allow",     // G -> DL lane
+        "DomainLocalGroup": "deny", // strict AGDLP: no DL-in-DL
+        "UniversalGroup": "allow",  // AGUDLP lane: G -> U -> DL
+        "External": "info"          // built-ins/FSPs surface here: visible, not judged
+      },
+      "UniversalGroup": {
+        "User": "deny",
+        "Computer": "deny",
+        "GlobalGroup": "allow",     // G -> U
+        "DomainLocalGroup": "deny", // AD forbids
+        "UniversalGroup": "warning",// legal in AD, outside the canonical lane
+        "External": "allow"         // routine on scoped loads, same as the GG row
+      }
+    },
+    "exceptions": []
+  },
+
+  "naming": [
+    {
+      "id": "naming-gg",
+      "enabled": true,
+      "severity": "warning",
+      "kind": "GlobalGroup",
+      "pattern": "^GG_([A-Z][A-Za-z0-9]*)(_[A-Z][A-Za-z0-9]*)+$",
+      "description": "GG_<Token>_<Token>...: at least two PascalCase tokens after the GG_ prefix.",
+      "exceptions": []
+    },
+    {
+      "id": "naming-dl",
+      "enabled": true,
+      "severity": "warning",
+      "kind": "DomainLocalGroup",
+      "pattern": "^DL_[A-Z][A-Za-z0-9]*(-[A-Za-z0-9]+)*_(RW|RO)$",
+      "description": "DL_<Resource>_<RW|RO>; the resource may contain hyphens (FS-Sales, Print-HQ).",
+      "exceptions": []
+    },
+    {
+      "id": "naming-ug",
+      "enabled": true,
+      "severity": "warning",
+      "kind": "UniversalGroup",
+      "pattern": "^UG_[A-Z][A-Za-z0-9]*$",
+      "description": "UG_<Token>.",
+      "exceptions": []
+    }
+  ],
+
+  "circular":   { "enabled": true, "severity": "error", "exceptions": [] },
+  "emptyGroup": { "enabled": true, "severity": "info",  "exceptions": [] },
+
+  // Default ignore list: well-known principals that are not yours to rename or
+  // restructure. Fully visible and editable; delete an entry to start judging
+  // that object. An ignored object is exempt everywhere; a membership edge is
+  // exempt when either endpoint matches.
+  "ignore": [
+    { "dn": "*,CN=Builtin,*",
+      "note": "Built-in groups (Administrators, Print Operators, ...). The Builtin container name is never localized." },
+    { "dn": "*,CN=ForeignSecurityPrincipals,*",
+      "note": "FSPs: well-known SIDs (S-1-5-11 Authenticated Users, S-1-5-4 Interactive, ...) and cross-forest members surface here." },
+
+    { "dn": "CN=Administrator,CN=Users,*",
+      "note": "Default account. CN is localized on non-English DCs - add your locale's spelling as an extra entry." },
+    { "dn": "CN=Guest,CN=Users,*",
+      "note": "Default account; localization caveat as on the Administrator entry." },
+    { "dn": "CN=krbtgt,CN=Users,*",
+      "note": "KDC service account (CN never localized)." },
+
+    { "dn": "CN=Domain Admins,CN=Users,*",
+      "note": "Protected default group. Localized on non-English DCs (German: Dom\u00e4nen-Admins) - add your locale's spelling." },
+    { "dn": "CN=Enterprise Admins,CN=Users,*",
+      "note": "Protected default group (forest root); localization caveat as above." },
+    { "dn": "CN=Schema Admins,CN=Users,*",
+      "note": "Protected default group (forest root); localization caveat as above." },
+
+    { "dn": "CN=Domain Controllers,CN=Users,*",
+      "note": "Default DC group; localization caveat as above." },
+    { "dn": "CN=Read-only Domain Controllers,CN=Users,*",
+      "note": "Default RODC group; localization caveat as above." },
+    { "dn": "CN=Enterprise Read-only Domain Controllers,CN=Users,*",
+      "note": "Forest-root RODC group; localization caveat as above." },
+    { "dn": "CN=Cloneable Domain Controllers,CN=Users,*",
+      "note": "DC cloning group; localization caveat as above." },
+
+    { "dn": "CN=Domain Users,CN=Users,*",
+      "note": "Primary-group default; localization caveat as above." },
+    { "dn": "CN=Domain Guests,CN=Users,*",
+      "note": "Primary-group default; localization caveat as above." },
+    { "dn": "CN=Domain Computers,CN=Users,*",
+      "note": "Primary-group default; localization caveat as above." },
+
+    { "dn": "CN=Protected Users,CN=Users,*",
+      "note": "Credential-hardening group; localization caveat as above." },
+    { "dn": "CN=Cert Publishers,CN=Users,*",
+      "note": "PKI default group; localization caveat as above." },
+    { "dn": "CN=Key Admins,CN=Users,*",
+      "note": "msDS-KeyCredentialLink admin group; localization caveat as above." },
+    { "dn": "CN=Enterprise Key Admins,CN=Users,*",
+      "note": "Forest-root key admin group; localization caveat as above." },
+    { "dn": "CN=DnsAdmins,CN=Users,*",
+      "note": "DNS role group (created by the DNS server role; CN not localized)." },
+    { "dn": "CN=DnsUpdateProxy,CN=Users,*",
+      "note": "DNS role group (CN not localized)." },
+    { "dn": "CN=RAS and IAS Servers,CN=Users,*",
+      "note": "Legacy remote-access group; localization caveat as above." },
+    { "dn": "CN=Allowed RODC Password Replication Group,CN=Users,*",
+      "note": "RODC replication policy group; localization caveat as above." },
+    { "dn": "CN=Denied RODC Password Replication Group,CN=Users,*",
+      "note": "RODC replication policy group; localization caveat as above." }
+  ]
+}

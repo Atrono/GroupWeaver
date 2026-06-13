@@ -58,6 +58,16 @@ GroupWeaver --demo
 All screenshots and GIFs published for this project are produced in demo mode
 only — never against a real directory.
 
+## Rulesets
+
+The rule engine is driven by a single JSONC rule file. The built-in default
+(strict AGDLP, `GG_`/`DL_`/`UG_` naming, well-known principals ignored) is
+embedded in the app — no file needed. To customize, place a complete ruleset
+at `%APPDATA%\GroupWeaver\ruleset.jsonc`; it replaces the default outright
+(no merging). Commented examples, including a published copy of the default,
+live in [examples/rulesets/](examples/rulesets/); the format is specified in
+[ADR-008](docs/adr/008-rule-model.md).
+
 ## System requirements
 
 - Windows 10 / Windows Server 2016 or later
