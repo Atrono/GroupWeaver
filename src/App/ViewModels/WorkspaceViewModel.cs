@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Startup;
@@ -87,18 +88,26 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// picks the new ruleset up in its own Evaluate.</summary>
     private Ruleset _ruleset;
 
+    /// <summary>The AP 4.1 export save-dialog seam (ADR-013 §5): supplied by the composition
+    /// root from the workspace window's <see cref="Avalonia.Controls.TopLevel"/> once attached;
+    /// <c>null</c> in tests until the export slices wire commands, so every existing test stays
+    /// on the default.</summary>
+    private readonly IExportFileDialogs? _exportDialogs;
+
     public WorkspaceViewModel(
         IDirectoryProvider provider,
         AdObject root,
         DirectoryConnection connection,
         bool webView2Missing = false,
         Func<IGraphRenderer>? graphRendererFactory = null,
-        EffectiveRuleset? ruleset = null)
+        EffectiveRuleset? ruleset = null,
+        IExportFileDialogs? exportDialogs = null)
     {
         Provider = provider;
         Root = root;
         Connection = connection;
         WebView2Missing = webView2Missing;
+        _exportDialogs = exportDialogs;
 
         // null => the embedded default (the pre-AP-3.4 contract); a located user/default
         // EffectiveRuleset otherwise. Errors carried, surfaced by AP 3.3. // AP 3.3
