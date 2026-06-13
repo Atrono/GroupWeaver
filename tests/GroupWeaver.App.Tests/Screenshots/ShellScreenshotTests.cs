@@ -844,6 +844,225 @@ public sealed class ShellScreenshotTests
             + "never interpreted as a BEL or ANSI escape and never a markup surface (#45)");
     }
 
+    // --- Settings window: per-rule exception ENDPOINT control (AP 3.3 / S7, S7 evidence gap) -------
+
+    /// <summary>
+    /// AP 3.3 / S7 (ADR-011; spec "Ignore + exceptions"; S7 ui-verifier EVIDENCE-COVERAGE gap):
+    /// the modal <see cref="SettingsWindow"/>'s <b>Ignore &amp; Exceptions</b> tab rendered with the
+    /// per-rule <b>nesting-exception</b> section SCROLLED INTO THE VIEWPORT, so the captured pixels
+    /// finally evidence the two surfaces the checklist asks the verifier to JUDGE visually but which
+    /// sit below the <see cref="Settings_Ignore"/> scroll fold (the global ignore list renders first):
+    /// (a) the nesting-exception <b>Any/Parent/Member endpoint ComboBox</b> — the control that is
+    /// legal ONLY on a nesting exception (naming/circular/empty-group exceptions HIDE it, bound to
+    /// <see cref="MatchEntryEditor.EndpointEditable"/>); and (b) a nesting-exception <c>Note</c>
+    /// carrying a <see cref="ControlCharNote">control char</see> rendered INERT/plain (#45).
+    ///
+    /// <para>The companion <see cref="Settings_Ignore"/> fixture already seeds an identical nesting
+    /// exception, but its <c>settings-ignore-*.png</c> frame is anchored at the top of the tab (the
+    /// 24-entry global ignore list), so the endpoint control and the note never enter its captured
+    /// pixels — the precise gap the S7 ui-verifier flagged. Here the realized endpoint ComboBox is
+    /// located by its <c>DataContext</c> (the seeded nesting exception) and <c>BringIntoView()</c>d
+    /// so the tab's <see cref="ScrollViewer"/> scrolls it into frame BEFORE capture; the
+    /// non-virtualizing exception <c>ItemsControl</c> realizes every row regardless, so the scroll is
+    /// purely to move the already-realized control into the captured viewport.</para>
+    ///
+    /// <para><see cref="AssertExceptionEndpointSurface"/> pins fixture soundness the PNG can't: the
+    /// nesting exception's endpoint ComboBox is realized AND effectively-visible (the
+    /// <c>EndpointEditable</c>-bound control the naming/circular/empty-group exceptions hide), its
+    /// <c>SelectedItem</c> is the seeded <see cref="MatchEndpoint.Member"/>, and the control-char note
+    /// renders VERBATIM into a plain <c>Text</c> target (#45 — never interpreted, never a markup
+    /// surface).</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_Exceptions(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        // One nesting exception — the ONLY exception list whose endpoint (Any/Parent/Member) is legal.
+        // It must load endpoint-EDITABLE (the endpoint control's presence binds to this) and carries a
+        // control-char note so the scrolled-in frame evidences the #45 plain-text rendering. Endpoint is
+        // seeded to Member so the captured ComboBox shows a non-default (non-Any) selection.
+        var nestingException = MatchEntryEditor.LoadFrom(
+            new MatchEntry { Dn = "CN=Svc-Backup,OU=Service,*", Note = ControlCharNote, Endpoint = MatchEndpoint.Member },
+            endpointEditable: true);
+        Assert.True(
+            nestingException.EndpointEditable,
+            "a nesting exception must be endpoint-editable (the endpoint control's presence binds to it)");
+        Assert.Equal(MatchEndpoint.Member, nestingException.Endpoint);
+        vm.Nesting.Exceptions.Add(nestingException);
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the Ignore & Exceptions tab to the front so its lists (the captured surface) realize.
+        SelectTab(window, "Ignore");
+        Dispatcher.UIThread.RunJobs();
+
+        // Scroll the nesting-exception ENDPOINT control into the captured viewport — the S7 evidence
+        // gap. The endpoint ComboBox is located by its DataContext (the seeded nesting exception); a
+        // headless BringIntoView drives the tab's ScrollViewer (no input desktop needed — the same
+        // programmatic-scroll seam the other settings fixtures rely on for tab realization).
+        var endpointBox = ScrollEndpointIntoView(window, nestingException);
+        Dispatcher.UIThread.RunJobs();
+
+        // The endpoint control + the plain-text note actually realized and are in view — the soundness
+        // pins the PNG can't make. The visual-tree assertion the task requires lives here.
+        AssertExceptionEndpointSurface(window, endpointBox, nestingException);
+
+        CaptureWindowPng(window, "settings-exceptions", width, height);
+        window.Close();
+    }
+
+    /// <summary>Locates the realized Any/Parent/Member endpoint <see cref="Avalonia.Controls.ComboBox"/>
+    /// for <paramref name="nestingException"/> (the one whose <c>DataContext</c> IS that exception) and
+    /// <c>BringIntoView()</c>s it so the tab's <see cref="ScrollViewer"/> scrolls it into the captured
+    /// viewport. The exception <c>ItemsControl</c> is non-virtualizing, so the row is already realized;
+    /// this only moves it into frame. Returns the endpoint ComboBox for the soundness assertion.</summary>
+    private static Avalonia.Controls.ComboBox ScrollEndpointIntoView(
+        SettingsWindow window, MatchEntryEditor nestingException)
+    {
+        // The endpoint ComboBox binds SelectedItem to the entry's Endpoint and lives on the row whose
+        // DataContext is the entry; it is the ONLY ComboBox under that row over MatchEndpoint items.
+        var endpointBox = Assert.Single(
+            window.GetVisualDescendants().OfType<Avalonia.Controls.ComboBox>(),
+            cb => ReferenceEquals(cb.DataContext, nestingException)
+                && cb.Items.OfType<MatchEndpoint>().Any());
+
+        // Scroll the BOTTOM of the exception row — its note TextBox (the Grid.Row=1 cell below the
+        // endpoint) — into view, so BOTH the endpoint ComboBox (the row above) AND the control-char
+        // note land in the captured viewport together; bringing only the ComboBox into view leaves the
+        // note one line past the fold. BringIntoView is an extension on ControlExtensions; this file
+        // fully-qualifies Avalonia.Controls types (no `using Avalonia.Controls;`), so invoke it statically.
+        var noteBox = Assert.Single(
+            window.GetVisualDescendants().OfType<Avalonia.Controls.TextBox>(),
+            tb => ReferenceEquals(tb.DataContext, nestingException)
+                && string.Equals(tb.Text, ControlCharNote, StringComparison.Ordinal));
+        Avalonia.Controls.ControlExtensions.BringIntoView(noteBox);
+        return endpointBox;
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the exception-endpoint surface (AP 3.3 / S7; the S7 evidence gap):
+    /// the realized window (a) backs the seeded nesting <paramref name="nestingException"/> with a
+    /// realized, effectively-visible endpoint <see cref="Avalonia.Controls.ComboBox"/> over the
+    /// Any/Parent/Member items — the <c>EndpointEditable</c>-bound control naming/circular/empty-group
+    /// exceptions HIDE — whose <c>SelectedItem</c> is the seeded <see cref="MatchEndpoint.Member"/>; and
+    /// (b) renders the control-char note VERBATIM into a plain <c>Text</c> target (#45). The endpoint
+    /// control is located in <see cref="ScrollEndpointIntoView"/> by its <c>DataContext</c>; this pin
+    /// proves it realized, is visible, carries the three endpoint choices, and shows the right one.
+    /// </summary>
+    private static void AssertExceptionEndpointSurface(
+        SettingsWindow window, Avalonia.Controls.ComboBox endpointBox, MatchEntryEditor nestingException)
+    {
+        // The endpoint control is the EndpointEditable-bound one — naming/circular/empty-group
+        // exceptions hide it; only this nesting exception realizes it. It is realized AND visible.
+        Assert.True(
+            endpointBox.IsEffectivelyVisible,
+            "the nesting-exception endpoint ComboBox must be realized and visible (naming/circular/"
+            + "empty-group exceptions hide it — EndpointEditable=false)");
+
+        // It carries the three legal endpoints and shows the seeded one (Member, not the Any default).
+        Assert.Equal(
+            new[] { MatchEndpoint.Any, MatchEndpoint.Parent, MatchEndpoint.Member },
+            endpointBox.Items.OfType<MatchEndpoint>().ToArray());
+        Assert.Equal(MatchEndpoint.Member, endpointBox.SelectedItem);
+        Assert.True(
+            nestingException.EndpointEditable,
+            "the endpoint control's presence is bound to EndpointEditable (true only for nesting)");
+
+        // #45: the control-char note rendered VERBATIM somewhere in frame — a TextBlock/
+        // SelectableTextBlock whose Text is byte/ordinal-equal to the seeded note, or a TextBox
+        // EDITING it. The BEL and ANSI escape are inert characters, never interpreted, never markup.
+        var verbatim = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Any(t => string.Equals(t.Text, ControlCharNote, StringComparison.Ordinal))
+            || window.GetVisualDescendants()
+                .OfType<Avalonia.Controls.TextBox>()
+                .Any(t => string.Equals(t.Text, ControlCharNote, StringComparison.Ordinal));
+
+        Assert.True(
+            verbatim,
+            "the nesting-exception note must render VERBATIM (TextBlock/SelectableTextBlock/TextBox), "
+            + "never interpreted as a BEL or ANSI escape and never a markup surface (#45)");
+    }
+
+    // --- Settings window: File tab (AP 3.3 / S7, S7 evidence gap) ----------------------------------
+
+    /// <summary>
+    /// AP 3.3 / S7 (ADR-011; spec "Import/Export/Reset"; S7 ui-verifier EVIDENCE-COVERAGE gap): the
+    /// modal <see cref="SettingsWindow"/>'s <b>File</b> tab rendered standalone — the same headless
+    /// seam the other settings fixtures pin (<c>.Show()</c>, NOT <c>ShowDialog</c>; open-risk #3),
+    /// capturing <c>settings-file-{W}x{H}.png</c> at both checklist sizes. The File tab is on an
+    /// UNSELECTED tab in every other settings fixture, so its three file-action buttons
+    /// (Import… / Export… / Reset to default) and the persistent Apply/Save/Cancel footer never
+    /// entered any captured frame — the precise gap the S7 ui-verifier flagged.
+    ///
+    /// <para>The VM is seeded from <see cref="RulesetLoader.LoadDefault"/> through the mirror
+    /// (<see cref="SettingsViewModel.LoadFrom"/>) — the demo-mode-safe default, never a lab file. The
+    /// File tab is selected so its three buttons are the captured surface; the Apply/Save/Cancel footer
+    /// is OUTSIDE the TabControl, so it is in frame on every tab and this capture re-evidences it.</para>
+    ///
+    /// <para><see cref="AssertFileTabButtons"/> pins fixture soundness the PNG can't: the three
+    /// file-action buttons (Import… / Export… / Reset to default) are realized and effectively-visible
+    /// in the File tab, and the footer's Apply/Save/Cancel buttons are realized — so a static frame can
+    /// never look plausible while a file action or footer button is missing.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public void Settings_File(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the File tab to the front so its Import…/Export…/Reset buttons (the captured surface)
+        // are realized.
+        SelectTab(window, "File");
+        Dispatcher.UIThread.RunJobs();
+
+        // The three file-action buttons + the Apply/Save/Cancel footer actually realized — the
+        // soundness pins the PNG can't make. The visual-tree assertion the task requires lives here.
+        AssertFileTabButtons(window);
+
+        CaptureWindowPng(window, "settings-file", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the File tab (AP 3.3 / S7; the S7 evidence gap): the realized window
+    /// surfaces the three file-action <see cref="Avalonia.Controls.Button"/>s — <c>Import…</c>,
+    /// <c>Export…</c>, <c>Reset to default</c> — each realized and effectively-visible on the File tab,
+    /// plus the persistent footer <c>Apply</c>/<c>Save</c>/<c>Cancel</c> buttons (OUTSIDE the
+    /// TabControl, so in frame on every tab). Located by button content; so the tab can never silently
+    /// drop a file action and still look plausible in a static frame.
+    /// </summary>
+    private static void AssertFileTabButtons(SettingsWindow window)
+    {
+        var buttons = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Button>()
+            .Where(b => b.IsEffectivelyVisible)
+            .ToList();
+
+        bool HasButton(string content) => buttons.Any(b =>
+            string.Equals(b.Content?.ToString(), content, StringComparison.Ordinal));
+
+        // The three file actions (the captured surface) — content matches the SettingsWindow.axaml labels.
+        Assert.True(HasButton("Import…"), "the File tab must realize an Import… button");
+        Assert.True(HasButton("Export…"), "the File tab must realize an Export… button");
+        Assert.True(HasButton("Reset to default"), "the File tab must realize a Reset to default button");
+
+        // The persistent footer (outside the TabControl) is re-evidenced in this frame.
+        Assert.True(HasButton("Apply"), "the footer must realize an Apply button");
+        Assert.True(HasButton("Save"), "the footer must realize a Save button");
+        Assert.True(HasButton("Cancel"), "the footer must realize a Cancel button");
+    }
+
     // --- Settings window: Validation banner + error panel (AP 3.3 / S7) ---------------------------
 
     /// <summary>The error path the validation fixture seeds — the loader's own path shape for a
