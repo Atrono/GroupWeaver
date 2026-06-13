@@ -1,0 +1,101 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:views="using:GroupWeaver.App.Views"
+             x:Class="GroupWeaver.App.Views.PlanView"
+             x:DataType="vm:PlanViewModel">
+
+  <!-- Plan Mode step (AP 4.2.2 / ADR-014): the same airspace-shaped layout as the
+       workspace (ADR-001 guardrail 5). GraphHost (col 0) is the reserved center region
+       the plan's OWN renderer mounts into; the plan side panel lives BESIDE it in its own
+       grid column. NOTHING floats over GraphHost. Editing forms (add group/user/edge) land
+       in AP 4.2.3 - this slice ships the preview + Back + the violations list only. -->
+  <Grid ColumnDefinitions="*,300">
+
+    <ContentControl Grid.Column="0" Name="GraphHost">
+      <!-- Placeholder while no renderer surface (null factory / missing WebView2 / headless
+           fakes); the code-behind swaps in the plan renderer's surface when one exists. -->
+      <Panel>
+
+        <StackPanel IsVisible="{Binding !WebView2Missing}" Spacing="8"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+          <TextBlock Text="Plan preview is unavailable in this environment."
+                     FontSize="20" HorizontalAlignment="Center" />
+          <TextBlock Text="{Binding BaseOuDn}"
+                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding WebView2Missing}" Spacing="8" MaxWidth="520"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+          <TextBlock Text="The Microsoft Edge WebView2 Runtime was not found."
+                     FontSize="20" TextWrapping="Wrap" TextAlignment="Center" />
+          <TextBlock Text="GroupWeaver needs it to display the plan graph (everything else works)."
+                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+
+      </Panel>
+    </ContentControl>
+
+    <!-- Plan side panel (beside GraphHost, never over it - ADR-001 guardrail 5): the
+         Back affordance tops it, the live violations list fills the rest. The list binds
+         the plan VM's own Report projection (Violations / HasViolations / HasUncheckedAreas)
+         exactly as the workspace sidebar does, in canonical report order (ADR-009). -->
+    <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,12,12,8">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+          <TextBlock Grid.Column="0" Text="Plan" FontSize="15" FontWeight="SemiBold"
+                     VerticalAlignment="Center" />
+          <Button Grid.Column="1" Name="BackButton" Content="← Back to explore"
+                  Padding="8,4" FontSize="12"
+                  ToolTip.Tip="Return to the explored Ist structure"
+                  Command="{Binding BackCommand}" />
+        </Grid>
+
+        <TextBlock Grid.Row="1" Margin="0,8,0,0"
+                   Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
+                   FontSize="13" FontWeight="SemiBold" />
+
+        <!-- The findings list (canonical report order, unshuffled - ADR-009): severity
+             glyph (colored square + redundant letter from THE one palette) + wrapping
+             message + dimmed subject name. Read-only in this slice (no jump command yet). -->
+        <ListBox Grid.Row="3" Margin="0,8,0,0"
+                 Background="Transparent"
+                 ItemsSource="{Binding Violations}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ViolationRowModel">
+              <Grid ColumnDefinitions="Auto,*" Margin="4">
+                <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                        VerticalAlignment="Top"
+                        Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                  <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                             Foreground="White" FontSize="12" FontWeight="SemiBold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                  <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- All-clear: shown only when there are no findings (an empty plan starts here). -->
+        <TextBlock Grid.Row="3" Margin="0,8,0,0"
+                   Text="No rule violations in the plan."
+                   IsVisible="{Binding !HasViolations}"
+                   Opacity="0.7" TextWrapping="Wrap"
+                   VerticalAlignment="Top" />
+
+        <TextBlock Grid.Row="4" Margin="0,8,0,0"
+                   Text="Add groups, users, and memberships to design a proposed structure."
+                   Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+
+      </Grid>
+    </Border>
+
+  </Grid>
+
+</UserControl>

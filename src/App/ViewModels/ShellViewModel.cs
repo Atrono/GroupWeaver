@@ -25,6 +25,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private readonly Func<IGraphRenderer>? _graphRendererFactory;
     private readonly RulesetLocator _locator;
 
+    /// <summary>Every disposable step the shell has created and must dispose at teardown
+    /// (AP 4.2.2 dispose discipline): the Ist↔Plan switch keeps BOTH the workspace and the
+    /// plan step alive — it never disposes the step it leaves, so teardown is the only place
+    /// they are torn down. Tracked here because <see cref="CurrentStep"/> holds only the
+    /// active one. De-duplicated by reference (the same step re-entered is tracked once).</summary>
+    private readonly List<IDisposable> _disposableSteps = [];
+
     /// <summary>The ruleset the app is currently running on (ADR-010 §3); settable
     /// (AP 3.3 / ADR-011 §3) so a settings Apply/Save re-caches it as the new effective
     /// ruleset — the next workspace inherits it through the existing Shell→RootPicker→
@@ -141,9 +148,15 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private async void OnRulesetApplied(Ruleset ruleset)
     {
         _ruleset = new EffectiveRuleset(ruleset, FromUserFile: true, []);
+        // Re-thread the LIVE step (AP 3.3 / ADR-011 §3, extended for Plan Mode in AP 4.2.2):
+        // both the workspace and a plan step re-Evaluate against the flipped ruleset.
         if (CurrentStep is WorkspaceViewModel workspace)
         {
             await workspace.ApplyRulesetAsync(ruleset);
+        }
+        else if (CurrentStep is PlanViewModel plan)
+        {
+            await plan.ApplyRulesetAsync(ruleset);
         }
     }
 
@@ -168,12 +181,59 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         CurrentStep = new ConnectionViewModel(_providerFactory, OnConnected);
     }
 
-    private void OnRootChosen(WorkspaceViewModel workspace) => CurrentStep = workspace;
+    private void OnRootChosen(WorkspaceViewModel workspace)
+    {
+        // Install the Plan-Mode switch callback (AP 4.2.2 / ADR-014) and track the workspace
+        // as a disposable step so teardown disposes it even after a switch into Plan Mode.
+        workspace.UseDesignPlanCallback(() => OnDesignPlan(workspace));
+        Track(workspace);
+        CurrentStep = workspace;
+    }
 
     /// <summary>
-    /// Disposes the active step (cancels the workspace's in-flight scope load,
-    /// AP 2.2 S6). The workspace is the only disposable step and is terminal in the
-    /// step machine — no transition ever swaps a disposable step away mid-session.
+    /// The Ist→Plan switch (AP 4.2.2 / ADR-014): makes <see cref="CurrentStep"/> a fresh
+    /// <see cref="PlanViewModel"/> seeded EMPTY at <paramref name="current"/>'s root DN (the
+    /// empty-start default), carrying the live ruleset and the same renderer factory (the plan
+    /// builds its OWN renderer instance). Back returns the SAME <paramref name="current"/>
+    /// instance — never disposed on the switch, so the Ist load, viewport and selection survive.
+    /// Both steps are tracked and disposed only at shell teardown.
     /// </summary>
-    public void Dispose() => (CurrentStep as IDisposable)?.Dispose();
+    public void OnDesignPlan(WorkspaceViewModel current)
+    {
+        var effective = _ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, []);
+        var plan = new PlanViewModel(
+            current.RootDn,
+            effective,
+            _graphRendererFactory,
+            WebView2Missing,
+            onBackToExplore: () => CurrentStep = current);
+        Track(plan);
+        CurrentStep = plan;
+    }
+
+    /// <summary>Records a created step for teardown disposal (AP 4.2.2 dispose discipline),
+    /// de-duplicated by reference: re-entering the same workspace via Back tracks it once.</summary>
+    private void Track(IDisposable step)
+    {
+        if (!_disposableSteps.Contains(step))
+        {
+            _disposableSteps.Add(step);
+        }
+    }
+
+    /// <summary>
+    /// Disposes EVERY disposable step the shell created (AP 4.2.2 dispose discipline): both the
+    /// workspace and any plan step — the Ist↔Plan switch never disposes the step it leaves, so
+    /// teardown is the sole tear-down point. Each step's <c>Dispose</c> is idempotent (cancels
+    /// its in-flight load/render). Idempotent overall.
+    /// </summary>
+    public void Dispose()
+    {
+        foreach (var step in _disposableSteps)
+        {
+            step.Dispose();
+        }
+
+        _disposableSteps.Clear();
+    }
 }
