@@ -15,9 +15,6 @@ governance perspective, not a security one.
 the detail panel, double-click the dashed frontier node to lazy-expand its
 members — all against the bundled fictional dataset.*
 
-> **Pre-release.** GroupWeaver is in active early development; there is no
-> release yet. See [Status](#status).
-
 ## What GroupWeaver does NOT see
 
 GroupWeaver audits the **A-G-DL structure and naming conventions** — not the
@@ -34,8 +31,8 @@ operations of any kind. It runs in the logged-on user's security context
 
 ## Status
 
-Early development (Phase 1 of the [project plan](PLANNING.md), German;
-architecture decisions in [docs/adr/](docs/adr/)). Planned scope for v0.1:
+v0.1 released (see the [project plan](PLANNING.md), German;
+architecture decisions in [docs/adr/](docs/adr/)). v0.1 includes:
 
 - Live LDAP connection (read-only, user context) plus a demo mode
 - Entry filter: pick a base OU or group as the graph root
@@ -70,11 +67,22 @@ live in [examples/rulesets/](examples/rulesets/); the format is specified in
 
 ## System requirements
 
-- Windows 10 / Windows Server 2016 or later
-- .NET 8 runtime (a self-contained portable .zip is planned, so no separate
-  install will be required)
-- [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
-  (preinstalled on current Windows 10/11; absent on some Server SKUs)
+- **Windows 10 / Windows Server 2016 or later** (x64).
+- **No .NET install required.** The portable `.zip` is self-contained — the
+  .NET 8 runtime is bundled inside `GroupWeaver.App.exe`.
+- **[WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)**
+  — required, and **not** bundled in the `.zip` (it is a shared, auto-updating
+  system component). Preinstalled on current Windows 10/11; absent on some
+  Windows Server SKUs. If it is missing, GroupWeaver shows a banner with a
+  download link on launch — install the **Evergreen Standalone Installer** and
+  restart the app.
+
+> **First-run SmartScreen note.** GroupWeaver is not code-signed (it is a free,
+> open-source project without a certificate). Windows SmartScreen may show
+> "Windows protected your PC" the first time you run the `.exe`. Verify the
+> download first (below), then choose **More info → Run anyway**. Integrity and
+> origin are guaranteed by the published SHA256 hash and the GitHub build
+> provenance attestation, not by a signing certificate.
 
 ## Building from source
 
@@ -86,10 +94,28 @@ pwsh tools/build.ps1
 
 This runs restore, build, format verification, and tests.
 
-## Verifying your download
+## Verify your download
 
-Coming with v0.1: releases will ship as a portable .zip with published SHA256
-hashes and GitHub build provenance attestations.
+Every release ships a portable `.zip`, a `.sha256` sidecar, and a GitHub build
+provenance attestation. There is no code-signing certificate (see the SmartScreen
+note above); instead, verify integrity and origin yourself — two commands.
+
+**1. Check the SHA256 hash** against the value in the release notes / the
+`GroupWeaver-0.1.0-win-x64.zip.sha256` sidecar:
+
+```powershell
+Get-FileHash .\GroupWeaver-0.1.0-win-x64.zip -Algorithm SHA256
+```
+
+**2. Verify build provenance** with the [GitHub CLI](https://cli.github.com/) —
+this cryptographically confirms the `.zip` was built by this repository's release
+workflow on GitHub's runners, not repackaged by someone else:
+
+```powershell
+gh attestation verify .\GroupWeaver-0.1.0-win-x64.zip --repo Atrono/GroupWeaver
+```
+
+A passing check prints the matched attestation and the workflow that produced it.
 
 ## License
 

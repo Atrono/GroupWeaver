@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false      # never cancel an in-flight release
+
+permissions:
+  contents: write                # create the Release + upload assets
+  id-token: write                # OIDC token to sign the provenance
+  attestations: write            # write the attestation to the repo
+
+jobs:
+  release:
+    runs-on: windows-2022        # same hard pin as CI (issue #32); win-x64 self-contained publish needs Windows
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Derive version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}' -replace '^v',''
+          if ($v -notmatch '^\d+\.\d+\.\d+') { $v = "$v.0" }   # v0.1 -> 0.1.0
+          "version=$v"                  | Out-File $env:GITHUB_OUTPUT -Append
+          "tag=${{ github.ref_name }}"  | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Pack release zip + sha256 (+ launch smoke)
+        id: pack
+        shell: pwsh
+        run: pwsh tools/pack-release.ps1 -Version '${{ steps.ver.outputs.version }}' -Emit github
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2   # v2.4.0; v4 is current but is a thin actions/attest wrapper — v2 stays fully supported
+        with:
+          subject-path: ${{ steps.pack.outputs.zip }}
+
+      - name: Create GitHub Release and upload assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.ver.outputs.tag }}' `
+            '${{ steps.pack.outputs.zip }}' `
+            '${{ steps.pack.outputs.sha256 }}' `
+            --title 'GroupWeaver ${{ steps.ver.outputs.tag }}' `
+            --notes-file artifacts/release/RELEASE_NOTES.md
