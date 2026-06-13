@@ -139,3 +139,37 @@ ADR-003 D5), opened from the shell top command strip.
 - [ ] Invalid-user-file banner: when the app runs on the default because the saved file was rejected, the window says so and offers Fix/Reset; the on-disk file is never auto-rewritten [S:settings-validation] [T:SettingsValidationTests — on-disk byte-unchanged]
 - [ ] Live re-thread: Apply/Save re-evaluates the open workspace (severity halos + sidebar update) with NO graph rebuild / viewport kept [I — SettingsShellIntegrationTests: Assert.Same(Graph), UpdateGraphAsync not ShowGraphAsync]
 - [ ] Airspace: settings is its own Window, never layered over the workspace GraphHost [I — design rule / ADR-003 D5]
+
+### Plan mode editor (AP 4.2.3)
+
+`plan-editor` is captured by the plan-editor screenshot fixture (the demo shell driven
+into Plan Mode via the workspace "Design plan" button, a representative plan seeded — a
+few groups, a user, memberships, and at least one AGDLP finding — rendered through the
+`PlanView` DataTemplate, both 1280×720 and 1920×1080). Plan Mode is a sibling shell step
+(ADR-014), reached from the workspace and returning to the same Ist workspace via "← Back
+to explore"; the editor is panel-based and the read-only graph is the live preview.
+
+- [ ] Airspace held: GraphHost (the live preview, left) is the reserved region; the editor
+      panel sits BESIDE it in its own column, never floating/layering over the graph
+      (ADR-001 guardrail 5) [S:plan-editor]
+- [ ] Header: "Plan" title + "← Back to explore" button; the editor column scrolls without
+      clipping at both sizes (no overlapping or cut-off controls) [S:plan-editor]
+- [ ] Add-object form: kind selector (User / Global group / Domain-local group / Universal
+      group), Name field, SAM field shown ONLY for User; "Add" button; kind labels legible
+      [S:plan-editor]
+- [ ] Add-membership form: parent selector (GROUPS only) + child selector (any object) with
+      kind badges, "Add member" button; a hint that only a group can have members [S:plan-editor]
+- [ ] Objects list: each row a kind badge (AdObjectKindConverters palette — U #038387 /
+      GG #107C10 / DL #A14000 / UG #744DA9, same kind = same color as graph/picker) + name;
+      selecting a row reveals Rename (field + button) and Remove [S:plan-editor]
+- [ ] Memberships list: "parent ← child" rows (child is a member of parent — legend reading),
+      each with a Remove affordance [S:plan-editor]
+- [ ] Live validation: the findings list ("Findings (n)") reflects the current plan after every
+      edit — severity glyph (color + letter, SeverityConverters parity) + message + subject;
+      all-clear text when the plan is clean [S:plan-editor] [I — PlanModeEditorTests]
+- [ ] Inline edit error: a rejected edit (duplicate name, control chars, rename collision)
+      shows a plain-text red message; the form keeps the user's input to fix [I — PlanModeEditorTests]
+- [ ] Selection sync: a graph node click selects the matching Objects-list row (and vice
+      versa), and highlights matching findings rows [I — PlanModeEditorTests]
+- [ ] No AD-write affordance anywhere in Plan Mode; export is a separate, explicit action
+      (AP 4.2.4) — this slice has no Export button yet [I — design rule / CLAUDE.md]

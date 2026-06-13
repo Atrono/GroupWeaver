@@ -2,15 +2,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
              xmlns:views="using:GroupWeaver.App.Views"
+             xmlns:plan="using:GroupWeaver.Core.Plan"
              x:Class="GroupWeaver.App.Views.PlanView"
              x:DataType="vm:PlanViewModel">
 
-  <!-- Plan Mode step (AP 4.2.2 / ADR-014): the same airspace-shaped layout as the
-       workspace (ADR-001 guardrail 5). GraphHost (col 0) is the reserved center region
-       the plan's OWN renderer mounts into; the plan side panel lives BESIDE it in its own
-       grid column. NOTHING floats over GraphHost. Editing forms (add group/user/edge) land
-       in AP 4.2.3 - this slice ships the preview + Back + the violations list only. -->
-  <Grid ColumnDefinitions="*,300">
+  <!-- Plan Mode EDITOR (AP 4.2.3 / ADR-014): panel-based forms mutate the PlanModel, each
+       mutation re-runs the live-validation loop, the read-only graph is the live preview.
+       The same airspace-shaped layout as the workspace (ADR-001 guardrail 5): GraphHost
+       (col 0) is the reserved center region the plan's OWN renderer mounts into; the editor
+       panel lives BESIDE it in its own grid column. NOTHING floats over GraphHost. -->
+  <Grid ColumnDefinitions="*,380">
 
     <ContentControl Grid.Column="0" Name="GraphHost">
       <!-- Placeholder while no renderer surface (null factory / missing WebView2 / headless
@@ -36,64 +37,203 @@
       </Panel>
     </ContentControl>
 
-    <!-- Plan side panel (beside GraphHost, never over it - ADR-001 guardrail 5): the
-         Back affordance tops it, the live violations list fills the rest. The list binds
-         the plan VM's own Report projection (Violations / HasViolations / HasUncheckedAreas)
-         exactly as the workspace sidebar does, in canonical report order (ADR-009). -->
+    <!-- The editor panel (beside GraphHost, never over it - ADR-001 guardrail 5): a scrolling
+         stack of form cards + lists. All editing is through these side-panel forms; the graph
+         is read-only (there is no canvas edit gesture - ADR-014). -->
     <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
-      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,12,12,8">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="12">
 
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-          <TextBlock Grid.Column="0" Text="Plan" FontSize="15" FontWeight="SemiBold"
-                     VerticalAlignment="Center" />
-          <Button Grid.Column="1" Name="BackButton" Content="← Back to explore"
-                  Padding="8,4" FontSize="12"
-                  ToolTip.Tip="Return to the explored Ist structure"
-                  Command="{Binding BackCommand}" />
-        </Grid>
+          <!-- 1. Header + Back -->
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="Plan" FontSize="15" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" Name="BackButton" Content="← Back to explore"
+                    Padding="8,4" FontSize="12"
+                    ToolTip.Tip="Return to the explored Ist structure"
+                    Command="{Binding BackCommand}" />
+          </Grid>
 
-        <TextBlock Grid.Row="1" Margin="0,8,0,0"
-                   Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
-                   FontSize="13" FontWeight="SemiBold" />
+          <!-- 2. Add object -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="Add object" FontSize="13" FontWeight="SemiBold" />
+            <!-- Items are bare PlanCreatableKind values; the template renders the friendly,
+                 spaced scope label ("Domain-local group", not the raw "DomainLocalGroup"). -->
+            <ComboBox HorizontalAlignment="Stretch"
+                      ItemsSource="{Binding CreatableKinds}"
+                      SelectedItem="{Binding NewObjectKind}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="plan:PlanCreatableKind">
+                  <TextBlock Text="{Binding Converter={x:Static views:PlanCreatableKindConverters.ToFriendlyLabel}}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBox Watermark="Name" Text="{Binding NewObjectName}" />
+            <TextBox Watermark="SAM account name" Text="{Binding NewObjectSam}"
+                     IsVisible="{Binding NewObjectIsUser}" />
+            <Button Name="AddObjectButton" Content="Add" HorizontalAlignment="Right"
+                    Command="{Binding AddObjectCommand}" />
+          </StackPanel>
 
-        <!-- The findings list (canonical report order, unshuffled - ADR-009): severity
-             glyph (colored square + redundant letter from THE one palette) + wrapping
-             message + dimmed subject name. Read-only in this slice (no jump command yet). -->
-        <ListBox Grid.Row="3" Margin="0,8,0,0"
-                 Background="Transparent"
-                 ItemsSource="{Binding Violations}">
-          <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:ViolationRowModel">
-              <Grid ColumnDefinitions="Auto,*" Margin="4">
-                <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
-                        VerticalAlignment="Top"
-                        Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                  <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                             Foreground="White" FontSize="12" FontWeight="SemiBold"
-                             HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Border>
-                <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                  <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
-                             TextWrapping="Wrap" />
-                </StackPanel>
-              </Grid>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
+          <!-- 3. Add membership -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="Add membership" FontSize="13" FontWeight="SemiBold" />
+            <ComboBox HorizontalAlignment="Stretch"
+                      PlaceholderText="Parent group"
+                      ItemsSource="{Binding GroupNodes}"
+                      SelectedItem="{Binding MemberParentRow}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanNodeRowModel">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Border Width="20" Height="20" CornerRadius="3"
+                            VerticalAlignment="Center"
+                            Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                      <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                 Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <ComboBox HorizontalAlignment="Stretch"
+                      PlaceholderText="Member"
+                      ItemsSource="{Binding Nodes}"
+                      SelectedItem="{Binding MemberChildRow}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanNodeRowModel">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Border Width="20" Height="20" CornerRadius="3"
+                            VerticalAlignment="Center"
+                            Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                      <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                 Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="The parent must be a group (the child becomes a member of it)."
+                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+            <Button Name="AddMemberButton" Content="Add member" HorizontalAlignment="Right"
+                    Command="{Binding AddMemberCommand}" />
+          </StackPanel>
 
-        <!-- All-clear: shown only when there are no findings (an empty plan starts here). -->
-        <TextBlock Grid.Row="3" Margin="0,8,0,0"
-                   Text="No rule violations in the plan."
-                   IsVisible="{Binding !HasViolations}"
-                   Opacity="0.7" TextWrapping="Wrap"
-                   VerticalAlignment="Top" />
+          <!-- 4. Inline edit error (same red as the workspace LoadError) -->
+          <TextBlock Foreground="#C42B1C" TextWrapping="Wrap"
+                     Text="{Binding EditError}"
+                     IsVisible="{Binding EditError, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
-        <TextBlock Grid.Row="4" Margin="0,8,0,0"
-                   Text="Add groups, users, and memberships to design a proposed structure."
-                   Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+          <!-- 5. Objects list + selected-node actions -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="{Binding Nodes.Count, StringFormat='Objects ({0})'}"
+                       FontSize="13" FontWeight="SemiBold" />
+            <ListBox Background="Transparent" MaxHeight="220"
+                     ItemsSource="{Binding Nodes}"
+                     SelectedItem="{Binding SelectedNodeRow}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel />
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanNodeRowModel">
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="2"
+                              ToolTip.Tip="{Binding KindLabel}">
+                    <Border Width="22" Height="22" CornerRadius="3"
+                            VerticalAlignment="Center"
+                            Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                      <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                 Foreground="White" FontSize="12" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextWrapping="NoWrap" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
 
-      </Grid>
+            <TextBlock Text="No objects yet — add a group or user above."
+                       IsVisible="{Binding !Nodes.Count}"
+                       Opacity="0.6" FontSize="12" TextWrapping="Wrap" />
+
+            <!-- Selected-node actions: rename + remove -->
+            <StackPanel Spacing="6" IsVisible="{Binding HasSelectedNode}">
+              <TextBox Watermark="New name" Text="{Binding RenameText}" />
+              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Name="RenameButton" Content="Rename"
+                        Command="{Binding RenameSelectedCommand}" />
+                <Button Name="RemoveButton" Content="Remove"
+                        Command="{Binding RemoveSelectedCommand}" />
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- 6. Memberships list (per-row Remove binds the ancestor's command) -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="{Binding Memberships.Count, StringFormat='Memberships ({0})'}"
+                       FontSize="13" FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Memberships}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanEdgeRowModel">
+                  <Grid ColumnDefinitions="*,Auto" Margin="2">
+                    <TextBlock Grid.Column="0" Text="{Binding Display}"
+                               VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <Button Grid.Column="1" Content="Remove" Padding="8,2" FontSize="11"
+                            Command="{Binding $parent[ItemsControl].DataContext.RemoveMemberCommand}"
+                            CommandParameter="{Binding}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="No memberships yet — pick a parent group and a member above."
+                       IsVisible="{Binding !Memberships.Count}"
+                       Opacity="0.6" FontSize="12" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <!-- 7. Findings list (canonical report order, unshuffled - ADR-009): severity glyph
+               (colored square + redundant letter from THE one palette) + wrapping message +
+               dimmed subject name. -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
+                       FontSize="13" FontWeight="SemiBold" />
+            <ListBox Background="Transparent"
+                     ItemsSource="{Binding Violations}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel />
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ViolationRowModel">
+                  <Grid ColumnDefinitions="Auto,*" Margin="4">
+                    <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                            VerticalAlignment="Top"
+                            Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                      <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                                 Foreground="White" FontSize="12" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock Text="No rule violations in the plan."
+                       IsVisible="{Binding !HasViolations}"
+                       Opacity="0.7" TextWrapping="Wrap" />
+          </StackPanel>
+
+        </StackPanel>
+      </ScrollViewer>
     </Border>
 
   </Grid>
