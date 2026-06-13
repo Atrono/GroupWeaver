@@ -46,6 +46,16 @@ the join is mechanical. GraphBuilder must stay a pure topology projector
    VM chain as a defaulted ctor param (null ⇒ embedded default); EffectiveRuleset.
    Errors is carried, surfaced by AP 3.3.
 
+   **Refines ADR-005 D3 cache predicate.** The expand cache-hit guard narrows
+   from "not `IsLoaded`" to "no cached members" (`!forceFetch && cachedMembers is
+   { Count: > 0 }`): a loaded-and-EMPTY fetchable group now re-fetches on a normal
+   expand instead of a focus-only camera move. An empty group has nothing to focus
+   and may have gained members; re-fetching then re-Evaluating lets it shed its
+   empty-group finding. This is a real (non-null) `GetMembersAsync` + `SetMembers`
+   (replace semantics, ADR-005 D3 ordering preserved) — never a fabricated load,
+   so the null-vs-empty contract holds (`null` still = never loaded = focus-only
+   is unreachable for an unloaded node, which takes the fetch branch anyway).
+
 4. **Roll-up = loaded-only Walk, never fetch, VM-computed.** `below` =
    `report.ViolationsAmong(MembershipTraversal.Walk(snapshot, dn).Visited.Skip(1))`
    over every loaded fetchable-kind node — Walk reads GetMembers per node
