@@ -9,7 +9,8 @@ via Avalonia.Headless. Screenshots go to `artifacts/ui/` (gitignored).
 Screenshot fixture: `tools/test-graph-bundle.ps1` drives `tests/graph-bundle/verify.mjs`
 (Playwright, headless Chromium, 1600×1000) against the LITERAL shipped `src/App/web`
 bundle fed the literal GraphBuilder demo dump — it writes `graph-overview.png`,
-`graph-focus.png`, `graph-cycle.png` and `graph-expanded.png`.
+`graph-focus.png`, `graph-cycle.png`, `graph-expanded.png` and `graph-diff.png`
+(the last from the hand-built gap dataset in the verify.mjs DIFF tripwire).
 `workspace-live-graph.png` is the windowed smoke capture of the real app (`--demo`,
 DPI-aware PrintWindow via `tools/capture-window.ps1`) — re-take it whenever the
 renderer/mount path changes.
@@ -29,6 +30,24 @@ test; **[I]** = interactive/manual — cannot be evidenced by a static frame.
 - [ ] Severity halo distinct from kind (AP 3.4, ADR-010): a flagged node shows a colored OVERLAY glow (Error #D13438 thick / Warning #F7A30B medium / Info #4FA3E3 thin) behind its kind-colored, kind-shaped body — severity never reuses fill, shape, or border; monotonic padding (7/6/5) is a redundant colorblind channel [S:graph-focus] [P severity palette parity C#↔JS: #D13438/#F7A30B/#4FA3E3] [P overlay-color per sev class]
 - [ ] Severity survives lazy expand: after graphUpdate the re-Evaluated halos re-attach on the live instance (wire field re-sent), unflagged nodes keep overlay-opacity 0, frontier-resolved nodes re-judged by true kind [P sev present on post-update elements] [S:graph-expanded]
 - [ ] Roll-up cue: a loaded group hiding flagged descendants shows a wider/fainter max-severity ring at fit zoom (the exact "n below" count is authoritative in the sidebar — canvas-only cytoscape has no numeric badge) [S:graph-overview] [P node[below] overlay-padding]
+
+### Gap analysis graph (AP / ADR-015)
+
+`graph-diff.png` is the verify.mjs DIFF tripwire's frame: a hand-built gap dataset
+with one node + one membership edge per diff status (Added / Removed / Unchecked),
+a Common node/edge carrying NO diff field, and a COEXIST node that is BOTH Added
+and an Error finding. Diff owns the cytoscape `underlay-*` channel on nodes plus a
+`line-*` override on edges — DISJOINT from kind (fill/shape), root/External
+(border), and severity (overlay) — so a diffed node still reads its kind and a
+diffed-and-flagged node shows both cues.
+
+- [ ] Added reads GREEN: Added nodes carry a green (#2FAE4E) underlay glow and Added edges draw solid green; the green is distinct from GG's #107C10 fill at demo node scale [S:graph-diff] [P node[diff='added'] underlay-color / edge[diff='added'] line-color]
+- [ ] Removed reads RED-ORANGE **and** faded: Removed nodes carry a red-orange (#E0503A) underlay AND a dimmed (background-opacity 0.45) kind fill — the brightness channel makes added≠removed without relying on hue; Removed edges draw red-orange **dashed**; the red-orange is distinct from severity error #D13438 [S:graph-diff] [P node[diff='removed'] underlay + background-opacity 0.45 / edge[diff='removed'] line-style dashed]
+- [ ] Unchecked reads GRAY **and** faint: Unchecked nodes carry a fainter (opacity 0.35) neutral-gray (#8A8F98) underlay; Unchecked edges draw gray **dotted** at low opacity — clearly subordinate to Added/Removed [S:graph-diff] [P node[diff='unchecked'] underlay / edge[diff='unchecked'] line-style dotted]
+- [ ] Kind survives the diff: every diffed node still reads its kind color AND shape underneath the underlay (the underlay is a separate layer beneath the body; removed only fades the fill, never recolors it) — diff cues never reuse fill, shape, or border [S:graph-diff]
+- [ ] COEXIST without collision: the node that is simultaneously Added (green underlay) and an Error finding (red severity overlay) shows BOTH cues legibly — the green underlay beneath and the red halo behind, neither masking the other nor the kind body [S:graph-diff] [P COEXIST keystone: underlay #2FAE4E + overlay #D13438 both present]
+- [ ] No-diff control unchanged: the Common node (no diff field) shows no underlay glow and the Common edge keeps its plain member styling — byte-identical to a pre-Gap render [S:graph-diff] [P Common node underlay-opacity 0]
+- [ ] Diff cues legible at demo node scale: underlay padding (8/8/6) reads as a visible ring around the small kind bodies, not a hairline; dashed/dotted edge patterns are distinguishable [S:graph-diff]
 
 ## B. Native chrome (Avalonia)
 

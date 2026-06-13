@@ -58,6 +58,37 @@ const SEVERITY_OVERLAY = {
 // opacity 0.30 (< every per-sev opacity), color = SEVERITY[belowSev].
 const ROLLUP_OVERLAY = { opacity: 0.30, padding: 10 };
 
+// THE C#/JS diff parity tripwire (AP 66, ADR-015 Slice 5). The graph-layer
+// analogue of SEVERITY: hand-copied from the diff palette so a drift between the
+// wire `diff` tokens, graph.js' node[diff=...]/edge[diff=...] rules, and this
+// harness fails here. Diff owns the cytoscape underlay-* channel on NODES and a
+// line-* override on EDGES, DISJOINT from kind (background-color/shape),
+// root/External (border-*) and severity (overlay-*) - a node can be both a diff
+// status AND a finding with no channel collision (the COEXIST keystone below).
+// Greens/reds chosen to read distinct from GG #107C10 and severity error #D13438.
+const DIFF = {
+  added: '#2FAE4E',
+  removed: '#E0503A',
+  unchecked: '#8A8F98',
+};
+// Per-status NODE underlay geometry + the removed node's faded background-opacity
+// (the colorblind-redundant BRIGHTNESS channel: added stays full-opacity, removed
+// fades to 0.45 so added != removed without relying on green-vs-red hue). padding
+// 8/8/6, opacity 0.5/0.5/0.35 per the ADR-015 underlay table; bgOpacity is the
+// kind-fill fade and is null where the kind fill stays fully opaque (default 1).
+const DIFF_UNDERLAY = {
+  added: { color: '#2FAE4E', opacity: 0.5, padding: 8, bgOpacity: null },
+  removed: { color: '#E0503A', opacity: 0.5, padding: 8, bgOpacity: 0.45 },
+  unchecked: { color: '#8A8F98', opacity: 0.35, padding: 6, bgOpacity: null },
+};
+// Per-status EDGE line override: diff line-color + the colorblind-redundant
+// line-style (added keeps solid, removed dashed, unchecked dotted).
+const DIFF_LINE = {
+  added: { color: '#2FAE4E', style: 'solid' },
+  removed: { color: '#E0503A', style: 'dashed' },
+  unchecked: { color: '#8A8F98', style: 'dotted' },
+};
+
 const MESSAGE_TIMEOUT_MS = 60_000;
 // Node diameter D=44 (ADR-004 D3): model-space floor; the xUnit geometry test
 // pins the stronger ~59.7 bound, this render-side assert pins "no overlap".
@@ -304,6 +335,230 @@ async function probeGraphUpdateBeforeCommit(browser, indexHtml) {
   const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
   assert(probeJsErrors.length === 1,
     `the premature graphUpdate must produce exactly ONE jsError, got ${probeJsErrors.length}: ${JSON.stringify(probeJsErrors)}`);
+
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
+// Fresh-page DIFF tripwire (AP 66, ADR-015 Slice 5): the graph-layer half of
+// Gap analysis. A HAND-BUILT tiny gap dataset (no demo-fixture floors apply)
+// covering every diff status proves graph.js paints the wire `diff` tokens onto
+// the underlay-* (nodes) and line-* (edges) channels DISJOINT from kind /
+// root/External / severity. Modeled on probeGraphUpdateBeforeCommit: its OWN
+// page/context/channel so its accounting is independent of the main run's
+// zero-jsError audit (and it must itself be jsError-free). Harness morals hold:
+// every wait is a bridge-message promise (MESSAGE_TIMEOUT_MS), only primitives
+// leave page.evaluate (never a cytoscape collection - braces matter), the bare
+// protocol awaits (newPage/exposeFunction/goto/evaluate/screenshot/close) fall
+// under the global watchdog (see the boundedness inventory above), no sleeps.
+// ---------------------------------------------------------------------------
+async function diffRenderTripwire(browser, indexHtml, screenshotDir) {
+  const diffMessages = [];
+  const diffPending = new Map();
+  const diffWaiters = new Map();
+
+  function onDiffMessage(text) {
+    const msg = JSON.parse(text);
+    diffMessages.push(msg);
+    const waiter = diffWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!diffPending.has(msg.type)) {
+      diffPending.set(msg.type, []);
+    }
+    diffPending.get(msg.type).push(msg);
+  }
+
+  function awaitDiffMessage(type, context) {
+    const queued = diffPending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = diffWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = diffMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (diff: ${context}); diff messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!diffWaiters.has(type)) {
+        diffWaiters.set(type, []);
+      }
+      diffWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: diff-tripwire renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  // Same belt-and-braces folding as the main page: an uncaught page error here
+  // would surface as source 'playwright:pageerror' and trip the zero-jsError
+  // assert below - keeping this phase honest about being error-free.
+  page.on('pageerror', (err) => onDiffMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onDiffMessage);
+
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitDiffMessage('ready', 'diff bundle startup after goto');
+
+  // HAND-BUILT gap dataset (comma-containing DNs - getElementById only, never
+  // selector strings, ADR-004 D5). One node per diff status + a Common DL with
+  // NO diff field (the underlay-opacity-0 control), plus the COEXIST keystone
+  // node carrying BOTH diff:'added' AND sev:'error'. Membership edges: one each
+  // added/removed/unchecked + one Common no-diff. Tiny on purpose - the >=190
+  // node / >=3 chunk floors are the demo-fixture phase's, not this synthetic one.
+  const ADDED_NODE = 'CN=GG Added,OU=Diff,DC=groupweaver,DC=invalid';
+  const REMOVED_NODE = 'CN=User Removed,OU=Diff,DC=groupweaver,DC=invalid';
+  const COMMON_NODE = 'CN=DL Common,OU=Diff,DC=groupweaver,DC=invalid';
+  const UNCHECKED_NODE = 'CN=GG Unchecked,OU=Diff,DC=groupweaver,DC=invalid';
+  const COEXIST_NODE = 'CN=GG Added And Error,OU=Diff,DC=groupweaver,DC=invalid';
+  // COMMON is the shared membership SOURCE; the three diff targets fan out from it
+  // as separated rays so no diff edge is drawn over another (a y:0-collinear layout
+  // overdrew the solid-green Added edge across the dashed Removed edge - the green
+  // bled into the removed line in graph-diff.png; the 160 computed-style asserts
+  // are position-agnostic and never saw it). COMMON sits at the origin with the
+  // targets to its right at ADDED y:-90 / REMOVED y:0 / UNCHECKED y:+90 (distinct
+  // angles), and COEXIST hangs straight below on its own vertical ray. Every pair
+  // is >= 90 apart, holding the >= 44 no-overlap spirit.
+  const nodes = [
+    { id: ADDED_NODE, label: 'GG Added', kind: 'GlobalGroup', x: 200, y: -90, diff: 'added' },
+    { id: REMOVED_NODE, label: 'User Removed', kind: 'User', x: 200, y: 0, diff: 'removed' },
+    { id: COMMON_NODE, label: 'DL Common', kind: 'DomainLocalGroup', x: 0, y: 0 },
+    { id: UNCHECKED_NODE, label: 'GG Unchecked', kind: 'GlobalGroup', x: 200, y: 90, diff: 'unchecked' },
+    { id: COEXIST_NODE, label: 'GG Added And Error', kind: 'GlobalGroup', x: 0, y: 160, diff: 'added', sev: 'error' },
+  ];
+  // One membership edge per diff status + one no-diff Common edge. Member edges
+  // so the rel='member' base styling is what the diff line-* rules must override.
+  const ADDED_EDGE = 'edge:added';
+  const REMOVED_EDGE = 'edge:removed';
+  const UNCHECKED_EDGE = 'edge:unchecked';
+  const COMMON_EDGE = 'edge:common';
+  const edges = [
+    { id: ADDED_EDGE, s: COMMON_NODE, t: ADDED_NODE, rel: 'member', diff: 'added' },
+    { id: REMOVED_EDGE, s: COMMON_NODE, t: REMOVED_NODE, rel: 'member', diff: 'removed' },
+    { id: UNCHECKED_EDGE, s: COMMON_NODE, t: UNCHECKED_NODE, rel: 'member', diff: 'unchecked' },
+    { id: COMMON_EDGE, s: COMMON_NODE, t: COEXIST_NODE, rel: 'member' },
+  ];
+
+  for (const chunk of toChunks(nodes, edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitDiffMessage('loaded', 'diff dataset graphCommit -> first render');
+
+  // One round-trip pulls the full underlay triple + the kind-fill bg-opacity for
+  // a node id; primitives only out of evaluate (CI moral). getElementById keeps
+  // comma DNs byte-identical (ADR-004 D5).
+  const underlayOf = (id) => page.evaluate((nid) => {
+    const el = window.__cy.getElementById(nid);
+    return {
+      found: el.length === 1,
+      color: el.style('underlay-color'),
+      opacity: el.style('underlay-opacity'),
+      padding: el.style('underlay-padding'),
+      bgOpacity: el.style('background-opacity'),
+    };
+  }, id);
+  const lineOf = (id) => page.evaluate((eid) => {
+    const el = window.__cy.getElementById(eid);
+    return {
+      found: el.length === 1,
+      color: el.style('line-color'),
+      style: el.style('line-style'),
+      opacity: el.style('opacity'),
+    };
+  }, id);
+
+  // --- NODE underlay parity, one per diff status -----------------------------
+  const NODE_PINS = { added: ADDED_NODE, removed: REMOVED_NODE, unchecked: UNCHECKED_NODE };
+  for (const [status, dn] of Object.entries(NODE_PINS)) {
+    const want = DIFF_UNDERLAY[status];
+    const got = await underlayOf(dn);
+    assert(got.found, `diff ${status} node '${dn}' not found on the rendered graph`);
+    assert(toHex(got.color) === DIFF[status].toUpperCase(),
+      `underlay-color for diff '${status}' ('${dn}'): rendered '${got.color}' (${toHex(got.color)}) != pinned ${DIFF[status]} (graph.js missing node[diff='${status}'] underlay rule?)`);
+    assert(Math.abs(toNumber(got.opacity) - want.opacity) < 1e-6,
+      `underlay-opacity for diff '${status}' ('${dn}'): rendered ${got.opacity} != pinned ${want.opacity} (no diff rule => default 0?)`);
+    assert(Math.abs(toNumber(got.padding) - want.padding) < 1e-6,
+      `underlay-padding for diff '${status}' ('${dn}'): rendered ${got.padding} != pinned ${want.padding}`);
+    if (want.bgOpacity !== null) {
+      assert(Math.abs(toNumber(got.bgOpacity) - want.bgOpacity) < 1e-6,
+        `background-opacity for diff '${status}' ('${dn}') must FADE the kind fill (colorblind brightness channel): rendered ${got.bgOpacity} != pinned ${want.bgOpacity}`);
+    }
+  }
+  phase('diff: node underlay parity (added/removed/unchecked per pinned DN)');
+
+  // --- Common (no diff field) control: underlay-opacity 0 --------------------
+  const commonUnderlay = await underlayOf(COMMON_NODE);
+  assert(commonUnderlay.found, `diff Common control node '${COMMON_NODE}' not found`);
+  assert(Math.abs(toNumber(commonUnderlay.opacity)) < 1e-6,
+    `Common node '${COMMON_NODE}' carries NO diff field => no underlay rule => must render underlay-opacity 0 (byte-identical to today), got ${commonUnderlay.opacity}`);
+  phase(`diff: Common control underlay-opacity 0 ('${COMMON_NODE}')`);
+
+  // --- EDGE line parity, one per diff status ---------------------------------
+  const EDGE_PINS = { added: ADDED_EDGE, removed: REMOVED_EDGE, unchecked: UNCHECKED_EDGE };
+  for (const [status, eid] of Object.entries(EDGE_PINS)) {
+    const want = DIFF_LINE[status];
+    const got = await lineOf(eid);
+    assert(got.found, `diff ${status} edge '${eid}' not found on the rendered graph`);
+    assert(toHex(got.color) === DIFF[status].toUpperCase(),
+      `line-color for diff '${status}' edge ('${eid}'): rendered '${got.color}' (${toHex(got.color)}) != pinned ${DIFF[status]} (graph.js missing edge[diff='${status}'] line rule?)`);
+    assert(got.style === want.style,
+      `line-style (colorblind-redundant channel) for diff '${status}' edge ('${eid}'): rendered '${got.style}' != pinned '${want.style}'`);
+  }
+  phase('diff: edge line parity (added solid / removed dashed / unchecked dotted)');
+
+  // --- COEXIST keystone: diff underlay + severity overlay, no collision ------
+  // The added+error node must render its diff underlay (#2FAE4E) AND its severity
+  // error overlay (#D13438 / opacity 0.45) simultaneously - the two channels are
+  // independent by construction, so a finding that is also a diff status shows
+  // BOTH cues. This is the no-collision pin the whole disjoint-channel design buys.
+  const coexistUnderlay = await underlayOf(COEXIST_NODE);
+  assert(coexistUnderlay.found, `COEXIST node '${COEXIST_NODE}' not found on the rendered graph`);
+  assert(toHex(coexistUnderlay.color) === DIFF.added.toUpperCase()
+    && Math.abs(toNumber(coexistUnderlay.opacity) - DIFF_UNDERLAY.added.opacity) < 1e-6,
+    `COEXIST node '${COEXIST_NODE}' must keep its diff='added' underlay (#2FAE4E / opacity ${DIFF_UNDERLAY.added.opacity}): rendered '${coexistUnderlay.color}' (${toHex(coexistUnderlay.color)}) / opacity ${coexistUnderlay.opacity}`);
+  const coexistOverlay = await overlayOf(page, COEXIST_NODE);
+  assert(coexistOverlay.found, `COEXIST node '${COEXIST_NODE}' not found for overlay read`);
+  assert(toHex(coexistOverlay.color) === SEVERITY.error.toUpperCase()
+    && Math.abs(toNumber(coexistOverlay.opacity) - SEVERITY_OVERLAY.error.opacity) < 1e-6,
+    `COEXIST node '${COEXIST_NODE}' must ALSO show its sev='error' overlay (${SEVERITY.error} / opacity ${SEVERITY_OVERLAY.error.opacity}) independently of the diff underlay: rendered overlay '${coexistOverlay.color}' (${toHex(coexistOverlay.color)}) / opacity ${coexistOverlay.opacity}`);
+  phase(`diff: COEXIST keystone (added underlay + error overlay, no collision) ('${COEXIST_NODE}')`);
+
+  // --- screenshot: the frame the ui-verifier judges -------------------------
+  await page.screenshot({ path: join(screenshotDir, 'graph-diff.png') });
+  phase('diff screenshot');
+
+  // --- this phase must itself be jsError-free (own channel) ------------------
+  const diffJsErrors = diffMessages.filter((m) => m.type === 'jsError');
+  assert(diffJsErrors.length === 0,
+    `diff tripwire must be jsError-free on its own channel: ${JSON.stringify(diffJsErrors, null, 2)}`);
 
   await page.close();
 }
@@ -804,14 +1059,22 @@ async function main() {
     await probeGraphUpdateBeforeCommit(browser, indexHtml);
     phase('graphUpdate-before-graphCommit probe (fresh page: one handler jsError, no crash)');
 
+    // --- fresh-page DIFF tripwire: gap diff underlay/line channels (ADR-015) -
+    // After the main zero-jsError audit, like the graphUpdate probe, on its own
+    // page/context/channel - this phase is itself jsError-free (it asserts so),
+    // and the hand-built dataset never touches the main run's accounting.
+    await diffRenderTripwire(browser, indexHtml, screenshotDir);
+    phase('diff render tripwire (fresh page: underlay nodes + line edges + COEXIST keystone)');
+
     console.log(
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
       + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
       + `${chunks.length} chunks, ${kindsPresent.size}/7 kinds, `
       + `${flaggedBySev.error.length}/${flaggedBySev.warning.length}/${flaggedBySev.info.length} err/warn/info halos, `
       + `${belowNodes.length} roll-up rings, `
+      + `diff underlay/line + COEXIST verified, `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
-      + `4 screenshots -> ${screenshotDir}`);
+      + `5 screenshots -> ${screenshotDir}`);
   } finally {
     expectedShutdown = true;
     await browser.close();

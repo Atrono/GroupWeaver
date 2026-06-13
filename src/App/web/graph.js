@@ -27,11 +27,14 @@
       if (n.root) { data.root = true; }
       if (n.sev) { data.sev = n.sev; }
       if (n.below) { data.below = n.below; data.belowSev = n.belowSev; }
+      if (n.diff) { data.diff = n.diff; }
       elements.push({ group: 'nodes', data: data, position: { x: n.x, y: n.y } });
     }
     for (i = 0; i < pendingEdges.length; i++) {
       e = pendingEdges[i];
-      elements.push({ group: 'edges', data: { id: e.id, source: e.s, target: e.t, rel: e.rel } });
+      var ed = { id: e.id, source: e.s, target: e.t, rel: e.rel };
+      if (e.diff) { ed.diff = e.diff; }
+      elements.push({ group: 'edges', data: ed });
     }
     pendingNodes = [];
     pendingEdges = [];
@@ -145,6 +148,32 @@
           selector: "node[below][belowSev='info']",
           style: { 'overlay-color': '#4FA3E3' }
         },
+        // Gap diff (AP 66, ADR-015 Slice 5): owns the cytoscape underlay-* channel
+        // on NODES (a layer BENEATH the node, disjoint from kind background-color/
+        // shape, root/External border-*, and severity overlay-*) plus a line-*
+        // override on EDGES (below). Diff (underlay) and severity (overlay) COEXIST
+        // on the same node by construction. Palette PINNED + parity-tripwired in
+        // verify.mjs (DIFF). No `diff` field => no rule => underlay-opacity default
+        // 0 => byte-identical. Removed nodes ALSO fade their kind fill via
+        // background-opacity (the colorblind-redundant BRIGHTNESS channel: added
+        // stays full-opacity, removed dims to 0.45 so added != removed without
+        // relying on green-vs-red hue); background-opacity fades the fill but leaves
+        // background-color untouched, so kind identity survives.
+        {
+          selector: "node[diff='added']",
+          style: { 'underlay-color': '#2FAE4E', 'underlay-opacity': 0.5, 'underlay-padding': 8 }
+        },
+        {
+          selector: "node[diff='removed']",
+          style: {
+            'underlay-color': '#E0503A', 'underlay-opacity': 0.5, 'underlay-padding': 8,
+            'background-opacity': 0.45
+          }
+        },
+        {
+          selector: "node[diff='unchecked']",
+          style: { 'underlay-color': '#8A8F98', 'underlay-opacity': 0.35, 'underlay-padding': 6 }
+        },
         {
           selector: "edge[rel='member']",
           style: {
@@ -169,6 +198,29 @@
             'line-style': 'dashed',
             'line-color': '#7A8699',
             opacity: 0.6
+          }
+        },
+        // Gap diff EDGE override (AP 66, ADR-015 Slice 5): placed AFTER the
+        // edge[rel=...] rules so it WINS line-color / line-style on a diffed edge.
+        // line-style (solid/dashed/dotted) is the colorblind-redundant channel for
+        // edges; an edge with no `diff` field keeps its rel styling unchanged.
+        // Palette PINNED + parity-tripwired in verify.mjs (DIFF / DIFF_LINE).
+        {
+          selector: "edge[diff='added']",
+          style: { 'line-color': '#2FAE4E', 'target-arrow-color': '#2FAE4E', opacity: 0.95 }
+        },
+        {
+          selector: "edge[diff='removed']",
+          style: {
+            'line-color': '#E0503A', 'target-arrow-color': '#E0503A',
+            'line-style': 'dashed', opacity: 0.85
+          }
+        },
+        {
+          selector: "edge[diff='unchecked']",
+          style: {
+            'line-color': '#8A8F98', 'target-arrow-color': '#8A8F98',
+            'line-style': 'dotted', opacity: 0.5
           }
         }
       ]
