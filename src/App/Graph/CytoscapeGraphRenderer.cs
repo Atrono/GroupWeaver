@@ -30,6 +30,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private TaskCompletionSource? _loaded;
     private TaskCompletionSource? _focused;
     private NativeWebView? _webView;
+    private Uri? _indexUri;
     private bool _navigated;
     private bool _commandInFlight;
 
@@ -221,8 +222,53 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         var webView = new NativeWebView();
         webView.WebMessageReceived += (_, e) => OnWebMessageReceived(e.Body ?? string.Empty);
         webView.AttachedToVisualTree += (_, _) => NavigateOnce(webView);
+        HardenWebView(webView);
         return webView;
     }
+
+    /// <summary>
+    /// Defense-in-depth (#52): the renderer hosts a local <c>file://</c> graph page
+    /// with a single embedded bundle — it never needs DevTools, child windows, or
+    /// off-page navigation. These three hooks are everything the Avalonia
+    /// <c>NativeWebView</c> 11.4.0 wrapper exposes:
+    /// <list type="bullet">
+    /// <item><see cref="NativeWebView.EnvironmentRequested"/> →
+    /// <c>EnableDevTools = false</c> disables the DevTools surface (F12 / Inspect)
+    /// at WebView2 environment-creation time.</item>
+    /// <item><see cref="NativeWebView.NewWindowRequested"/> →
+    /// <c>Handled = true</c> swallows every <c>window.open</c>/target=_blank request
+    /// rather than spawning an out-of-frame WebView2 window.</item>
+    /// <item><see cref="NativeWebView.NavigationStarted"/> →
+    /// <c>Cancel = true</c> for any document other than the initial
+    /// <c>index.html</c>, pinning the WebView to the bundle we shipped.</item>
+    /// </list>
+    /// The CoreWebView2Settings the wrapper does NOT surface managed accessors for —
+    /// <c>AreDefaultContextMenusEnabled</c>, <c>IsStatusBarEnabled</c>,
+    /// <c>AreBrowserAcceleratorKeysEnabled</c> — are reachable on this package only as
+    /// a raw COM <c>IntPtr</c> (<c>IWindowsWebView2PlatformHandle.CoreWebView2</c>);
+    /// poking them would mean hand-rolled vtable P/Invoke, deliberately out of scope.
+    /// </summary>
+    private void HardenWebView(NativeWebView webView)
+    {
+        webView.EnvironmentRequested += (_, e) => e.EnableDevTools = false;
+        webView.NewWindowRequested += (_, e) => e.Handled = true;
+        webView.NavigationStarted += OnNavigationStarted;
+    }
+
+    /// <summary>Allows only the initial <c>index.html</c> document; cancels any other
+    /// navigation (links, redirects, drag-and-drop URLs) so the WebView can never
+    /// leave the vendored bundle.</summary>
+    private void OnNavigationStarted(object? sender, WebViewNavigationStartingEventArgs e)
+    {
+        if (_indexUri is null || !UriEquals(e.Request, _indexUri))
+        {
+            e.Cancel = true;
+        }
+    }
+
+    private static bool UriEquals(Uri? a, Uri b) =>
+        a is not null && Uri.Compare(
+            a, b, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.Ordinal) == 0;
 
     /// <summary>Navigates on the FIRST attach only — the page (and its accumulated
     /// cytoscape state) must survive re-attach, not reload over it.</summary>
@@ -237,7 +283,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
         // new Uri(<absolute path>) yields a properly percent-encoded file:/// URI
         // (spaces → %20 etc.) — the GraphSpike navigation pattern (ADR-004 D6).
-        webView.Navigate(new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html")));
+        // Recorded BEFORE Navigate so the NavigationStarted guard recognizes this
+        // first document as the one allowed target and cancels everything else.
+        _indexUri = new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html"));
+        webView.Navigate(_indexUri);
     }
 
     /// <summary>
