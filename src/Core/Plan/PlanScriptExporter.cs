@@ -17,7 +17,9 @@ namespace GroupWeaver.Core.Plan;
 /// (Name, DN, SAM) is emitted ONLY inside a PowerShell SINGLE-quoted literal, with an
 /// embedded single quote doubled (<c>O'Brien</c> → <c>'O''Brien'</c>). A single-quoted
 /// literal expands no <c>$</c>, no backtick, and no subexpression — doubling the quote
-/// is the whole defense. A token carrying a control character is REJECTED with
+/// is the whole defense. A token carrying a character that is unsafe to embed in the
+/// exported script (an ASCII/C1 control, a non-ASCII line break, or a Unicode smart-quote
+/// delimiter — see <see cref="Guard"/>) is REJECTED with
 /// <see cref="PlanScriptException"/>, never escaped into the output. Output is
 /// deterministic and culture-invariant: objects are emitted in a stable
 /// <c>Dn.Comparer</c> order and the timestamp is injected via
@@ -179,24 +181,40 @@ public static class PlanScriptExporter
 
     /// <summary>
     /// THE choke point: wraps <paramref name="raw"/> as a PowerShell single-quoted
-    /// literal with the embedded quote doubled, after running it through
-    /// <see cref="Guard"/>. A control character is rejected (defense-in-depth:
-    /// <see cref="PlanModel.AddNode"/> rejects it at author time too), never emitted.
-    /// This is the only way an untrusted token reaches the output.
+    /// literal with the embedded ASCII quote (U+0027) doubled, after running it through
+    /// <see cref="Guard"/>. A character that is unsafe to embed in the exported script
+    /// is rejected (<see cref="PlanModel.AddNode"/> rejects control characters at author
+    /// time as a first line; this Guard is the complete boundary), never emitted. This is the only way an untrusted token reaches
+    /// the output. The ASCII apostrophe stays the SAFE case — doubled here, never rejected.
     /// </summary>
     private static string Ps1(string raw) =>
         "'" + Guard(raw).Replace("'", "''", StringComparison.Ordinal) + "'";
 
-    /// <summary>Rejects a token carrying a control character (defense-in-depth: PlanModel
-    /// rejects it at author time too) — the gate every emitted token passes through.</summary>
+    /// <summary>Rejects a token carrying a character that is unsafe to embed in the
+    /// exported script (PlanModel rejects control characters at author time; this gate is
+    /// the complete boundary — author-time parity is a tracked follow-up) — the
+    /// gate every emitted token passes through. Beyond ASCII control characters, this
+    /// closes the single-quote BREAKOUT the 0.2 audit reproduced: PowerShell's tokenizer
+    /// treats the Unicode quotation block U+2018..U+201F as string delimiters (U+2018..
+    /// U+201B single-quote, U+201C..U+201F double-quote), so a near-invisible smart quote
+    /// (e.g. U+2019) would terminate the single-quoted literal early and inject code.
+    /// Rejected: any <see cref="char.IsControl(char)"/> (supersedes the old c &lt; ' '
+    /// test and also catches U+0085 NEL and the C1 range), U+2028 LINE SEPARATOR,
+    /// U+2029 PARAGRAPH SEPARATOR (neither is IsControl), and the whole U+2018..U+201F
+    /// quotation block. The ASCII apostrophe U+0027 is NOT rejected — it is the safe
+    /// doubled case in <see cref="Ps1"/>.</summary>
     private static string Guard(string raw)
     {
         foreach (var c in raw)
         {
-            if (c < ' ')
+            if (char.IsControl(c)
+                || c == '\u2028'
+                || c == '\u2029'
+                || (c >= '\u2018' && c <= '\u201F'))
             {
                 throw new PlanScriptException(
-                    "A plan token carries a control character and cannot be exported.");
+                    "A plan token carries a character that is unsafe to embed in the exported script "
+                    + "and cannot be exported.");
             }
         }
 
@@ -225,7 +243,8 @@ public sealed record PlanScriptHeader(string BaseOuDn, string ToolVersion, DateT
 
 /// <summary>
 /// Thrown by <see cref="PlanScriptExporter.ToPowerShell"/> when a token cannot be safely
-/// emitted (a control character) — the exporter rejects rather than escape.
+/// emitted (a character that is unsafe to embed in the exported script) — the exporter
+/// rejects rather than escape.
 /// </summary>
 public sealed class PlanScriptException : Exception
 {

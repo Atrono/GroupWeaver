@@ -1,7 +1,7 @@
 # GroupWeaver – Projektplanung
 
 **Projektname:** GroupWeaver (GitHub-Fallback: `groupweaver-app`)
-**Stand:** Juni 2026 · **Status:** Entwurf v0.2
+**Stand:** Juni 2026 · **Status:** lebender Plan — v0.1 öffentlich released (M3 ✅); Phase 4 läuft (v0.2-/v0.3-Features release-fertig)
 **Projekttyp:** Open-Source-Nebenprojekt, Solo-Start, Read-only-Tool
 
 ---
@@ -154,11 +154,17 @@ Leitprinzip: Kernlogik und Provider sind UI-frei → Unit-Tests ohne AD und ohne
 
 Keine Scope-Schätzung – Priorisierung erfolgt über GitHub-Issues echter Nutzer.
 
-| Release | Inhalt (geplant) |
-|---|---|
-| v0.2 | winget-Einreichung (O5, mit Win-11-Testumgebung); Export (Graph als PNG/SVG, Verstoß-Report CSV/HTML); Plan-Modus: Knoten per Drag & Drop entwerfen, Live-Validierung, Export als PowerShell-Skript (bleibt read-only!) |
-| v0.3 | Gap-Analyse: Diff Ist-Graph vs. Plan-Graph — **erledigt** (ADR-015, #66; Slices 1–9: Core-Diff/GapReport/GapSummary, Graph-Diff-Cues, GapViewModel, und Slice 8/9 = Gap-Modus erreichbar aus Plan-Modus + GapView) |
-| v0.4 | Entra ID / M365 via Graph API (dynamische Gruppen, Verteiler – z. B. GG „Firma" ↔ Verteiler firma@…) |
+> **Stand 2026-06-15:** Die v0.2- und v0.3-Features sind implementiert, getestet
+> (CI grün) und review-approved auf `main` — aber seit v0.1 wurde
+> kein Release geschnitten. Ein gebündeltes Release **0.2.0** (Export + Plan-Modus
+> + Gap-Analyse) ist vorbereitet; der öffentliche Tag steht noch aus.
+
+| Release | Inhalt | Status |
+|---|---|---|
+| v0.2 | Export (Verstoß-Report CSV/HTML + Graph als **PNG**; SVG zurückgestellt, ADR-013) · Plan-Modus (Gruppen/User/Mitgliedschaften entwerfen — **panel-basierter** Editor statt Canvas-Drag&Drop, ADR-014; Live-Validierung; inertes PowerShell-Skript, bleibt read-only) | **erledigt** (#56, #59); release-fertig, Tag ausstehend |
+| v0.2 | winget-Einreichung (O5) | **zurückgestellt** — braucht eine Win-11-Testumgebung (auf dieser Box nicht verfügbar) |
+| v0.3 | Gap-Analyse: Diff Ist-Struktur vs. Plan (ADR-015, #66; SnapshotDiff/GapReport/GapSummary, Graph-Diff-Cues, GapViewModel + GapView) | **erledigt**; im 0.2.0-Release gebündelt |
+| v0.4 | Entra ID / M365 via Graph API (dynamische Gruppen, Verteiler – z. B. GG „Firma" ↔ Verteiler firma@…) | geplant; offene Follow-ups: ADR-015-Erweiterungen (DiffStatus.Modified, Cross-Scope-Rebase), #54 Graph-Layer-Pruning |
 
 ---
 
