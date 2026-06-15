@@ -39,6 +39,11 @@ $packages = @(
     @{ Pkg = 'webview2-runtime'; Present = { $false } }
     # ffmpeg: assembles the demo-mode evidence GIFs (tools/record-demo-gif.ps1, M2; AP 3.5)
     @{ Pkg = 'ffmpeg';           Present = { [bool](Get-Command ffmpeg -ErrorAction SilentlyContinue) } }
+    # Display: a glyph-rich console font + Windows Terminal (the only Win terminal
+    # with font fallback) so Claude Code's TUI renders cleanly instead of OEM-850
+    # '?' boxes - configured in section 2d.
+    @{ Pkg = 'nerd-fonts-CascadiaMono';    Present = { [bool]((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue).PSObject.Properties.Name -match 'CaskaydiaMono NFM') } }
+    @{ Pkg = 'microsoft-windows-terminal'; Present = { [bool](Get-Command wt.exe -ErrorAction SilentlyContinue) } }
 )
 foreach ($p in $packages) {
     if ((Test-ChocoPkg $p.Pkg) -or (& $p.Present)) { Log "$($p.Pkg) present."; continue }
@@ -68,6 +73,56 @@ if (Test-Path (Join-Path $gitBin 'bash.exe')) {
     else { Log 'Git\bin already on the Machine PATH.' }
 }
 else { Log "WARNING: $gitBin\bash.exe not found - Git layout changed?" }
+
+# --- 2c. PowerShell profile (UTF-8 console + interactive niceties) ------------
+# Install the versioned profile (tools/powershell-profile.ps1) to PowerShell 7's
+# CurrentUserAllHosts profile so pwsh and Claude Code's TUI render Unicode
+# cleanly (the box defaults to OEM codepage 850). Target the pwsh 7 path
+# explicitly via Documents\PowerShell so this is correct even if bootstrap is
+# run under Windows PowerShell 5.1 (whose $PROFILE would point elsewhere).
+# Idempotent: only (re)writes on content drift. Repo file is the source of truth.
+$profileSource = Join-Path $PSScriptRoot 'powershell-profile.ps1'
+$profileTarget = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\profile.ps1'
+if (Test-Path -LiteralPath $profileSource) {
+    $srcText = Get-Content -Raw -LiteralPath $profileSource
+    $dstText = if (Test-Path -LiteralPath $profileTarget) { Get-Content -Raw -LiteralPath $profileTarget } else { $null }
+    if ($srcText -ne $dstText) {
+        Log "Installing PowerShell profile -> $profileTarget"
+        $profileDir = Split-Path -Parent $profileTarget
+        if (-not (Test-Path -LiteralPath $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
+        Copy-Item -LiteralPath $profileSource -Destination $profileTarget -Force
+    }
+    else { Log 'PowerShell profile already up to date.' }
+}
+else { Log "WARNING: $profileSource not found - skipping profile install." }
+
+# --- 2d. conhost console font (Unicode-rich console out of the box) -----------
+# Server 2022 ships only Consolas/Lucida; both lack glyphs Claude Code's TUI uses
+# (e.g. dingbats), so legacy conhost prints '?' boxes. Make CaskaydiaMono NFM
+# (installed in section 2) the selectable + default conhost font. conhost has NO
+# font fallback, so the handful of glyphs even Cascadia lacks (e.g. U+273B) still
+# need Windows Terminal (also section 2), which falls back to Segoe UI Symbol.
+# All idempotent.
+$consoleFace = 'CaskaydiaMono NFM'
+$ttfKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Console\TrueTypeFont'
+$ttfVals = (Get-ItemProperty -Path $ttfKey).PSObject.Properties | Where-Object { $_.Name -match '^0+$' }
+if (-not ($ttfVals.Value -contains $consoleFace)) {
+    $len = ($ttfVals.Name | Measure-Object -Property Length -Maximum).Maximum
+    $name = '0' * ([int]$len + 1); if ($name.Length -lt 3) { $name = '000' }
+    Log "Registering '$consoleFace' in the console font allow-list ('$name')"
+    New-ItemProperty -Path $ttfKey -Name $name -Value $consoleFace -PropertyType String -Force | Out-Null
+}
+else { Log "'$consoleFace' already in console font allow-list." }
+$consKey = 'HKCU:\Console'
+if (-not (Test-Path $consKey)) { New-Item -Path $consKey -Force | Out-Null }
+if ((Get-ItemProperty -Path $consKey -Name FaceName -ErrorAction SilentlyContinue).FaceName -ne $consoleFace) {
+    Log "Setting default conhost font to '$consoleFace' (16px TrueType)"
+    New-ItemProperty -Path $consKey -Name FaceName   -Value $consoleFace -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $consKey -Name FontFamily -Value 54          -PropertyType DWord  -Force | Out-Null
+    New-ItemProperty -Path $consKey -Name FontWeight -Value 400         -PropertyType DWord  -Force | Out-Null
+    New-ItemProperty -Path $consKey -Name FontSize   -Value 0x00100000  -PropertyType DWord  -Force | Out-Null
+}
+else { Log "Default conhost font already '$consoleFace'." }
 
 # --- 3. AD DS role + new forest agdlp.lab (REBOOTS THE MACHINE) ---------------
 # DomainRole: 0/2 standalone, 1/3 member, 4 backup DC, 5 primary DC
