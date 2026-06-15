@@ -9,11 +9,17 @@ conventions. Where security-path tools like BloodHound or Adalanche show attack
 paths, GroupWeaver shows structural cleanliness and convention adherence — a
 governance perspective, not a security one.
 
-![Exploring the bundled demo directory: picking a group as the graph root, selecting a node to inspect it, lazy-expanding the membership frontier, zooming in](docs/media/m2-explore.gif)
+![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape, nesting drawn as edges, with a legend](docs/media/graph-explore.png)
 
-*Exploring in demo mode: pick a group as the root, click a node to inspect it in
-the detail panel, double-click the dashed frontier node to lazy-expand its
-members — all against the bundled fictional dataset.*
+*Exploring the bundled demo directory in demo mode: object kinds (user, global /
+domain-local / universal group, OU, computer, external) are distinct by both color
+and shape, nesting is drawn as directed edges, and a legend sits top-left.*
+
+![Gap analysis — a proposed plan diffed against the live structure: added reads green, removed reads red-orange and dashed, unexpanded-and-unchecked reads gray and dotted, on the union graph](docs/media/gap-analysis.png)
+
+*Gap analysis diffs a proposed plan against the live structure: added objects and
+memberships read green, removed read red-orange and dashed, and known-but-unexpanded
+areas read gray and dotted — a node's kind and any rule findings still show through.*
 
 ## What GroupWeaver does NOT see
 
@@ -31,8 +37,11 @@ operations of any kind. It runs in the logged-on user's security context
 
 ## Status
 
-v0.1 released (see the [project plan](PLANNING.md), German;
-architecture decisions in [docs/adr/](docs/adr/)). v0.1 includes:
+**v0.1 is publicly released**; **v0.2** (plan mode, gap analysis, export) is
+prepared and pending its tag (see the [project plan](PLANNING.md), German;
+architecture decisions in [docs/adr/](docs/adr/)). GroupWeaver currently offers:
+
+**Explore the live structure**
 
 - Live LDAP connection (read-only, user context) plus a demo mode
 - Entry filter: pick a base OU or group as the graph root
@@ -40,8 +49,19 @@ architecture decisions in [docs/adr/](docs/adr/)). v0.1 includes:
 - Detail panel showing object attributes — restricted to an explicit
   attribute whitelist (the privacy baseline)
 - Rule engine: nesting-matrix and naming checks with traffic-light badges
-  (plus circularity and empty-group detection)
-- Settings page with rule editor (live preview, import/export)
+  (plus circularity and empty-group detection), a findings sidebar with
+  jump-to-node, and an honest "unexpanded areas are unchecked" caveat
+- Settings page with rule editor (live preview, matrix editor, import/export)
+
+**Plan and compare** (v0.2)
+
+- **Plan mode** — author a proposed structure (groups, users, memberships); the
+  same rule engine validates it live as you edit
+- **Gap analysis** — diff a plan against the live structure: added / removed /
+  unchecked cues in the graph plus a "Changes" sidebar
+- **Export** — findings report as CSV or self-contained HTML, the graph as a PNG,
+  and a plan as an **inert** PowerShell script (for human review — GroupWeaver
+  never runs it and never writes to AD)
 
 ## Demo mode
 
@@ -101,10 +121,10 @@ provenance attestation. There is no code-signing certificate (see the SmartScree
 note above); instead, verify integrity and origin yourself — two commands.
 
 **1. Check the SHA256 hash** against the value in the release notes / the
-`GroupWeaver-0.1.0-win-x64.zip.sha256` sidecar:
+`GroupWeaver-0.2.0-win-x64.zip.sha256` sidecar:
 
 ```powershell
-Get-FileHash .\GroupWeaver-0.1.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\GroupWeaver-0.2.0-win-x64.zip -Algorithm SHA256
 ```
 
 **2. Verify build provenance** with the [GitHub CLI](https://cli.github.com/) —
@@ -112,7 +132,7 @@ this cryptographically confirms the `.zip` was built by this repository's releas
 workflow on GitHub's runners, not repackaged by someone else:
 
 ```powershell
-gh attestation verify .\GroupWeaver-0.1.0-win-x64.zip --repo Atrono/GroupWeaver
+gh attestation verify .\GroupWeaver-0.2.0-win-x64.zip --repo Atrono/GroupWeaver
 ```
 
 A passing check prints the matched attestation and the workflow that produced it.
