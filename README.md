@@ -37,9 +37,9 @@ operations of any kind. It runs in the logged-on user's security context
 
 ## Status
 
-**v0.1 is publicly released**; **v0.2** (plan mode, gap analysis, export) is
-prepared and pending its tag (see the [project plan](PLANNING.md), German;
-architecture decisions in [docs/adr/](docs/adr/)). GroupWeaver currently offers:
+**v0.2.0 is the latest public release** — plan mode, gap analysis, and export on
+top of the v0.1 read-only viewer (see the [project plan](PLANNING.md), German;
+architecture decisions in [docs/adr/](docs/adr/)). GroupWeaver offers:
 
 **Explore the live structure**
 

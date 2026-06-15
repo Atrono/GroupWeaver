@@ -1,7 +1,7 @@
 # GroupWeaver – Projektplanung
 
 **Projektname:** GroupWeaver (GitHub-Fallback: `groupweaver-app`)
-**Stand:** Juni 2026 · **Status:** lebender Plan — v0.1 öffentlich released (M3 ✅); Phase 4 läuft (v0.2-/v0.3-Features release-fertig)
+**Stand:** Juni 2026 · **Status:** lebender Plan — **v0.2.0 öffentlich released (2026-06-15)**; Phase 4 läuft
 **Projekttyp:** Open-Source-Nebenprojekt, Solo-Start, Read-only-Tool
 
 ---
@@ -154,16 +154,17 @@ Leitprinzip: Kernlogik und Provider sind UI-frei → Unit-Tests ohne AD und ohne
 
 Keine Scope-Schätzung – Priorisierung erfolgt über GitHub-Issues echter Nutzer.
 
-> **Stand 2026-06-15:** Die v0.2- und v0.3-Features sind implementiert, getestet
-> (CI grün) und review-approved auf `main` — aber seit v0.1 wurde
-> kein Release geschnitten. Ein gebündeltes Release **0.2.0** (Export + Plan-Modus
-> + Gap-Analyse) ist vorbereitet; der öffentliche Tag steht noch aus.
+> **Stand 2026-06-15:** Die v0.2- und v0.3-Features (Export, Plan-Modus,
+> Gap-Analyse) wurden gebündelt als **0.2.0** veröffentlicht (Tag `v0.2`,
+> [Release](https://github.com/Atrono/GroupWeaver/releases/tag/v0.2)) — hash- und
+> attestierungs-verifiziert. Vorausgegangen: Pre-Release-Security-Audit (1 HIGH
+> gefixt), Cross-Mode-UX-Review (Dark-Theme) und Doku-Abgleich.
 
 | Release | Inhalt | Status |
 |---|---|---|
-| v0.2 | Export (Verstoß-Report CSV/HTML + Graph als **PNG**; SVG zurückgestellt, ADR-013) · Plan-Modus (Gruppen/User/Mitgliedschaften entwerfen — **panel-basierter** Editor statt Canvas-Drag&Drop, ADR-014; Live-Validierung; inertes PowerShell-Skript, bleibt read-only) | **erledigt** (#56, #59); release-fertig, Tag ausstehend |
+| v0.2 | Export (Verstoß-Report CSV/HTML + Graph als **PNG**; SVG zurückgestellt, ADR-013) · Plan-Modus (Gruppen/User/Mitgliedschaften entwerfen — **panel-basierter** Editor statt Canvas-Drag&Drop, ADR-014; Live-Validierung; inertes PowerShell-Skript, bleibt read-only) | **erledigt** (#56, #59); in **0.2.0** released (2026-06-15) |
 | v0.2 | winget-Einreichung (O5) | **zurückgestellt** — braucht eine Win-11-Testumgebung (auf dieser Box nicht verfügbar) |
-| v0.3 | Gap-Analyse: Diff Ist-Struktur vs. Plan (ADR-015, #66; SnapshotDiff/GapReport/GapSummary, Graph-Diff-Cues, GapViewModel + GapView) | **erledigt**; im 0.2.0-Release gebündelt |
+| v0.3 | Gap-Analyse: Diff Ist-Struktur vs. Plan (ADR-015, #66; SnapshotDiff/GapReport/GapSummary, Graph-Diff-Cues, GapViewModel + GapView) | **erledigt**; in **0.2.0** released (2026-06-15) |
 | v0.4 | Entra ID / M365 via Graph API (dynamische Gruppen, Verteiler – z. B. GG „Firma" ↔ Verteiler firma@…) | geplant; offene Follow-ups: ADR-015-Erweiterungen (DiffStatus.Modified, Cross-Scope-Rebase), #54 Graph-Layer-Pruning |
 
 ---
