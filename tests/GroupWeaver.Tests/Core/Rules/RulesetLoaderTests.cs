@@ -396,6 +396,56 @@ public class RulesetLoaderTests
         }
     }
 
+    // --- Untrusted-pattern DoS: naming pattern length cap (FIX B) -------------
+    //
+    // The pre-0.2 adversarial audit found a Regex-CONSTRUCTOR DoS: with
+    // RegexOptions.NonBacktracking the `new Regex(...)` builds a DFA whose COST
+    // scales with pattern size, and GlobMatcher.RegexMatchTimeout bounds MATCHING
+    // only, not construction. A ~263 KB / 40k-alternation naming pattern in an
+    // untrusted (community-shared) ruleset froze RulesetLoader.Load for 7.5 s
+    // (689 KB -> 58 s). The fix rejects over-long patterns BEFORE constructing the
+    // Regex, with a validation error rather than a hang. These tests pin that the
+    // cap fires fast and that an ordinary naming regex still validates clean.
+
+    [Fact]
+    public void Load_NamingPatternExceedingLengthCap_FailsFastWithValidationError()
+    {
+        // A pathological alternation far beyond any real naming regex. Build a
+        // pattern comfortably over the cap (well past 1000 chars) — the loader must
+        // reject it on length WITHOUT constructing the NonBacktracking Regex (which
+        // is the part that hangs). Assert it returns quickly with exactly the
+        // length error on the pattern path.
+        var huge = "^(?:" + string.Join("|", Enumerable.Range(0, 5000).Select(i => $"GG_{i}")) + ")$";
+        var json = MutateBaseline("\"pattern\": \"^GG_[A-Z][A-Za-z0-9]*$\",", $"\"pattern\": \"{huge}\",");
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = RulesetLoader.Load(json);
+        sw.Stop();
+
+        Assert.False(result.Success);
+        Assert.Null(result.Ruleset);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("$.naming[0].pattern", error.Path);
+        Assert.Matches(new Regex("maximum length", RegexOptions.IgnoreCase), error.Message);
+
+        // Fail-fast: rejecting on length must not pay the DFA-construction cost the
+        // audit measured in seconds. A generous ceiling keeps this non-flaky.
+        Assert.True(
+            sw.Elapsed < TimeSpan.FromSeconds(2),
+            $"length-capped reject must be fast, took {sw.ElapsedMilliseconds} ms");
+    }
+
+    [Fact]
+    public void Load_NormalLengthNamingPattern_ValidatesClean()
+    {
+        // Regression guard against over-rejection: a perfectly ordinary naming
+        // pattern (well under the cap) must still validate and bind unchanged.
+        var ruleset = LoadValid(Baseline);
+
+        var naming = Assert.Single(ruleset.Naming);
+        Assert.Equal("^GG_[A-Z][A-Za-z0-9]*$", naming.Pattern);
+    }
+
     // --- Explicit "endpoint": "any" is the spelled-out default, legal anywhere -
 
     [Fact]

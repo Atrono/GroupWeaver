@@ -295,13 +295,36 @@ public static class RulesetLoader
         return kind;
     }
 
+    /// <summary>The maximum length, in characters, of a naming-rule regex pattern.
+    /// RegexOptions.NonBacktracking builds a DFA at CONSTRUCTION time whose cost scales
+    /// with pattern size, and GlobMatcher.RegexMatchTimeout bounds MATCHING only — not the
+    /// `new Regex(...)` call. The 0.2 adversarial audit measured an untrusted (community-
+    /// shared) ~263 KB / 40k-alternation pattern freezing Load for 7.5 s (689 KB -> 58 s),
+    /// a DoS a mere file-size cap cannot stop (one huge pattern defeats it). 1000 chars is
+    /// generous for any real naming convention (the strict-AGDLP defaults are well under
+    /// 60) yet far below the seconds-scale construction range — patterns over the cap are
+    /// rejected BEFORE the Regex is ever constructed.</summary>
+    private const int MaxPatternLength = 1000;
+
     /// <summary>Validate-compiles a naming pattern exactly as the engine will
-    /// (NonBacktracking | CultureInvariant) so files fail at load, not at scan.</summary>
+    /// (NonBacktracking | CultureInvariant) so files fail at load, not at scan. An
+    /// over-long pattern is rejected on LENGTH before construction (DoS guard, see
+    /// <see cref="MaxPatternLength"/>).</summary>
     private static void ValidatePattern(string? pattern, string path, List<RulesetValidationError> errors)
     {
         if (pattern is null)
         {
             errors.Add(Missing(path));
+            return;
+        }
+
+        if (pattern.Length > MaxPatternLength)
+        {
+            errors.Add(new RulesetValidationError(
+                path,
+                $"pattern is {pattern.Length} characters and exceeds the maximum length of "
+                + $"{MaxPatternLength} characters (a long pattern can make the linear-time engine's "
+                + "Regex construction prohibitively slow)."));
             return;
         }
 

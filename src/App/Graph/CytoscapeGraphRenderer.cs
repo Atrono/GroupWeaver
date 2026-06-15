@@ -226,11 +226,37 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 [GraphJson.Serialize(new ExportPngDto("exportPng", 2, false, "#1b1f27"))], cancellationToken);
             await AwaitConfirmationAsync(
                 _pngReady.Task, "png export never completed (60 s)", cancellationToken);
-            return _pngExported is null ? null : Convert.FromBase64String(_pngExported);
+            return DecodePngOrNull(_pngExported);
         }
         finally
         {
             _commandInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Decodes the page's bare-base64 <c>pngExported</c> reply into bytes, FAILING TO
+    /// <c>null</c> rather than throwing — the never-throw renderer contract
+    /// (<see cref="IGraphRenderer.ExportPngAsync"/>: <c>null</c> on ANY error). The reply
+    /// is untrusted text from the bridge: a malformed/garbage body throws
+    /// <see cref="FormatException"/> from <see cref="Convert.FromBase64String"/>, which on
+    /// the RelayCommand async-void path would rethrow on the UI thread with no handler and
+    /// CRASH the app. Catching it here keeps a degraded export from becoming a crash bug.
+    /// </summary>
+    internal static byte[]? DecodePngOrNull(string? base64)
+    {
+        if (string.IsNullOrEmpty(base64))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            return null;
         }
     }
 

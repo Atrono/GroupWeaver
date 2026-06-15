@@ -93,6 +93,84 @@ public class PlanScriptExporterTests
         Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
     }
 
+    // --- Unsafe-character gate: Unicode quote block + non-ASCII line breaks ----------------
+    //
+    // The pre-0.2 adversarial audit (FIX A) found a single-quote BREAKOUT: the old Guard
+    // rejected only c < U+0020, but PowerShell's tokenizer also treats the Unicode "smart
+    // quote" block as string delimiters — U+2018..U+201B as SINGLE-quote delimiters and
+    // U+201C..U+201F as DOUBLE-quote delimiters. A near-invisible curly apostrophe (U+2019)
+    // in an authored Name/SAM/DN terminates the single-quoted literal early and injects
+    // arbitrary code into the .ps1 the operator runs in a privileged AD session (reproduced
+    // end-to-end in pwsh 7 AND Windows PowerShell 5.1). The fix widens Guard to reject:
+    //   - char.IsControl(c)            — supersedes c < ' ', and also catches U+0085 (NEL)
+    //                                     and the whole C1 range (U+0080..U+009F)
+    //   - U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR
+    //   - the Unicode quotation block U+2018..U+201F (the smart-quote delimiters)
+    // Guard is THE choke point every emitted token crosses, so this closes the export
+    // breakout. ASCII U+0027 (') stays the SAFE case — it is DOUBLED, never rejected.
+
+    [Theory]
+    [InlineData('’')] // RIGHT SINGLE QUOTATION MARK — the audit's reproduced breakout char
+    [InlineData('‘')] // LEFT SINGLE QUOTATION MARK — start of the single-quote delimiter block
+    [InlineData('‚')] // SINGLE LOW-9 QUOTATION MARK
+    [InlineData('‛')] // SINGLE HIGH-REVERSED-9 QUOTATION MARK — end of the single-quote block
+    [InlineData('“')] // LEFT DOUBLE QUOTATION MARK — start of the double-quote delimiter block
+    [InlineData('”')] // RIGHT DOUBLE QUOTATION MARK
+    [InlineData('„')] // DOUBLE LOW-9 QUOTATION MARK
+    [InlineData('‟')] // DOUBLE HIGH-REVERSED-9 QUOTATION MARK — end of the quotation block
+    public void ToPowerShell_NameWithUnicodeQuoteDelimiter_ThrowsPlanScriptException(char quote)
+    {
+        // The Name channel carries the smart-quote; reaching the exporter via the Name
+        // proves Guard rejects on the Name path (AppendGroupCreation's name token).
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales" + quote, sam: "GG_Sales");
+
+        Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
+    }
+
+    [Theory]
+    [InlineData('’')] // RIGHT SINGLE QUOTATION MARK — single-quote breakout via the SAM token
+    [InlineData('“')] // LEFT DOUBLE QUOTATION MARK — double-quote delimiter via the SAM token
+    public void ToPowerShell_SamWithUnicodeQuoteDelimiter_ThrowsPlanScriptException(char quote)
+    {
+        // The SAM channel carries the smart-quote (Name clean) — pins that the SAM token
+        // crosses the same gate as the Name token (AppendGroupCreation's sam token).
+        var plan = new PlanModel(BaseOu);
+        var node = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Clean");
+        ForceSam(plan, node.Dn, "GG_Clean" + quote);
+
+        Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
+    }
+
+    [Theory]
+    [InlineData('\u2028')] // LINE SEPARATOR -- a non-ASCII line break char.IsControl does NOT catch
+    [InlineData('\u2029')] // PARAGRAPH SEPARATOR -- same; both must be rejected explicitly
+    [InlineData('\u0085')] // NEXT LINE (NEL, a C1 control) -- char.IsControl catches it, c < ' ' did not
+    public void ToPowerShell_NameWithNonAsciiLineBreak_ThrowsPlanScriptException(char lineBreak)
+    {
+        // U+2028/U+2029 are NOT char.IsControl (they are Zl/Zp separators) so they need
+        // their own arm; U+0085 IS a control but is > U+0020 so the OLD c < ' ' gate missed
+        // it — char.IsControl now catches it. All three would inject a fresh line/statement.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales" + lineBreak, sam: "GG_Sales");
+
+        Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
+    }
+
+    [Fact]
+    public void ToPowerShell_NameWithOrdinaryAsciiApostrophe_StillExports_WithQuoteDoubling()
+    {
+        // FAIL-OPEN guard against over-rejection: the widened Guard must NOT reject the
+        // ordinary ASCII apostrophe U+0027 — that is the SAFE case the Ps1 doubling
+        // (''  ) handles. A normal O'Brien name must still export, doubled, unchanged.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_O'Brien", sam: "GG_O'Brien");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        Assert.Contains("'GG_O''Brien'", script, StringComparison.Ordinal);
+    }
+
     // --- Header-token hardening: ToolVersion + BaseOuDn control-char gate -----------------
     //
     // The pre-v0.2 /security-review found that the header tokens travel two different
