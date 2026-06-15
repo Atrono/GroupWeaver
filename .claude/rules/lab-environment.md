@@ -73,8 +73,9 @@
   `bootstrap.ps1`: §2c installs `tools/powershell-profile.ps1` (forces UTF-8
   console encoding, stays SILENT on stdout, PSReadLine interactive-only); §2d
   installs `CaskaydiaMono NFM` + Windows Terminal and sets that font as the
-  conhost default. **conhost does NO font fallback** — the lone glyph `✻` (U+273B,
-  Claude's spinner) is absent from every installed monospace font (Consolas AND
-  Cascadia), so it stays `?` in conhost; only **Windows Terminal** (`wt`, falls
+  conhost default. **conhost does NO font fallback** — `✻` (U+273B, Claude's
+  spinner) AND `⏵⏵` (U+23F5, the bypass-permissions mode indicator) are absent
+  from every installed monospace font (Consolas AND Cascadia/CaskaydiaMono NFM),
+  so they stay `?`/boxes in conhost; only **Windows Terminal** (`wt`, falls
   back to Segoe UI Symbol) renders the full set. Takes effect in NEW console
   windows only — a running session keeps the old codepage/font.
