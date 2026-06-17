@@ -170,13 +170,25 @@ function Log([string]$msg) { Write-Host "[record-demo-gif $(Get-Date -Format HH:
 $script:frameIndex = 0
 $script:lastFrame = $null
 
+# PrintWindow on the WebView2 layer lags one compositor batch (lab-environment.md):
+# the FIRST capture after a view/graph mutation returns the PREVIOUS frame. Capture
+# twice back-to-back (no sleep between - the per-call powershell.exe spawn is the
+# settle) and keep the second, so what lands is the live frame, never a stale one.
+# This is what kept the click loop hunting the rust DL badge in a stale ROOT-PICKER
+# frame (and clicking empty canvas) instead of the rendered graph node.
+function Capture-Live([string]$path, [string]$label) {
+    foreach ($pass in 1..2) {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File $captureScript -ProcessId $app.Id -OutFile $path | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "capture-window.ps1 failed for $label" }
+    }
+}
+
 function Save-Frame([int]$copies = 1) {
     for ($i = 0; $i -lt $copies; $i++) {
         $name = 'frame_{0:000}.png' -f $script:frameIndex
         $path = Join-Path $frameDir $name
-        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-            -File $captureScript -ProcessId $app.Id -OutFile $path | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "capture-window.ps1 failed for $name" }
+        Capture-Live $path $name
         $script:frameIndex++
         $script:lastFrame = $path
     }
@@ -194,9 +206,7 @@ function Hold-Frame([int]$copies = 1) {
 # Probe capture for pixel-hunting; NOT part of the frame sequence.
 function Save-Probe {
     $path = Join-Path $frameDir 'probe.png'
-    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-        -File $captureScript -ProcessId $app.Id -OutFile $path | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'capture-window.ps1 failed for probe' }
+    Capture-Live $path 'probe'
     return $path
 }
 
