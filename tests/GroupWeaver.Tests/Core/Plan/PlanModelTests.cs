@@ -314,4 +314,66 @@ public class PlanModelTests
         Assert.True(plan.TryGetNode(node.Dn, out var fetched));
         Assert.Equal(PlanCreatableKind.UniversalGroup, fetched!.Kind);
     }
+
+    // --- #77: author-time unsafe-char parity with PlanScriptExporter.Guard ----------------
+
+    [Theory]
+    [InlineData('‘')] // LEFT SINGLE QUOTATION MARK — start of the curly-quote block
+    [InlineData('’')] // RIGHT SINGLE QUOTATION MARK — the 0.2 audit's reproduced breakout char
+    [InlineData('“')] // LEFT DOUBLE QUOTATION MARK
+    [InlineData('‟')] // DOUBLE HIGH-REVERSED-9 — end of the curly-quote block
+    [InlineData('\u2028')] // LINE SEPARATOR — not char.IsControl
+    [InlineData('\u2029')] // PARAGRAPH SEPARATOR — not char.IsControl
+    [InlineData('\u0085')] // NEXT LINE (NEL) — a C1 control the old "c < ' '" gate missed
+    public void AddNode_NameWithUnsafeChar_ThrowsPlanConflict_AndAddsNothing(char unsafeChar)
+    {
+        var plan = new PlanModel(BaseOu);
+
+        Assert.Throws<PlanConflictException>(
+            () => plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales" + unsafeChar));
+
+        Assert.Empty(plan.Nodes);
+    }
+
+    [Fact]
+    public void AddNode_SamWithUnsafeChar_ThrowsPlanConflict_AndAddsNothing()
+    {
+        var plan = new PlanModel(BaseOu);
+
+        // The smart quote rides the SAM channel; the name is clean.
+        Assert.Throws<PlanConflictException>(
+            () => plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales’"));
+
+        Assert.Empty(plan.Nodes);
+    }
+
+    [Theory]
+    [InlineData('’')] // RIGHT SINGLE QUOTATION MARK
+    [InlineData('\u2028')] // LINE SEPARATOR
+    [InlineData('\u0085')] // NEL
+    public void RenameNode_NewNameWithUnsafeChar_ThrowsPlanConflict_AndLeavesNodeUnchanged(char unsafeChar)
+    {
+        var plan = new PlanModel(BaseOu);
+        var original = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales");
+
+        Assert.Throws<PlanConflictException>(() => plan.RenameNode(original.Dn, "GG_Renamed" + unsafeChar));
+
+        // The rejected rename leaves the original node intact under its original DN.
+        Assert.True(plan.TryGetNode(original.Dn, out _));
+        Assert.Single(plan.Nodes);
+    }
+
+    [Fact]
+    public void AddNode_NameWithStraightApostrophe_IsAccepted()
+    {
+        // U+0027 is the normal apostrophe — SAFE (the exporter doubles it in the
+        // single-quoted literal). Only the curly-quote block U+2018–U+201F is unsafe.
+        // Guards against over-rejection.
+        var plan = new PlanModel(BaseOu);
+
+        var node = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_O'Brien");
+
+        Assert.Equal("GG_O'Brien", node.Name);
+        Assert.Single(plan.Nodes);
+    }
 }

@@ -50,9 +50,11 @@ public sealed class PlanModel
     /// </summary>
     public PlanObject AddNode(PlanCreatableKind kind, string name, string? sam = null)
     {
-        if (HasControlChars(name) || (sam is not null && HasControlChars(sam)))
+        if (PlanText.ContainsUnsafe(name) || (sam is not null && PlanText.ContainsUnsafe(sam)))
         {
-            throw new PlanConflictException("Names must not contain control characters.");
+            throw new PlanConflictException(
+                "A name carries a character (a control character, line separator, or curly quote) "
+                + "that is unsafe to embed in the exported script and must not be used.");
         }
 
         var dn = FormDn(name);
@@ -91,6 +93,13 @@ public sealed class PlanModel
     /// </summary>
     public void RenameNode(string dn, string newName)
     {
+        if (PlanText.ContainsUnsafe(newName))
+        {
+            throw new PlanConflictException(
+                "A name carries a character (a control character, line separator, or curly quote) "
+                + "that is unsafe to embed in the exported script and must not be used.");
+        }
+
         if (!_nodes.TryGetValue(dn, out var node))
         {
             throw new PlanConflictException("No such object to rename.");
@@ -165,17 +174,4 @@ public sealed class PlanModel
 
     private static bool IsIncident(MembershipEdge edge, string dn) =>
         Dn.Comparer.Equals(edge.ParentDn, dn) || Dn.Comparer.Equals(edge.ChildDn, dn);
-
-    private static bool HasControlChars(string value)
-    {
-        foreach (var c in value)
-        {
-            if (c < ' ')
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

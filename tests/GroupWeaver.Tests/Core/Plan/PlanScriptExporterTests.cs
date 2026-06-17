@@ -120,10 +120,13 @@ public class PlanScriptExporterTests
     [InlineData('‟')] // DOUBLE HIGH-REVERSED-9 QUOTATION MARK — end of the quotation block
     public void ToPowerShell_NameWithUnicodeQuoteDelimiter_ThrowsPlanScriptException(char quote)
     {
-        // The Name channel carries the smart-quote; reaching the exporter via the Name
-        // proves Guard rejects on the Name path (AppendGroupCreation's name token).
+        // The smart-quote is injected DIRECTLY into the Name (bypassing AddNode, which
+        // now rejects it at author time per #77) — so reaching the exporter via the Name
+        // proves Guard is the last boundary on the name-token path (AppendGroupCreation's
+        // name token), not only the model's AddNode.
         var plan = new PlanModel(BaseOu);
-        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales" + quote, sam: "GG_Sales");
+        var node = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Clean");
+        ForceName(plan, node.Dn, "GG_Sales" + quote);
 
         Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
     }
@@ -151,8 +154,12 @@ public class PlanScriptExporterTests
         // U+2028/U+2029 are NOT char.IsControl (they are Zl/Zp separators) so they need
         // their own arm; U+0085 IS a control but is > U+0020 so the OLD c < ' ' gate missed
         // it — char.IsControl now catches it. All three would inject a fresh line/statement.
+        // The line-break char is injected DIRECTLY into the Name (bypassing AddNode, which
+        // now rejects it at author time per #77) so the test still proves the exporter is
+        // the last boundary on the name-token path.
         var plan = new PlanModel(BaseOu);
-        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales" + lineBreak, sam: "GG_Sales");
+        var node = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Clean");
+        ForceName(plan, node.Dn, "GG_Sales" + lineBreak);
 
         Assert.Throws<PlanScriptException>(() => PlanScriptExporter.ToPowerShell(plan, Header));
     }
@@ -384,6 +391,18 @@ public class PlanScriptExporterTests
     {
         Assert.True(plan.TryGetNode(dn, out var node));
         node!.SamAccountName = sam;
+    }
+
+    /// <summary>Mutates a node's Name directly to inject an exporter-gate test value
+    /// the model's AddNode/RenameNode would otherwise reject at author time (#77) —
+    /// exercising the exporter's OWN unsafe-char gate on the Name-token emission path
+    /// (defense in depth), not the model's. The injected Name deliberately no longer
+    /// matches the DN: this crafts a token that bypassed author-time validation,
+    /// exactly the scenario the exporter must still reject.</summary>
+    private static void ForceName(PlanModel plan, string dn, string newName)
+    {
+        Assert.True(plan.TryGetNode(dn, out var node));
+        node!.Name = newName;
     }
 
     private static int IndexOfRequired(string haystack, string needle)

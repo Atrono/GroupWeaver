@@ -183,6 +183,27 @@ public sealed class PlanModeEditorTests
     }
 
     /// <summary>
+    /// #77 author-time parity through the ViewModel: a curly quote (U+2019) — which the
+    /// exporter's Guard rejects — must now also be rejected at add time, surfacing as
+    /// <see cref="PlanViewModel.EditError"/> with NO node added (early feedback, not an
+    /// export-time surprise).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AddObject_CurlyQuoteName_SetsEditError_NoNodeAdded()
+    {
+        var plan = HeadlessPlan();
+        plan.NewObjectKind = PlanCreatableKind.GlobalGroup;
+        plan.NewObjectName = "GG_Sales’"; // RIGHT SINGLE QUOTATION MARK — a PS string delimiter
+
+        await plan.AddObjectCommand.ExecuteAsync(null);
+
+        Assert.NotNull(plan.EditError);
+        Assert.Empty(plan.Nodes); // nothing was authored
+
+        plan.Dispose();
+    }
+
+    /// <summary>
     /// A SUCCESSFUL add clears the inline error and the name/SAM boxes (so the next add starts
     /// fresh) while keeping the kind selection (the user may add several of the same kind). This
     /// pins the "success clears EditError + NewObjectName + NewObjectSam" half of the contract,

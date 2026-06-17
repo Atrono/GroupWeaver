@@ -183,7 +183,7 @@ public static class PlanScriptExporter
     /// THE choke point: wraps <paramref name="raw"/> as a PowerShell single-quoted
     /// literal with the embedded ASCII quote (U+0027) doubled, after running it through
     /// <see cref="Guard"/>. A character that is unsafe to embed in the exported script
-    /// is rejected (<see cref="PlanModel.AddNode"/> rejects control characters at author
+    /// is rejected (<see cref="PlanModel.AddNode"/> rejects the same unsafe set at author
     /// time as a first line; this Guard is the complete boundary), never emitted. This is the only way an untrusted token reaches
     /// the output. The ASCII apostrophe stays the SAFE case — doubled here, never rejected.
     /// </summary>
@@ -191,31 +191,22 @@ public static class PlanScriptExporter
         "'" + Guard(raw).Replace("'", "''", StringComparison.Ordinal) + "'";
 
     /// <summary>Rejects a token carrying a character that is unsafe to embed in the
-    /// exported script (PlanModel rejects control characters at author time; this gate is
-    /// the complete boundary — author-time parity is a tracked follow-up) — the
-    /// gate every emitted token passes through. Beyond ASCII control characters, this
-    /// closes the single-quote BREAKOUT the 0.2 audit reproduced: PowerShell's tokenizer
-    /// treats the Unicode quotation block U+2018..U+201F as string delimiters (U+2018..
-    /// U+201B single-quote, U+201C..U+201F double-quote), so a near-invisible smart quote
-    /// (e.g. U+2019) would terminate the single-quoted literal early and inject code.
-    /// Rejected: any <see cref="char.IsControl(char)"/> (supersedes the old c &lt; ' '
-    /// test and also catches U+0085 NEL and the C1 range), U+2028 LINE SEPARATOR,
-    /// U+2029 PARAGRAPH SEPARATOR (neither is IsControl), and the whole U+2018..U+201F
-    /// quotation block. The ASCII apostrophe U+0027 is NOT rejected — it is the safe
-    /// doubled case in <see cref="Ps1"/>.</summary>
+    /// exported script — the last gate every emitted token passes through. The unsafe
+    /// set lives in <see cref="PlanText.IsUnsafe(char)"/>, shared verbatim with the
+    /// author-time guards in <see cref="PlanModel.AddNode"/>/<see cref="PlanModel.RenameNode"/>
+    /// (#77: they no longer drift). It closes the single-quote BREAKOUT the 0.2 audit
+    /// reproduced — PowerShell's tokenizer treats U+2018..U+201F as string delimiters, so
+    /// a near-invisible smart quote (e.g. U+2019) would terminate the single-quoted literal
+    /// early and inject code — plus all control chars (incl. U+0085 NEL / the C1 range) and
+    /// U+2028/U+2029. The ASCII apostrophe U+0027 is NOT rejected; it is the safe doubled
+    /// case in <see cref="Ps1"/>.</summary>
     private static string Guard(string raw)
     {
-        foreach (var c in raw)
+        if (PlanText.ContainsUnsafe(raw))
         {
-            if (char.IsControl(c)
-                || c == '\u2028'
-                || c == '\u2029'
-                || (c >= '\u2018' && c <= '\u201F'))
-            {
-                throw new PlanScriptException(
-                    "A plan token carries a character that is unsafe to embed in the exported script "
-                    + "and cannot be exported.");
-            }
+            throw new PlanScriptException(
+                "A plan token carries a character that is unsafe to embed in the exported script "
+                + "and cannot be exported.");
         }
 
         return raw;
