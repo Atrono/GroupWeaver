@@ -41,7 +41,7 @@ jobs:
         run: pwsh tools/pack-release.ps1 -Version '${{ steps.ver.outputs.version }}' -Emit github
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be   # v2.4.0; v4 is current but is a thin actions/attest wrapper — v2 stays fully supported
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a   # v3.0.0 (#79: v2.x wrapped actions/attest on the removed Node 20 runtime; v3 moved it to Node 24, same subject-path I/O)
         with:
           subject-path: ${{ steps.pack.outputs.zip }}
 
