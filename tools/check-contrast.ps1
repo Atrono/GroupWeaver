@@ -112,18 +112,26 @@ $palette = @(
     @{ Name = 'DiffAdded #2FAE4E'; Hex = '#2FAE4E'; Context = 'graphic' }
     @{ Name = 'DiffRemoved #E0503A'; Hex = '#E0503A'; Context = 'graphic' }
     @{ Name = 'DiffUnchecked #8A8F98'; Hex = '#8A8F98'; Context = 'graphic' }
+    # WCAG 1.4.11 node-lift ring (#90 / ADR-021): the DL/UG/Computer fills above are
+    # sub-3:1, so a 2px #8A93A3 ring (BrandTokens.NodeLiftRing == graph.js border-color)
+    # carries their graphical-object distinguishability against the page bg instead.
+    @{ Name = 'NodeLiftRing #8A93A3'; Hex = '#8A93A3'; Context = 'graphic' }
 )
 
 # Label/text contexts: the same palette colors that ALSO carry the redundant text
-# letter/symbol (severity E/W/i, diff +/-/?) are evaluated at the stricter 4.5:1 bar,
-# since they render as text on the page bg in the sidebar rows. White text on the
-# colored badge is a separate, always-padded surface - included for completeness.
+# letter/symbol (severity E/W/i) are evaluated at the stricter 4.5:1 bar where they
+# render as colored text on the page bg (the naming-preview chip). The on-BADGE glyph
+# text (E/W/i drawn on the colored fill) uses the #90 / ADR-021 per-hue ink
+# (SeverityConverters.ToTextBrush): white on Error, dark #1b1f27 ink on Warning/Info -
+# fixing the old white-on-amber 2.06 / white-on-blue 2.73 fails (both now >= 4.5).
+$onLightInk = '#1b1f27'   # BrandTokens.OnLightText
 $textPairs = @(
     @{ Name = 'Error glyph "E" on bg'; Fg = '#D13438'; Bg = $pageBg }
     @{ Name = 'Warning glyph "W" on bg'; Fg = '#F7A30B'; Bg = $pageBg }
     @{ Name = 'Info glyph "i" on bg'; Fg = '#4FA3E3'; Bg = $pageBg }
-    @{ Name = 'White text on Error badge'; Fg = '#FFFFFF'; Bg = '#D13438' }
-    @{ Name = 'White text on Warning badge'; Fg = '#FFFFFF'; Bg = '#F7A30B' }
+    @{ Name = 'White ink on Error badge'; Fg = '#FFFFFF'; Bg = '#D13438' }
+    @{ Name = 'Dark ink on Warning badge'; Fg = $onLightInk; Bg = '#F7A30B' }
+    @{ Name = 'Dark ink on Info badge'; Fg = $onLightInk; Bg = '#4FA3E3' }
 )
 
 function Format-Pass([double]$ratio, [double]$threshold) {

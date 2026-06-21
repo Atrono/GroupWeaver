@@ -2,7 +2,6 @@ using System.Collections;
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Rules;
 
@@ -26,6 +25,18 @@ public static class SeverityConverters
     /// <summary>Severity → its pinned ADR-010 overlay color (the glyph square fill).</summary>
     public static readonly IValueConverter ToBrush =
         new FuncValueConverter<RuleSeverity, IBrush>(BrushFor);
+
+    /// <summary>
+    /// Severity → the per-hue ON-BADGE text brush (ADR-021 / #90, the WCAG 1.4.3 re-tone):
+    /// Error → white (<see cref="BrandTokens.OnDarkText"/>, 4.93:1 on the red fill ✓), but
+    /// Warning → <see cref="BrandTokens.OnLightText"/> (#1b1f27 dark ink, 8.02:1 on amber ✓ —
+    /// white was 2.06:1 ✗) and Info → <see cref="BrandTokens.OnLightText"/> (6.04:1 on light
+    /// blue ✓ — white was 2.73:1 ✗). The amber/light-blue fills are too light for white text;
+    /// only the red keeps white. Mirrors the <see cref="ToBrush"/>/<see cref="ToGlyph"/> shape
+    /// so the badge glyph FILL (ToBrush) and its TEXT (this) stay one source of truth.
+    /// </summary>
+    public static readonly IValueConverter ToTextBrush =
+        new FuncValueConverter<RuleSeverity, IBrush>(TextBrushFor);
 
     /// <summary>Severity → the redundant, colorblind-safe letter (E / W / i).</summary>
     public static readonly IValueConverter ToGlyph =
@@ -52,9 +63,18 @@ public static class SeverityConverters
 
     private static IBrush BrushFor(RuleSeverity severity) => severity switch
     {
-        RuleSeverity.Error => ErrorBrush,
-        RuleSeverity.Warning => WarningBrush,
-        _ => InfoBrush,
+        RuleSeverity.Error => BrandTokens.Error,
+        RuleSeverity.Warning => BrandTokens.Warning,
+        _ => BrandTokens.Info,
+    };
+
+    // The ON-BADGE text ink, per-hue (ADR-021 / #90): red keeps white (4.93:1), amber and
+    // light-blue need the dark page-bg ink (white failed 1.4.3 at 2.06 / 2.73).
+    private static IBrush TextBrushFor(RuleSeverity severity) => severity switch
+    {
+        RuleSeverity.Error => BrandTokens.OnDarkText,
+        RuleSeverity.Warning => BrandTokens.OnLightText,
+        _ => BrandTokens.OnLightText,
     };
 
     private static string GlyphFor(RuleSeverity severity) => severity switch
@@ -63,10 +83,6 @@ public static class SeverityConverters
         RuleSeverity.Warning => "W",
         _ => "i",
     };
-
-    private static readonly ImmutableSolidColorBrush ErrorBrush = new(Color.Parse("#D13438"));
-    private static readonly ImmutableSolidColorBrush WarningBrush = new(Color.Parse("#F7A30B"));
-    private static readonly ImmutableSolidColorBrush InfoBrush = new(Color.Parse("#4FA3E3"));
 
     /// <summary>Counts the rows of the parameter severity in the bound violations
     /// collection (a <c>MultiBinding</c>: value[0] = collection, value[1] = its Count, the

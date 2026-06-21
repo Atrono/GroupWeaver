@@ -21,7 +21,8 @@
         <Border Width="18" Height="18" CornerRadius="3"
                 Background="{Binding Converter={x:Static views:SeverityConverters.ToBrush}}">
           <TextBlock Text="{Binding Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     Foreground="{Binding Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                     FontSize="11" FontWeight="SemiBold"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <TextBlock Text="{Binding}" VerticalAlignment="Center" />
@@ -37,9 +38,12 @@
               Background="{Binding Converter={x:Static views:CellChoiceConverters.ToBrush}}">
         <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
           <TextBlock Text="{Binding Converter={x:Static views:CellChoiceConverters.ToGlyph}}"
-                     Foreground="White" FontSize="11" FontWeight="SemiBold"
+                     Foreground="{Binding Converter={x:Static views:CellChoiceConverters.ToTextBrush}}"
+                     FontSize="11" FontWeight="SemiBold"
                      VerticalAlignment="Center" />
-          <TextBlock Text="{Binding}" Foreground="White" FontSize="11"
+          <TextBlock Text="{Binding}"
+                     Foreground="{Binding Converter={x:Static views:CellChoiceConverters.ToTextBrush}}"
+                     FontSize="11"
                      VerticalAlignment="Center" />
         </StackPanel>
       </Border>

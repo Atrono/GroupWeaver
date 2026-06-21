@@ -39,6 +39,23 @@ const PALETTE = {
 // legend that drops/renames a kind row, or adds an 8th, fails loudly.
 const KIND_NAMES = Object.keys(PALETTE);
 
+// THE WCAG 1.4.11 node-lift tripwire (#90 / ADR-021). The three kind FILLS whose
+// graphical-object contrast vs the #1b1f27 page bg falls below the 3:1 floor
+// (DL 2.55:1 / UG 2.66:1 / Computer 2.59:1) are LIFTED by a 2px #8A93A3 ring in
+// graph.js - the fills themselves stay UNCHANGED (PALETTE above is untouched).
+// Hand-copied from BrandTokens.NodeLiftRingHex (#8A93A3, the C# source of truth in
+// src/App/Views/BrandTokens.cs); if graph.js or that token drifts, this fails. Only
+// these three kinds carry the ring - every other kind has border-width 0 (asserted
+// against a control below) EXCEPT External, which owns its OWN distinct dashed
+// #B0B6BF border (NOT the lift - so it is never used as the no-border control).
+const KIND_BORDER_COLOR = '#8A93A3';
+const KIND_BORDER_WIDTH = 2;
+const KIND_BORDER = {
+  DomainLocalGroup: KIND_BORDER_COLOR,
+  UniversalGroup: KIND_BORDER_COLOR,
+  Computer: KIND_BORDER_COLOR,
+};
+
 // THE C#/JS severity parity tripwire (AP 3.4, ADR-010 D1). Hand-copied from the
 // pinned palette: if ADR-010 / GraphJson.SeverityWire / graph.js' node[sev=...]
 // overlay rules drift on the color, this harness fails - the exact analogue of
@@ -1214,6 +1231,50 @@ async function main() {
     }
     phase(`palette parity (${kindsPresent.size}/7 kinds)`);
 
+    // --- WCAG 1.4.11 node-lift parity C# <-> JS (#90, ADR-021) ---------------
+    // The three kind FILLS below the 3:1 graphical-object-contrast floor (DL/UG/
+    // Computer) gain a 2px #8A93A3 ring in graph.js; the fills stay UNCHANGED (the
+    // palette-parity block above already pinned the fills). Pinned per rendered node
+    // via getElementById (comma-DN safe, ADR-004 D5) + the same toHex/style read the
+    // fill asserts use. KIND_BORDER mirrors BrandTokens.NodeLiftRingHex. Each lifted
+    // kind MUST be present in the demo fixture (DL/UG/Computer all ship in the demo
+    // dataset); a missing one is a fixture regression and fails here, not a skip.
+    const borderOf = (id) => page.evaluate((nid) => {
+      const el = window.__cy.getElementById(nid);
+      return {
+        found: el.length === 1,
+        color: el.style('border-color'),
+        width: el.style('border-width'),
+      };
+    }, id);
+    for (const [kind, expectedBorderHex] of Object.entries(KIND_BORDER)) {
+      const sample = fixture.nodes.find((x) => x.kind === kind);
+      assert(sample !== undefined,
+        `#90 node-lift: demo fixture must contain a '${kind}' node to verify its WCAG 1.4.11 ring (fixture/demo regression)`);
+      const got = await borderOf(sample.id);
+      assert(got.found, `#90 node-lift: '${kind}' node '${sample.id}' not found on the rendered graph`);
+      assert(toHex(got.color) === expectedBorderHex.toUpperCase(),
+        `#90 node-lift border-color for ${kind} ('${sample.id}'): rendered '${got.color}' (${toHex(got.color)}) != BrandTokens.NodeLiftRing ${expectedBorderHex} (graph.js missing the 2px ring on node[kind='${kind}']?)`);
+      assert(Math.abs(toNumber(got.width) - KIND_BORDER_WIDTH) < 1e-6,
+        `#90 node-lift border-width for ${kind} ('${sample.id}'): rendered ${got.width} != pinned ${KIND_BORDER_WIDTH}px`);
+    }
+    // Tripwire: a kind WITHOUT the lift carries NO border (width ~0) - so the ring is
+    // EXACTLY the three low-contrast kinds, never a blanket "border every node". TWO
+    // exclusions on the control node: (1) NOT External (it owns its own distinct dashed
+    // #B0B6BF border), and (2) NOT root (node[?root] paints a 3px white #E8ECF2 border -
+    // an unrelated lift that would false-fail this assert). So pick a NON-ROOT node of a
+    // present kind that is neither lifted nor External (User/GG/OU, each fill >= 3:1, all
+    // border-width 0 in graph.js).
+    const noLiftSample = fixture.nodes.find(
+      (x) => !(x.kind in KIND_BORDER) && x.kind !== 'External' && !x.root);
+    assert(noLiftSample !== undefined,
+      '#90 node-lift: fixture must contain a non-lifted, non-External, non-root node (border-width 0 control)');
+    const noLiftBorder = await borderOf(noLiftSample.id);
+    assert(noLiftBorder.found, `#90 node-lift: control node '${noLiftSample.id}' not found`);
+    assert(Math.abs(toNumber(noLiftBorder.width)) < 1e-6,
+      `#90 node-lift: non-lifted kind '${noLiftSample.kind}' ('${noLiftSample.id}') must carry NO border (width 0) - the ring must be EXACTLY DL/UG/Computer, not every node; rendered border-width ${noLiftBorder.width}`);
+    phase(`#90 node-lift ring (DL/UG/Computer +2px #8A93A3, '${noLiftSample.kind}' control border 0)`);
+
     // --- severity parity C# <-> JS (AP 3.4, ADR-010 D1/D4) --------------------
     // The S2 fixture (--demo --dump-graph after the severity wire-up) carries the
     // optional sev / below / belowSev fields. Severity owns the cytoscape
@@ -2158,6 +2219,7 @@ async function main() {
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
       + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
       + `${chunks.length} chunks, ${kindsPresent.size}/7 kinds, `
+      + `WCAG node-lift ring (DL/UG/Computer) verified (#90), `
       + `${flaggedBySev.error.length}/${flaggedBySev.warning.length}/${flaggedBySev.info.length} err/warn/info halos, `
       + `${belowNodes.length} roll-up rings, `
       + `diff underlay/line + COEXIST verified, `

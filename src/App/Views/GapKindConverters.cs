@@ -2,7 +2,6 @@ using System.Globalization;
 
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 
 using GroupWeaver.Core.Diff;
 
@@ -39,9 +38,9 @@ public static class GapKindConverters
 
     private static IBrush BrushFor(GapKind kind) => kind switch
     {
-        GapKind.NodeAdded or GapKind.EdgeAdded => AddedBrush,
-        GapKind.NodeRemoved or GapKind.EdgeRemoved => RemovedBrush,
-        _ => UncheckedBrush,
+        GapKind.NodeAdded or GapKind.EdgeAdded => BrandTokens.Added,
+        GapKind.NodeRemoved or GapKind.EdgeRemoved => BrandTokens.Removed,
+        _ => BrandTokens.Unchecked,
     };
 
     private static string GlyphFor(GapKind kind) => kind switch
@@ -59,10 +58,6 @@ public static class GapKindConverters
         GapKind.EdgeRemoved => "Removed membership (in the directory, not the plan)",
         _ => "Unverifiable area (known in the directory but never expanded)",
     };
-
-    private static readonly ImmutableSolidColorBrush AddedBrush = new(Color.Parse("#2FAE4E"));
-    private static readonly ImmutableSolidColorBrush RemovedBrush = new(Color.Parse("#E0503A"));
-    private static readonly ImmutableSolidColorBrush UncheckedBrush = new(Color.Parse("#8A8F98"));
 }
 
 /// <summary>

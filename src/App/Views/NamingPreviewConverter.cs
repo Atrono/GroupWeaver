@@ -2,7 +2,6 @@ using System.Globalization;
 
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 
 using GroupWeaver.App.Settings;
 using GroupWeaver.Core.Rules;
@@ -58,12 +57,14 @@ public sealed class NamingPreviewConverter : IMultiValueConverter
     public static readonly NamingPreviewConverter Instance = new();
 
     /// <summary>The Ok chip's success fill — green-dominant (G leads R and B) and
-    /// deliberately distinct from every severity color (Ok is not a finding).</summary>
-    private static readonly ImmutableSolidColorBrush OkBrush = new(Color.Parse("#2EA043"));
+    /// deliberately distinct from every severity color (Ok is not a finding). Sourced from
+    /// <see cref="BrandTokens.NamingOk"/> (ADR-021, THE palette source of truth).</summary>
+    private static readonly IBrush OkBrush = BrandTokens.NamingOk;
 
     /// <summary>The PatternInvalid chip's neutral/amber fill — NOT green-dominant, so it
-    /// can never masquerade as the Ok success color.</summary>
-    private static readonly ImmutableSolidColorBrush PatternInvalidBrush = new(Color.Parse("#B58900"));
+    /// can never masquerade as the Ok success color. Sourced from
+    /// <see cref="BrandTokens.NamingPatternInvalid"/> (ADR-021).</summary>
+    private static readonly IBrush PatternInvalidBrush = BrandTokens.NamingPatternInvalid;
 
     /// <summary>The Ok check mark — the redundant glyph beside the green fill.</summary>
     private const string OkGlyph = "✓";

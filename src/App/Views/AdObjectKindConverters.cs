@@ -9,10 +9,10 @@ namespace GroupWeaver.App.Views;
 /// Compiled-bindings-safe converters turning an <see cref="AdObjectKind"/> into the
 /// badge label and badge background used by list items (root picker, later sidebars).
 ///
-/// THE per-kind color palette — AP 2.2 must reuse these hex values for the graph node
-/// colors (docs/ui-checklist.md A: node types visually distinct, labels legible).
-/// All colors are Fluent-palette-adjacent and dark enough for white badge text
-/// (>= ~4.5:1 contrast), so they read on both theme variants:
+/// THE per-kind color palette — AP 2.2 reuses these hex values (via <see cref="BrandTokens"/>,
+/// THE source of truth, ADR-021) for the graph node colors (docs/ui-checklist.md A: node types
+/// visually distinct, labels legible). All fills are Fluent-palette-adjacent and dark enough for
+/// white badge text (>= ~4.5:1 contrast), so they read on both theme variants:
 ///
 ///   User              "U"    #038387 (teal)
 ///   GlobalGroup       "GG"   #107C10 (green)
@@ -35,20 +35,12 @@ public static class AdObjectKindConverters
     private static (string Label, ImmutableSolidColorBrush Brush) For(AdObjectKind kind) =>
         kind switch
         {
-            AdObjectKind.User => ("U", UserBrush),
-            AdObjectKind.GlobalGroup => ("GG", GlobalGroupBrush),
-            AdObjectKind.DomainLocalGroup => ("DL", DomainLocalGroupBrush),
-            AdObjectKind.UniversalGroup => ("UG", UniversalGroupBrush),
-            AdObjectKind.OrganizationalUnit => ("OU", OrganizationalUnitBrush),
-            AdObjectKind.Computer => ("PC", ComputerBrush),
-            _ => ("EXT", ExternalBrush),
+            AdObjectKind.User => ("U", BrandTokens.User),
+            AdObjectKind.GlobalGroup => ("GG", BrandTokens.GlobalGroup),
+            AdObjectKind.DomainLocalGroup => ("DL", BrandTokens.DomainLocalGroup),
+            AdObjectKind.UniversalGroup => ("UG", BrandTokens.UniversalGroup),
+            AdObjectKind.OrganizationalUnit => ("OU", BrandTokens.OrganizationalUnit),
+            AdObjectKind.Computer => ("PC", BrandTokens.Computer),
+            _ => ("EXT", BrandTokens.External),
         };
-
-    private static readonly ImmutableSolidColorBrush UserBrush = new(Color.Parse("#038387"));
-    private static readonly ImmutableSolidColorBrush GlobalGroupBrush = new(Color.Parse("#107C10"));
-    private static readonly ImmutableSolidColorBrush DomainLocalGroupBrush = new(Color.Parse("#A14000"));
-    private static readonly ImmutableSolidColorBrush UniversalGroupBrush = new(Color.Parse("#744DA9"));
-    private static readonly ImmutableSolidColorBrush OrganizationalUnitBrush = new(Color.Parse("#0F6CBD"));
-    private static readonly ImmutableSolidColorBrush ComputerBrush = new(Color.Parse("#556070"));
-    private static readonly ImmutableSolidColorBrush ExternalBrush = new(Color.Parse("#757575"));
 }
