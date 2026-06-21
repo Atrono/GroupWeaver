@@ -75,6 +75,11 @@ GroupWeaver --demo
 All screenshots and GIFs published for this project are produced in demo mode
 only — never against a real directory.
 
+![Demo-mode walkthrough: picking the DL_FS-Finance_RW root, selecting it to inspect its attributes, lazy-expanding an external group to reveal its members, and zooming into the resulting cluster — all under the dark theme](docs/media/m2-explore.gif)
+
+*Picking a root, inspecting a node, lazy-expanding an unresolved group into its
+members, and zooming the AGDLP-Demo structure — entirely in demo mode.*
+
 ## Rulesets
 
 The rule engine is driven by a single JSONC rule file. The built-in default

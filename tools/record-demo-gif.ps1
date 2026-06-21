@@ -158,11 +158,22 @@ $captureScript = Join-Path $PSScriptRoot 'capture-window.ps1'
 $frameDir = Join-Path $repoRoot 'artifacts\ui\gif-frames'
 $exe = Join-Path $repoRoot 'src\App\bin\Debug\net8.0-windows\GroupWeaver.App.exe'
 
-# Node palette (src/App/Views/AdObjectKindConverters.cs / web/graph.js, pinned by
-# WebBundleTests): rust = DomainLocalGroup, gray = External, green = GlobalGroup.
-$colorRoot = @(0xA1, 0x40, 0x00)
-$colorExternal = @(0x75, 0x75, 0x75)
+# Node-hunt colors = the RENDERED dark-theme node colors, NOT the source palette
+# (src/App/Views/AdObjectKindConverters.cs / web/graph.js). In the dark theme a node
+# is a blue-gray fill with a thin kind-COLORED BORDER, so the border renders blended,
+# well off the flat palette: DL rust 0xA14000 -> ~(136,94,69) on the canvas, while the
+# LEGEND swatch keeps the exact palette 0xA14000 - hunting the rendered color is what
+# distinguishes the graph node from the legend swatch (diagnosed 2026-06-17, #78).
+$colorRoot = @(136, 94, 69)
 $colorGlobalGroup = @(0x10, 0x7C, 0x10)
+# The Avalonia detail-panel kind badge (unlike the cytoscape node) uses the EXACT
+# source palette, same as the legend swatch - so the "node selected" confirmation
+# hunts the palette rust, not the blended canvas color.
+$colorRootBadge = @(0xA1, 0x40, 0x00)
+# The External frontier node (GG_Finance_Staff, unresolved) renders BLUE on the dark
+# canvas - NOT the legend's gray "External" swatch. It sits to the RIGHT of the rust
+# root, so beat 4 hunts this blue right of the root's x (skips root + legend).
+$colorExternalNode = @(49, 85, 115)
 
 function Log([string]$msg) { Write-Host "[record-demo-gif $(Get-Date -Format HH:mm:ss)] $msg" }
 
@@ -306,7 +317,7 @@ function Send-CanvasWheel([int]$ticks, [int]$captureX = -1, [int]$captureY = -1)
 # Densest blob of a palette color in a capture region - 'canvas' = the Chromium
 # child rect, 'detail' = the Avalonia detail column right of it (kind badge!).
 # Returns @{X=..;Y=..;Count=..} in capture coordinates or $null.
-function Find-NodeBlob([string]$capturePath, [int[]]$rgb, [string]$region = 'canvas', [int]$minCount = 30) {
+function Find-NodeBlob([string]$capturePath, [int[]]$rgb, [string]$region = 'canvas', [int]$minCount = 30, [int]$minX = 0) {
     $mainRect = Get-WindowRectOf $app.MainWindowHandle
     $childRect = Get-WindowRectOf $chromiumHwnd
     if ($region -eq 'detail') {
@@ -314,7 +325,11 @@ function Find-NodeBlob([string]$capturePath, [int[]]$rgb, [string]$region = 'can
         $right = $mainRect.Right - $mainRect.Left
     }
     else {
+        # $minX (capture coords) lets a caller push the left bound right of the root
+        # node / legend swatch column - both share the node palette and would
+        # otherwise win the blob (#78 diagnosis 2026-06-17).
         $left = $childRect.Left - $mainRect.Left
+        if ($minX -gt $left) { $left = $minX }
         $right = $childRect.Right - $mainRect.Left
     }
     $blob = [GroupWeaver.Gif]::FindBlob(
@@ -326,10 +341,10 @@ function Find-NodeBlob([string]$capturePath, [int[]]$rgb, [string]$region = 'can
     return @{ X = $blob[0]; Y = $blob[1]; Count = $blob[2] }
 }
 
-function Wait-NodeBlob([int[]]$rgb, [int]$timeoutSec, [string]$what, [string]$region = 'canvas') {
+function Wait-NodeBlob([int[]]$rgb, [int]$timeoutSec, [string]$what, [string]$region = 'canvas', [int]$minX = 0) {
     $deadline = (Get-Date).AddSeconds($timeoutSec)
     while ($true) {
-        $blob = Find-NodeBlob (Save-Probe) $rgb $region
+        $blob = Find-NodeBlob (Save-Probe) $rgb $region 30 $minX
         if ($blob) { return $blob }
         if ((Get-Date) -gt $deadline) { throw "timed out after ${timeoutSec}s waiting for $what" }
         Start-Sleep -Milliseconds 400
@@ -431,7 +446,7 @@ try {
         if (-not $rootBlob) { throw 'root node (rust) not found on the canvas' }
         Send-CanvasClick $rootBlob.X $rootBlob.Y $false
         try {
-            [void](Wait-NodeBlob $colorRoot 3 'the DL badge in the detail panel' 'detail')
+            [void](Wait-NodeBlob $colorRootBadge 3 'the DL badge in the detail panel' 'detail')
             $selected = $true
         }
         catch {
@@ -443,14 +458,19 @@ try {
     Save-Frame 3
 
     # --- beat 4: lazy expand via double-click on the External frontier node ----
+    # The External (GG_Finance_Staff) renders BLUE, to the RIGHT of the rust root; the
+    # legend's "External" swatch is gray and was the old false target. Hunt the blue
+    # right of the root's x (skips the root + legend swatch column) and double-click to
+    # resolve it. Confirm via a real GlobalGroup-green node appearing IN THE CANVAS,
+    # right of the legend's green swatch ($minX skips that always-present false match).
     $expanded = $false
-    for ($attempt = 1; $attempt -le 4 -and -not $expanded; $attempt++) {
-        $extBlob = Find-NodeBlob (Save-Probe) $colorExternal
-        if (-not $extBlob) { throw 'no External (gray) frontier node found in the initial graph' }
+    for ($attempt = 1; $attempt -le 3 -and -not $expanded; $attempt++) {
+        $extBlob = Find-NodeBlob (Save-Probe) $colorExternalNode 'canvas' 30 ($rootBlob.X + 200)
+        if (-not $extBlob) { throw 'External frontier node (blue, right of root) not found' }
         Send-CanvasClick $extBlob.X $extBlob.Y $true
         try {
             # GG_Finance_Staff resolves GlobalGroup-green and brings 20 members.
-            [void](Wait-NodeBlob $colorGlobalGroup 8 'the expanded GlobalGroup node')
+            [void](Wait-NodeBlob $colorGlobalGroup 6 'the expanded GlobalGroup node' 'canvas' 150)
             $expanded = $true
         }
         catch {
@@ -463,9 +483,9 @@ try {
     Save-Frame 4
 
     # --- beat 5: wheel zoom-in toward the expanded cluster ----------------------
-    # Aim at the GlobalGroup-green blob so the zoom visibly dives into the member
-    # cluster (pointer-anchored zoom keeps it on screen across bursts).
-    $zoomTarget = Find-NodeBlob (Save-Probe) $colorGlobalGroup
+    # Aim at the GlobalGroup-green node ($minX skips the legend swatch) so the zoom
+    # visibly dives into the member cluster (pointer-anchored zoom keeps it on screen).
+    $zoomTarget = Find-NodeBlob (Save-Probe) $colorGlobalGroup 'canvas' 30 150
     for ($burst = 0; $burst -lt 3; $burst++) {
         if ($zoomTarget) { Send-CanvasWheel 30 $zoomTarget.X $zoomTarget.Y }
         else { Send-CanvasWheel 30 }
