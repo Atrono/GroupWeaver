@@ -54,103 +54,9 @@ if ($PSVersionTable.PSEdition -eq 'Core') {
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
 
-Add-Type -Namespace GroupWeaver -Name Gif -ReferencedAssemblies System.Drawing -MemberDefinition @'
-[DllImport("user32.dll")]
-public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
-[DllImport("user32.dll", SetLastError = true)]
-public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-[DllImport("user32.dll", SetLastError = true)]
-public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
-[DllImport("user32.dll")]
-public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-[DllImport("user32.dll")]
-public static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr lParam);
-[DllImport("user32.dll", CharSet = CharSet.Unicode)]
-public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder name, int max);
-
-public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
-
-[StructLayout(LayoutKind.Sequential)]
-public struct RECT { public int Left, Top, Right, Bottom; }
-
-public const uint WM_MOUSEMOVE = 0x0200;
-public const uint WM_LBUTTONDOWN = 0x0201;
-public const uint WM_LBUTTONUP = 0x0202;
-public const uint WM_MOUSEWHEEL = 0x020A;
-public const uint WM_CHAR = 0x0102;
-
-public static IntPtr MakeLParam(int x, int y) {
-    return (IntPtr)(((y & 0xFFFF) << 16) | (x & 0xFFFF));
-}
-
-// EnumChildWindows already recurses through all descendants.
-private static IntPtr _found;
-private static string _wanted;
-private static bool Probe(IntPtr hWnd, IntPtr lParam) {
-    var sb = new System.Text.StringBuilder(256);
-    GetClassName(hWnd, sb, sb.Capacity);
-    if (sb.ToString() == _wanted) { _found = hWnd; return false; }
-    return true;
-}
-public static IntPtr FindDescendantByClass(IntPtr parent, string className) {
-    _found = IntPtr.Zero;
-    _wanted = className;
-    EnumChildWindows(parent, Probe, IntPtr.Zero);
-    return _found;
-}
-
-// Densest blob of pixels matching (r,g,b) within tol per channel inside the given
-// capture-PNG region; returns {centroidX, centroidY, matchCount} or {-1,-1,0}.
-// Grid-binned (cell px) so the centroid is taken over the densest 3x3 neighborhood
-// - lands inside the node shape even when several same-color blobs exist.
-public static int[] FindBlob(string path, int left, int top, int right, int bottom,
-                             int r, int g, int b, int tol, int cell) {
-    using (var bmp = new System.Drawing.Bitmap(path)) {
-        left = Math.Max(0, left); top = Math.Max(0, top);
-        right = Math.Min(bmp.Width, right); bottom = Math.Min(bmp.Height, bottom);
-        int cols = (bmp.Width / cell) + 1;
-        var count = new System.Collections.Generic.Dictionary<int, int>();
-        var sumX = new System.Collections.Generic.Dictionary<int, long>();
-        var sumY = new System.Collections.Generic.Dictionary<int, long>();
-        var data = bmp.LockBits(new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
-            System.Drawing.Imaging.ImageLockMode.ReadOnly,
-            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        try {
-            var row = new byte[data.Stride];
-            for (int y = top; y < bottom; y++) {
-                var rowPtr = new IntPtr(data.Scan0.ToInt64() + (long)y * data.Stride);
-                System.Runtime.InteropServices.Marshal.Copy(rowPtr, row, 0, data.Stride);
-                for (int x = left; x < right; x++) {
-                    int px = x * 4;
-                    if (Math.Abs(row[px + 2] - r) <= tol && Math.Abs(row[px + 1] - g) <= tol && Math.Abs(row[px] - b) <= tol) {
-                        int key = (y / cell) * cols + (x / cell);
-                        int c; count.TryGetValue(key, out c); count[key] = c + 1;
-                        long sx; sumX.TryGetValue(key, out sx); sumX[key] = sx + x;
-                        long sy; sumY.TryGetValue(key, out sy); sumY[key] = sy + y;
-                    }
-                }
-            }
-        } finally { bmp.UnlockBits(data); }
-        int bestKey = -1, bestCount = 0;
-        foreach (var kv in count) {
-            if (kv.Value > bestCount) { bestCount = kv.Value; bestKey = kv.Key; }
-        }
-        if (bestKey < 0) { return new int[] { -1, -1, 0 }; }
-        long tx = 0, ty = 0; int tc = 0;
-        int bestRow = bestKey / cols, bestCol = bestKey % cols;
-        foreach (var kv in count) {
-            int krow = kv.Key / cols, kcol = kv.Key % cols;
-            if (Math.Abs(krow - bestRow) <= 1 && Math.Abs(kcol - bestCol) <= 1) {
-                tc += kv.Value; tx += sumX[kv.Key]; ty += sumY[kv.Key];
-            }
-        }
-        return new int[] { (int)(tx / tc), (int)(ty / tc), tc };
-    }
-}
-'@
-
-# Physical-pixel coordinates everywhere (lab rule: BEFORE any GetWindowRect).
-[void][GroupWeaver.Gif]::SetThreadDpiAwarenessContext([IntPtr](-4))
+# P/Invoke surface + input/hunt/UIA helpers (DPI awareness is initialised on dot-source).
+# Extracted to the shared lib so capture-motion.ps1 reuses the identical techniques.
+. (Join-Path $PSScriptRoot 'lib\webview-capture.ps1')
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutGif) { $OutGif = Join-Path $repoRoot 'docs\media\m2-explore.gif' }
@@ -221,135 +127,12 @@ function Save-Probe {
     return $path
 }
 
-# --- UIA helpers (Avalonia chrome; only safe BEFORE the WebView HWND exists) ----
-function Get-UiaRoot {
-    $app.Refresh()
-    return [System.Windows.Automation.AutomationElement]::FromHandle($app.MainWindowHandle)
-}
-
-function Find-UiaFirst([System.Windows.Automation.ControlType]$type, [string]$name) {
-    $conds = New-Object System.Collections.Generic.List[System.Windows.Automation.Condition]
-    $conds.Add((New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty, $type)))
-    if ($name) {
-        $conds.Add((New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, $name)))
-    }
-    $cond = if ($conds.Count -eq 1) { $conds[0] } else {
-        New-Object System.Windows.Automation.AndCondition($conds.ToArray())
-    }
-    return (Get-UiaRoot).FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
-}
-
-function Wait-Uia([scriptblock]$probe, [int]$timeoutSec, [string]$what) {
-    $deadline = (Get-Date).AddSeconds($timeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        $el = & $probe
-        if ($el) { return $el }
-        Start-Sleep -Milliseconds 250
-    }
-    throw "timed out after ${timeoutSec}s waiting for $what"
-}
-
-function Invoke-UiaButton([string]$name) {
-    $btn = Wait-Uia { Find-UiaFirst ([System.Windows.Automation.ControlType]::Button) $name } 30 "button '$name'"
-    $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Log "invoked button '$name'"
-}
-
-# --- posted-input helpers (the WebView canvas; lab-environment.md technique) -----
-function Get-WindowRectOf([IntPtr]$hwnd) {
-    $rect = New-Object GroupWeaver.Gif+RECT
-    if (-not [GroupWeaver.Gif]::GetWindowRect($hwnd, [ref]$rect)) { throw "GetWindowRect failed for $hwnd" }
-    return $rect
-}
-
-# Click at capture-PNG coordinates: capture(0,0) = main-window rect origin, so
-# screen = mainRect + capturePoint and child-client = screen - childRect origin.
-# Any mousemove Chromium delivers between DOWN and UP turns the cytoscape tap
-# into a node DRAG (observed: a synthesized hover recompute around the first
-# interaction) - so park the hover on the target first, let it settle, and post
-# DOWN/UP back-to-back with no sleep in between.
-function Send-CanvasClick([int]$captureX, [int]$captureY, [bool]$double) {
-    $mainRect = Get-WindowRectOf $app.MainWindowHandle
-    $childRect = Get-WindowRectOf $chromiumHwnd
-    $clientX = $mainRect.Left + $captureX - $childRect.Left
-    $clientY = $mainRect.Top + $captureY - $childRect.Top
-    $lp = [GroupWeaver.Gif]::MakeLParam($clientX, $clientY)
-    [void][GroupWeaver.Gif]::PostMessage($chromiumHwnd, [GroupWeaver.Gif]::WM_MOUSEMOVE, [IntPtr]::Zero, $lp)
-    Start-Sleep -Milliseconds 150
-    [void][GroupWeaver.Gif]::PostMessage($chromiumHwnd, [GroupWeaver.Gif]::WM_MOUSEMOVE, [IntPtr]::Zero, $lp)
-    Start-Sleep -Milliseconds 50
-    $clicks = if ($double) { 2 } else { 1 }
-    for ($i = 0; $i -lt $clicks; $i++) {
-        [void][GroupWeaver.Gif]::PostMessage($chromiumHwnd, [GroupWeaver.Gif]::WM_LBUTTONDOWN, [IntPtr]1, $lp)
-        [void][GroupWeaver.Gif]::PostMessage($chromiumHwnd, [GroupWeaver.Gif]::WM_LBUTTONUP, [IntPtr]::Zero, $lp)
-        if ($double -and $i -eq 0) { Start-Sleep -Milliseconds 90 }
-    }
-}
-
-# WM_MOUSEWHEEL carries SCREEN coordinates (unlike the button messages). Optional
-# capture coordinates aim the wheel (cytoscape zooms toward the pointer); default
-# is the canvas center. One message per detent, MANY detents: cytoscape detects a
-# discrete wheel after 4 events and normalizes EVERY detent to ~x1.0055 zoom
-# (3/250 * wheelSensitivity 0.2 in the exponent) no matter how large the delta -
-# inflating wParam is pointless, only the detent COUNT moves the needle
-# (measured: ~x1.008 per detent, so ~90 detents per x2 of legible zoom).
-function Send-CanvasWheel([int]$ticks, [int]$captureX = -1, [int]$captureY = -1) {
-    $childRect = Get-WindowRectOf $chromiumHwnd
-    if ($captureX -ge 0) {
-        $mainRect = Get-WindowRectOf $app.MainWindowHandle
-        $screenX = $mainRect.Left + $captureX
-        $screenY = $mainRect.Top + $captureY
-    }
-    else {
-        $screenX = [int](($childRect.Left + $childRect.Right) / 2)
-        $screenY = [int](($childRect.Top + $childRect.Bottom) / 2)
-    }
-    $lp = [GroupWeaver.Gif]::MakeLParam($screenX, $screenY)
-    $wp = [IntPtr]([int64]120 -shl 16)
-    for ($i = 0; $i -lt $ticks; $i++) {
-        [void][GroupWeaver.Gif]::PostMessage($chromiumHwnd, [GroupWeaver.Gif]::WM_MOUSEWHEEL, $wp, $lp)
-        Start-Sleep -Milliseconds 25
-    }
-}
-
-# Densest blob of a palette color in a capture region - 'canvas' = the Chromium
-# child rect, 'detail' = the Avalonia detail column right of it (kind badge!).
-# Returns @{X=..;Y=..;Count=..} in capture coordinates or $null.
-function Find-NodeBlob([string]$capturePath, [int[]]$rgb, [string]$region = 'canvas', [int]$minCount = 30, [int]$minX = 0) {
-    $mainRect = Get-WindowRectOf $app.MainWindowHandle
-    $childRect = Get-WindowRectOf $chromiumHwnd
-    if ($region -eq 'detail') {
-        $left = $childRect.Right - $mainRect.Left
-        $right = $mainRect.Right - $mainRect.Left
-    }
-    else {
-        # $minX (capture coords) lets a caller push the left bound right of the root
-        # node / legend swatch column - both share the node palette and would
-        # otherwise win the blob (#78 diagnosis 2026-06-17).
-        $left = $childRect.Left - $mainRect.Left
-        if ($minX -gt $left) { $left = $minX }
-        $right = $childRect.Right - $mainRect.Left
-    }
-    $blob = [GroupWeaver.Gif]::FindBlob(
-        $capturePath,
-        $left, ($childRect.Top - $mainRect.Top),
-        $right, ($childRect.Bottom - $mainRect.Top),
-        $rgb[0], $rgb[1], $rgb[2], 10, 24)
-    if ($blob[2] -lt $minCount) { return $null }
-    return @{ X = $blob[0]; Y = $blob[1]; Count = $blob[2] }
-}
-
-function Wait-NodeBlob([int[]]$rgb, [int]$timeoutSec, [string]$what, [string]$region = 'canvas', [int]$minX = 0) {
-    $deadline = (Get-Date).AddSeconds($timeoutSec)
-    while ($true) {
-        $blob = Find-NodeBlob (Save-Probe) $rgb $region 30 $minX
-        if ($blob) { return $blob }
-        if ((Get-Date) -gt $deadline) { throw "timed out after ${timeoutSec}s waiting for $what" }
-        Start-Sleep -Milliseconds 400
-    }
-}
+# UIA helpers (Find-UiaFirst / Wait-Uia / Invoke-UiaButton), posted-input helpers
+# (Get-WindowRectOf / Send-CanvasClick / Send-CanvasWheel / Find-NodeBlob /
+# Wait-NodeBlob) come from tools/lib/webview-capture.ps1 (dot-sourced above). They
+# read the caller-scoped $app + $chromiumHwnd by convention, exactly as the inline
+# originals did. Wait-NodeBlob takes a probe-factory scriptblock so the caller owns
+# HOW it captures - here that is this script's Save-Probe (double-capture lag fix).
 
 # === build + launch ==============================================================
 if (-not (Test-Path $exe)) {
@@ -382,7 +165,7 @@ try {
     # window DPI - on this 200% box that lands at 1946x1271, the most readable
     # source for a 960px-wide GIF. SWP_NOZORDER|SWP_NOACTIVATE = 0x14 - posted
     # input needs no activation.
-    [void][GroupWeaver.Gif]::SetWindowPos($app.MainWindowHandle, [IntPtr]::Zero, 60, 60, 1480, 920, 0x14)
+    [void][GroupWeaver.WebViewCapture]::SetWindowPos($app.MainWindowHandle, [IntPtr]::Zero, 60, 60, 1480, 920, 0x14)
 
     # --- beat 1: connect card, choose Demo mode (OFF CAMERA) --------------------
     # No frames here: the connect card's auth-context line shows the live operator
@@ -407,7 +190,7 @@ try {
         $filterBox.SetFocus()
         Start-Sleep -Milliseconds 200
         foreach ($ch in $filterText.ToCharArray()) {
-            [void][GroupWeaver.Gif]::PostMessage($app.MainWindowHandle, [GroupWeaver.Gif]::WM_CHAR, [IntPtr][int]$ch, [IntPtr]::Zero)
+            [void][GroupWeaver.WebViewCapture]::PostMessage($app.MainWindowHandle, [GroupWeaver.WebViewCapture]::WM_CHAR, [IntPtr][int]$ch, [IntPtr]::Zero)
             Start-Sleep -Milliseconds 15
         }
     }
@@ -430,11 +213,11 @@ try {
         if ((Get-Date) -gt $deadline) { throw 'Chrome_RenderWidgetHostHWND never appeared - WebView2 missing?' }
         Start-Sleep -Milliseconds 500
         $app.Refresh()
-        $chromiumHwnd = [GroupWeaver.Gif]::FindDescendantByClass($app.MainWindowHandle, 'Chrome_RenderWidgetHostHWND')
+        $chromiumHwnd = [GroupWeaver.WebViewCapture]::FindDescendantByClass($app.MainWindowHandle, 'Chrome_RenderWidgetHostHWND')
     }
     Log 'WebView2 canvas is up'
 
-    [void](Wait-NodeBlob $colorRoot 30 'the root node (DomainLocalGroup rust)')
+    [void](Wait-NodeBlob { Save-Probe } $colorRoot 30 'the root node (DomainLocalGroup rust)')
     Log 'graph rendered'
     Save-Frame 3
 
@@ -446,7 +229,7 @@ try {
         if (-not $rootBlob) { throw 'root node (rust) not found on the canvas' }
         Send-CanvasClick $rootBlob.X $rootBlob.Y $false
         try {
-            [void](Wait-NodeBlob $colorRootBadge 3 'the DL badge in the detail panel' 'detail')
+            [void](Wait-NodeBlob { Save-Probe } $colorRootBadge 3 'the DL badge in the detail panel' 'detail')
             $selected = $true
         }
         catch {
@@ -470,7 +253,7 @@ try {
         Send-CanvasClick $extBlob.X $extBlob.Y $true
         try {
             # GG_Finance_Staff resolves GlobalGroup-green and brings 20 members.
-            [void](Wait-NodeBlob $colorGlobalGroup 6 'the expanded GlobalGroup node' 'canvas' 150)
+            [void](Wait-NodeBlob { Save-Probe } $colorGlobalGroup 6 'the expanded GlobalGroup node' 'canvas' 150)
             $expanded = $true
         }
         catch {
