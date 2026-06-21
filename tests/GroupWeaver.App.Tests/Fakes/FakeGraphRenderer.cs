@@ -78,6 +78,17 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// never-completing, or faulted — injected per test.</summary>
     public Task FocusResult { get; set; } = Task.CompletedTask;
 
+    /// <summary>Every (Dn, On) received by <see cref="SetBusyAsync"/>, in call order
+    /// (ADR-019 #94). Its OWN channel — never <see cref="FocusCalls"/>. A fetch-expand must
+    /// record [(dn,true),(dn,false)]; a cache-hit/focus-only/non-group expand must leave it EMPTY.</summary>
+    public List<(string Dn, bool On)> SetBusyCalls { get; } = [];
+
+    /// <summary>The cancellation token observed by each <see cref="SetBusyAsync"/> call.</summary>
+    public List<CancellationToken> SetBusyTokens { get; } = [];
+
+    /// <summary>Task returned by <see cref="SetBusyAsync"/>: completed (default), never-completing, or faulted.</summary>
+    public Task SetBusyResult { get; set; } = Task.CompletedTask;
+
     /// <summary>Every UNION model received by <see cref="ShowDiffGraphAsync"/>, in call order
     /// (ADR-015 Slice 6 / #66 — the Gap step's wholesale destroy+fit gap-topology push; kept
     /// on its OWN channel, never <see cref="ShownGraphs"/>, so the gap render path is
@@ -157,6 +168,17 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
         FocusCalls.Add(dns);
         FocusTokens.Add(cancellationToken);
         return FocusResult;
+    }
+
+    /// <summary>ADR-019 (#94): records the (dn, on) toggle + observed token on the busy
+    /// channel (NEVER <see cref="FocusCalls"/>) and returns the injected
+    /// <see cref="SetBusyResult"/>. Overrides the <see cref="IGraphRenderer.SetBusyAsync"/>
+    /// default no-op so the fetch-path busy ring is pinnable.</summary>
+    public Task SetBusyAsync(string dn, bool on, CancellationToken cancellationToken = default)
+    {
+        SetBusyCalls.Add((dn, on));
+        SetBusyTokens.Add(cancellationToken);
+        return SetBusyResult;
     }
 
     /// <summary>ADR-015 Slice 6 (#66): records the union graph + the diff + the observed token

@@ -209,6 +209,17 @@
           selector: "node[below][belowSev='info']",
           style: { 'overlay-color': '#4FA3E3' }
         },
+        // ADR-019 (#94, F12 split from ADR-017): the in-canvas BUSY ring — a static
+        // overlay halo marking a directory round-trip on the node being lazy-expanded.
+        // Appended AFTER the severity + roll-up rules and gated [!sev] so a flagged
+        // node's own halo always wins the overlay channel (busy never paints over a
+        // finding). Set transiently by the 'busy' command; CLEARED automatically by the
+        // next graphUpdate (remove-all/add-all drops the data flag). STATIC — no
+        // per-frame tween (software-rendering-floor safe; pulsing deferred).
+        {
+          selector: 'node[busy][!sev]',
+          style: { 'overlay-color': '#4FA3E3', 'overlay-opacity': 0.35, 'overlay-padding': 8 }
+        },
         // Gap diff (AP 66, ADR-015 Slice 5): owns the cytoscape underlay-* channel
         // on NODES (a layer BENEATH the node, disjoint from kind background-color/
         // shape, root/External border-*, and severity overlay-*) plus a line-*
@@ -444,6 +455,30 @@
           break;
         case 'focus':
           focusOn(cmd.ids);
+          break;
+        case 'busy':
+          // ADR-019: toggle the transient `busy` data flag on a live node. cy===null ->
+          // silent break (a busy racing ahead of graphCommit is benign and must keep the
+          // verify.mjs zero-jsError audit green — unlike graphUpdate/exportPng which DO
+          // jsError pre-commit). getElementById ONLY (comma-DN safe, ADR-004 D5). No
+          // bridge reply (fire-and-forget); cleared by the next graphUpdate.
+          if (cy === null) { break; }
+          var busyNode = cy.getElementById(cmd.id);
+          if (busyNode.nonempty()) {
+            if (cmd.on) {
+              busyNode.data('busy', true);
+            } else {
+              // removeData stops the element matching node[busy][!sev], but cytoscape
+              // leaves overlay-opacity frozen at its last computed 0.35 (no other rule
+              // re-sets it to its default 0). updateStyle() forces a single-element
+              // recompute so the ring reverts to 0 NOW, even on the expand
+              // failure/cancel path where no graphUpdate follows the busy-off. Stays a
+              // SELECTOR-driven flag (no inline style pin) so a later busy-on repaints
+              // via node[busy][!sev], and the flag still self-clears on graphUpdate.
+              busyNode.removeData('busy');
+              busyNode.updateStyle();
+            }
+          }
           break;
         case 'exportPng':
           // ADR-013: cy.png on the live instance. Guard like graphUpdate -

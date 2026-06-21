@@ -235,6 +235,38 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     }
 
     /// <summary>
+    /// Toggles the in-canvas busy ring (ADR-019): dispatches the <c>busy</c> command
+    /// fire-and-forget. UNLIKE every other renderer call it does NOT take the single-flight
+    /// guard (the expand pipeline that calls busy=on already holds it via its
+    /// UpdateGraphAsync/FocusAsync — re-entering would throw/deadlock) and does NOT await a
+    /// confirmation (never the 60 s BridgeTimeout, never the focus channel). Non-blocking
+    /// readiness check (NOT TryAwaitReadyAsync, which would 60 s-block + raise on timeout):
+    /// a busy racing ahead of the bundle simply no-ops — the next graphUpdate clears the
+    /// transient flag regardless. Never-throw (the async-void RelayCommand expand path has
+    /// no handler): a degraded bridge surfaces as RendererError, returns normally.
+    /// </summary>
+    public async Task SetBusyAsync(string dn, bool on, CancellationToken cancellationToken = default)
+    {
+        if (_webView is null || !_ready.Task.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        try
+        {
+            await DispatchAsync([GraphJson.Serialize(new BusyDto("busy", dn, on))], cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // own-Dispose cancellation: nothing to settle (fire-and-forget).
+        }
+        catch (Exception ex)
+        {
+            RaiseError("renderer", $"busy dispatch failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Decodes the page's bare-base64 <c>pngExported</c> reply into bytes, FAILING TO
     /// <c>null</c> rather than throwing — the never-throw renderer contract
     /// (<see cref="IGraphRenderer.ExportPngAsync"/>: <c>null</c> on ANY error). The reply
@@ -329,6 +361,11 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// <summary>The <c>focus</c> bridge command (ADR-005 D2); serialized through
     /// <see cref="GraphJson"/> so comma/quote-containing DNs are escaped correctly.</summary>
     private sealed record FocusDto(string Type, IReadOnlyList<string> Ids);
+
+    /// <summary>The <c>busy</c> bridge command (ADR-019); serialized through
+    /// <see cref="GraphJson"/> so a comma/quote-containing DN is escaped (same rationale
+    /// as <see cref="FocusDto"/>).</summary>
+    private sealed record BusyDto(string Type, string Id, bool On);
 
     private NativeWebView CreateWebView()
     {

@@ -115,6 +115,10 @@ public sealed class WebBundleTests
         Assert.Contains("graphUpdate", text, StringComparison.Ordinal);
         Assert.Contains("'focus'", text, StringComparison.Ordinal);
         Assert.Contains("focused", text, StringComparison.Ordinal);
+
+        // ADR-019 (#94): the in-canvas busy-ring command. Single-quoted to match the
+        // `case 'busy':` literal so the case can't silently vanish from the bundle.
+        Assert.Contains("'busy'", text, StringComparison.Ordinal);
     }
 
     [Fact]
