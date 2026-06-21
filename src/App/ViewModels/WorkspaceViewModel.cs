@@ -222,6 +222,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         RecomputeDetailPanel();
         HighlightActiveRows(value);
+
+        // ADR-020 (#96): reverse sidebar->graph selection sync — project the current
+        // selection onto the canvas from OUTSIDE a tap. Fire-and-forget (partial void
+        // can't be async): SelectAsync is never-throw, so the discarded task can't crash
+        // the no-handler path. NOT busy-gated (selection stays responsive mid-pipeline,
+        // ADR-007 D1). Goes to the renderer SELECT channel, NEVER FocusAsync: JumpAsync
+        // sets SelectedDn (triggering THIS) AND then calls FocusAsync, and the pinned
+        // JumpCommand test requires FocusCalls to increment by EXACTLY 1 per jump. A null
+        // value clears the canvas (empty DN -> clearSelection JS-side). A tap-driven
+        // selection re-issues a redundant select; idempotent, intentionally unguarded.
+        if (GraphRenderer is { } renderer)
+        {
+            _ = renderer.SelectAsync(value ?? string.Empty, _cts.Token);
+        }
     }
 
     /// <summary>Flips <see cref="ViolationRowModel.IsActive"/> on every sidebar row whose

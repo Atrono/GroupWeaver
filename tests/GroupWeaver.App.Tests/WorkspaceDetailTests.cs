@@ -436,6 +436,45 @@ public sealed class WorkspaceDetailTests
         AssertZeroProviderTraffic(provider);
     }
 
+    [Fact]
+    public async Task ReSelection_DuringAnInFlightGatedExpand_AlsoDispatchesSelect_NeverBusyGated()
+    {
+        var snapshot = DetailScope();
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        fake.RaiseNodeClicked(AdaDn, "User");
+        var selectsBefore = fake.SelectCalls.Count;
+        Assert.Equal(AdaDn, fake.SelectCalls[^1]); // the first selection already synced
+
+        // Hold the busy gate open on the focus-only expand path (GG_Edge is loaded).
+        var focusGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.FocusResult = focusGate.Task;
+        fake.RaiseNodeExpandRequested(EdgeGroupDn, "GlobalGroup");
+        Assert.True(vm.IsLoading, "the focus-only branch holds the ONE busy gate (ADR-005 D3)");
+
+        // ADR-020 (#96): the reverse sidebar->graph select is NOT busy-gated either — a
+        // re-selection mid-gated-expand dispatches SelectAsync NOW, on the SELECT channel,
+        // while the gate is held and provider traffic stays at zero (snapshot-only).
+        fake.RaiseNodeClicked(FspDn, "External");
+
+        Assert.Equal(FspDn, vm.SelectedDn);
+        Assert.Equal(selectsBefore + 1, fake.SelectCalls.Count);
+        Assert.Equal(FspDn, fake.SelectCalls[^1]);
+        AssertZeroProviderTraffic(provider); // select rode no provider round-trip
+
+        focusGate.SetResult();
+        await vm.Expansion;
+
+        // The pipeline-finally recompute must not re-issue a stale select; the last dispatch
+        // stays the mid-flight selection, and no directory call ever fired.
+        Assert.Equal(FspDn, fake.SelectCalls[^1]);
+        Assert.False(vm.IsLoading);
+        AssertZeroProviderTraffic(provider);
+    }
+
     // --- helpers ------------------------------------------------------------------------
 
     private static AdObject Obj(

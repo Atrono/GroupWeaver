@@ -480,6 +480,20 @@
             }
           }
           break;
+        case 'select':
+          // ADR-020 (#96): drive node:selected + neighborhood dim from OUTSIDE a tap
+          // (the sidebar/jump reverse sync). Reuses applySelection/clearSelection so the
+          // command-driven select is byte-identical to a tap-driven one. INSTANT
+          // (addClass/removeClass only — never cy.animate; the #88 motion counters stay
+          // 0). cy===null -> silent break (keeps the zero-jsError audit green). Empty or
+          // unknown id -> clearSelection (a null sidebar selection visibly clears the
+          // canvas; an unknown DN is surfaced as clear, never a stale highlight). A
+          // redundant select right after a tap is harmless (idempotent). getElementById
+          // ONLY (comma-DN safe). No bridge reply (fire-and-forget).
+          if (cy === null) { break; }
+          var selNode = cmd.id ? cy.getElementById(cmd.id) : cy.collection();
+          if (selNode.nonempty()) { applySelection(selNode); } else { clearSelection(); }
+          break;
         case 'exportPng':
           // ADR-013: cy.png on the live instance. Guard like graphUpdate -
           // an exportPng before any graphCommit has no instance to rasterize.

@@ -89,6 +89,18 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// <summary>Task returned by <see cref="SetBusyAsync"/>: completed (default), never-completing, or faulted.</summary>
     public Task SetBusyResult { get; set; } = Task.CompletedTask;
 
+    /// <summary>Every DN received by <see cref="SelectAsync"/>, in call order (ADR-020 #96).
+    /// Its OWN channel — never <see cref="FocusCalls"/>: the pinned JumpCommand test asserts
+    /// FocusCalls increments by EXACTLY 1 per jump, and a jump's SelectedDn set drives a select
+    /// dispatch that must land HERE, not there. A null SelectedDn dispatches the empty string.</summary>
+    public List<string> SelectCalls { get; } = [];
+
+    /// <summary>The cancellation token observed by each <see cref="SelectAsync"/> call.</summary>
+    public List<CancellationToken> SelectTokens { get; } = [];
+
+    /// <summary>Task returned by <see cref="SelectAsync"/>: completed (default), never-completing, or faulted.</summary>
+    public Task SelectResult { get; set; } = Task.CompletedTask;
+
     /// <summary>Every UNION model received by <see cref="ShowDiffGraphAsync"/>, in call order
     /// (ADR-015 Slice 6 / #66 — the Gap step's wholesale destroy+fit gap-topology push; kept
     /// on its OWN channel, never <see cref="ShownGraphs"/>, so the gap render path is
@@ -179,6 +191,19 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
         SetBusyCalls.Add((dn, on));
         SetBusyTokens.Add(cancellationToken);
         return SetBusyResult;
+    }
+
+    /// <summary>ADR-020 (#96): records the DN + observed token on the SELECT channel (NEVER
+    /// <see cref="FocusCalls"/>) and returns the injected <see cref="SelectResult"/>. Overrides
+    /// the <see cref="IGraphRenderer.SelectAsync"/> default no-op so the reverse sidebar->graph
+    /// selection sync is pinnable — every <see cref="ViewModels.WorkspaceViewModel.SelectedDn"/>
+    /// change (jump, sidebar row, graph tap, null->clear) must land here, a null SelectedDn as
+    /// the empty string.</summary>
+    public Task SelectAsync(string dn, CancellationToken cancellationToken = default)
+    {
+        SelectCalls.Add(dn);
+        SelectTokens.Add(cancellationToken);
+        return SelectResult;
     }
 
     /// <summary>ADR-015 Slice 6 (#66): records the union graph + the diff + the observed token
