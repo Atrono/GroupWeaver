@@ -66,12 +66,44 @@
     return elements;
   }
 
+  // #87 encoding-key legend: live per-kind counts. The 7 `.count` element refs are
+  // cached on first call (one querySelectorAll keyed by data-kind), then each call
+  // does ONE O(V) pass over cy.nodes() grouping by data('kind') and writes the tally
+  // into each row (or "0"), toggling the `.zero` class. Pure cy read + textContent
+  // write - no cytoscape mutation, no bridge traffic, no severity counts. Called from
+  // sendLoaded() so it refreshes on BOTH graphCommit (init) and graphUpdate (lazy
+  // expand), and the External bucket self-corrects when a frontier node resolves.
+  var legendCountEls = null;
+  function updateLegendCounts() {
+    if (legendCountEls === null) {
+      legendCountEls = {};
+      var rows = document.querySelectorAll('#legend [data-kind]');
+      for (var r = 0; r < rows.length; r++) {
+        var el = rows[r].querySelector('.count');
+        if (el) { legendCountEls[rows[r].getAttribute('data-kind')] = el; }
+      }
+    }
+    var tally = {};
+    cy.nodes().forEach(function (node) {
+      var k = node.data('kind');
+      tally[k] = (tally[k] || 0) + 1;
+    });
+    for (var kind in legendCountEls) {
+      var count = tally[kind] || 0;
+      var countEl = legendCountEls[kind];
+      countEl.textContent = String(count);
+      if (count === 0) { countEl.classList.add('zero'); }
+      else { countEl.classList.remove('zero'); }
+    }
+  }
+
   function sendLoaded() {
     window.bridge.send({
       type: 'loaded',
       nodeCount: cy.nodes().length,
       edgeCount: cy.edges().length
     });
+    updateLegendCounts();
   }
 
   function initGraph() {

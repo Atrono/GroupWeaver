@@ -37,21 +37,30 @@ DiffAdded 5.73, DiffUnchecked 5.08. (Caveat: report measures the flat source tok
 nodes are a blue-gray fill + thin colored border, so on-canvas contrast differs — judge in
 context.)
 
-## Signature direction (the one bold move)
+## Signature direction (the one bold move) — REVISED 2026-06-21
 
-**Render the A-G-DL-P concentric structure as named, faint "tier shells."** The layout
-already encodes Accounts→Global→Domain-Local→Resource at increasing radii; draw it — faint
-guide rings + a low-opacity radial gradient + edge-anchored tier labels, root as the origin
-of the onion. No other AD tool looks like this; a force-graph is a blob, the AGDLP onion is
-unmistakably a governance tool. Spends boldness in one place, needs no palette change, holds
-the software floor. Tracked as **#87**.
+> **Original premise REFUTED.** The audit assumed the concentric radius mapped to AGDLP
+> kind tiers (the "onion"). The #87 design workflow + adversarial critique proved it false:
+> radius = **OU-containment depth**, not kind tier (GraphBuilder `GetRingKey` = (depth,
+> kindRank), depth primary; ADR-004 D1 verbatim; the same kind appears at many radii).
+> Drawing A/G/DL/P tier rings would be a lie the layout doesn't implement — and the honest
+> depth-vignette fallback is the weakest, highest-"AI-decoration"-risk identity move and adds
+> perceptual load to an already 4-channel scene.
+
+**Revised signature = the encoding language, made legible.** Per UI-design/psychology
+(perceptual budget, figure-ground, expert-trust-via-precision, von Restorff memorability),
+the one element that is BOTH true and distinctive is GroupWeaver's encoding system. Recast
+**#87** into a crafted, information-dense **legend/key** (folds F10): the full 4-channel
+visual language (kind shape+color / severity halo / diff underlay) shown with the actual node
+visuals as swatches, plus **live per-kind counts** (visibility of system status). True,
+task-relevant, memorable — the signature is the encoding, not a background flourish.
 
 ## Ranked backlog
 
 ### High leverage — filed as issues, the Phase-1 work front
 | # | Slice | Dim | Effort | Palette/ADR |
 |---|---|---|---|---|
-| #87 | Graph signature: AGDLP concentric tier shells (+ root as origin) | Identity | M | no |
+| #87 | Encoding-key signature: live-count legend + full 4-channel key (recast from AGDLP tier shells — premise refuted; folds F10) | Identity | M | no |
 | #88 | Graph motion: eased focus-fit + expand enter-anim + in-canvas busy | Motion | M | no |
 | #89 | Graph interaction feedback: hover + selection + neighborhood + selective labels | Motion/State | M | no |
 | #90 | **ADR** + design tokens: WCAG re-tone (badges, DL/UG/Computer fills, white-on-Warning) | Identity/State | M | **yes** |

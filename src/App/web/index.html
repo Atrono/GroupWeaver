@@ -8,36 +8,117 @@
     #cy { width: 100%; height: 100%; }
     #legend {
       position: fixed; top: 12px; left: 12px; z-index: 10;
-      padding: 8px 12px; border-radius: 6px;
-      background: rgba(27, 31, 39, 0.85);
-      border: 1px solid rgba(232, 236, 242, 0.15);
-      color: #E8ECF2; font: 11px/1.7 "Segoe UI", sans-serif;
       pointer-events: none;
+      background: rgba(22, 26, 33, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      padding: 14px 16px; width: 232px;
+      max-height: calc(100vh - 24px); overflow-y: auto;
+      font-family: "Segoe UI", sans-serif;
+    }
+    #legend .legend-section-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #8A93A3; margin-bottom: 6px;
+    }
+    #legend .legend-section + .legend-section { margin-top: 14px; }
+    #legend .legend-kinds {
+      display: grid; grid-template-columns: 16px 1fr auto;
+      column-gap: 10px; row-gap: 3px; align-items: center;
+    }
+    #legend .kind-label { font-size: 12px; line-height: 1.4; font-weight: 400; color: #E8ECF2; }
+    #legend svg { display: block; }
+    #legend .count {
+      font-size: 12px; font-family: "Cascadia Mono", "Consolas", monospace;
+      font-variant-numeric: tabular-nums; font-weight: 500;
+      color: #C8CFDB; text-align: right;
+    }
+    #legend .count.zero { color: #5A6171; }
+    #legend .legend-strip { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; }
+    #legend .legend-strip span {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; color: #E8ECF2;
+    }
+    #legend .legend-edges {
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      margin-top: 14px; padding-top: 8px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    #legend .legend-edges div {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: #A6AEBC;
     }
     #legend .edge-sample {
-      display: inline-block; width: 24px; margin-right: 6px;
+      display: inline-block; width: 24px;
       vertical-align: middle; border-top: 2px solid #7A8699;
     }
-    #legend .edge-sample.contains { border-top: 2px dashed #4A5568; }
-    #legend .swatch {
-      display: inline-block; width: 10px; height: 10px; margin-right: 6px;
-      vertical-align: middle; border-radius: 2px;
-    }
-    #legend .swatch.external { border: 1px dashed #B0B6BF; }
+    #legend .edge-sample.contains { border-top: 2px dashed #7A8699; }
+    #legend .edge-arrow { color: #7A8699; margin: 0 -2px 0 -6px; line-height: 1; }
   </style>
 </head>
 <body>
   <div id="cy"></div>
   <div id="legend">
-    <div><span class="edge-sample"></span>&rarr;&nbsp;is member of</div>
-    <div><span class="edge-sample contains"></span>contains</div>
-    <div><span class="swatch" style="background: #038387;"></span>User (circle)</div>
-    <div><span class="swatch" style="background: #107C10;"></span>Global group (triangle)</div>
-    <div><span class="swatch" style="background: #A14000;"></span>Domain-local group (diamond)</div>
-    <div><span class="swatch" style="background: #744DA9;"></span>Universal group (pentagon)</div>
-    <div><span class="swatch" style="background: #0F6CBD;"></span>OU (rounded square)</div>
-    <div><span class="swatch" style="background: #556070;"></span>Computer (square)</div>
-    <div><span class="swatch external" style="background: #757575;"></span>External (dashed circle)</div>
+    <div class="legend-section">
+      <div class="legend-section-title">Kinds</div>
+      <div class="legend-kinds">
+        <span data-kind="User" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="#038387" stroke="rgba(255,255,255,0.25)" stroke-width="1" /></svg>
+          <span class="kind-label">User</span>
+          <span class="count">0</span>
+        </span>
+        <span data-kind="GlobalGroup" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,2 14,13 2,13" fill="#107C10" stroke="rgba(255,255,255,0.25)" stroke-width="1" /></svg>
+          <span class="kind-label">Global group</span>
+          <span class="count">0</span>
+        </span>
+        <span data-kind="DomainLocalGroup" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,2 14,8 8,14 2,8" fill="#A14000" stroke="rgba(255,255,255,0.25)" stroke-width="1" /></svg>
+          <span class="kind-label">Domain-local group</span>
+          <span class="count">0</span>
+        </span>
+        <span data-kind="UniversalGroup" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,2 14,6.5 11.6,14 4.4,14 2,6.5" fill="#744DA9" stroke="rgba(255,255,255,0.25)" stroke-width="1" /></svg>
+          <span class="kind-label">Universal group</span>
+          <span class="count">0</span>
+        </span>
+        <span data-kind="OrganizationalUnit" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="2" fill="#0F6CBD" stroke="rgba(255,255,255,0.25)" stroke-width="1" /></svg>
+          <span class="kind-label">Org. unit</span>
+          <span class="count">0</span>
+        </span>
+        <span data-kind="Computer" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" fill="#556070" stroke="rgba(255,255,255,0.25)" stroke-width="1" /></svg>
+          <span class="kind-label">Computer</span>
+          <span class="count">0</span>
+        </span>
+        <span data-kind="External" style="display: contents;">
+          <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="#757575" stroke="#B0B6BF" stroke-width="1.5" stroke-dasharray="2 2" /></svg>
+          <span class="kind-label">External</span>
+          <span class="count">0</span>
+        </span>
+      </div>
+    </div>
+    <div class="legend-section">
+      <div class="legend-section-title">Severity</div>
+      <div class="legend-strip">
+        <span data-sev="error"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" fill="#D13438" /></svg>Error</span>
+        <span data-sev="warning"><svg width="12" height="12" viewBox="0 0 12 12"><polygon points="6,1 11,11 1,11" fill="#F7A30B" /></svg>Warning</span>
+        <span data-sev="info"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="#4FA3E3" /><rect x="5.3" y="5" width="1.4" height="4" fill="#1b1f27" /><rect x="5.3" y="2.8" width="1.4" height="1.4" fill="#1b1f27" /></svg>Info</span>
+      </div>
+    </div>
+    <div class="legend-section">
+      <div class="legend-section-title">Diff</div>
+      <div class="legend-strip">
+        <span data-diff="added"><svg width="22" height="12" viewBox="0 0 22 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#2FAE4E" stroke-width="1.5" /><line x1="12" y1="6" x2="21" y2="6" stroke="#2FAE4E" stroke-width="1.5" /></svg>Added</span>
+        <span data-diff="removed"><svg width="22" height="12" viewBox="0 0 22 12"><circle cx="6" cy="6" r="4" fill="#E0503A" fill-opacity="0.45" stroke="#E0503A" stroke-width="1.5" /><line x1="12" y1="6" x2="21" y2="6" stroke="#E0503A" stroke-width="1.5" stroke-dasharray="3 2" /></svg>Removed</span>
+        <span data-diff="unchecked"><svg width="22" height="12" viewBox="0 0 22 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#8A8F98" stroke-width="1.5" /><line x1="12" y1="6" x2="21" y2="6" stroke="#8A8F98" stroke-width="1.5" stroke-dasharray="1 2" /></svg>Unck</span>
+      </div>
+    </div>
+    <div class="legend-edges">
+      <div><span class="edge-sample"></span><span class="edge-arrow">&rarr;</span>is member of</div>
+      <div><span class="edge-sample contains"></span>contains</div>
+    </div>
   </div>
   <!-- cytoscape 3.34.0, vendored - byte-identical to spikes/GraphSpike/web/vendor (pinned by WebBundleTests). -->
   <script src="vendor/cytoscape.min.js"></script>
