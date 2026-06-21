@@ -1196,6 +1196,126 @@ public sealed class WorkspaceExpandTests
         Assert.False(vm.IsLoading);
     }
 
+    // --- (p) the in-canvas busy ring (ADR-019 / #94) ----------------------------------
+    // The busy ring marks a directory round-trip in flight on a lazy-expanded node. It is
+    // painted ONLY on the FETCH path — SetBusyAsync(dn,true) BEFORE the provider round-trip,
+    // SetBusyAsync(dn,false) in the finally — and recorded on the fake's OWN SetBusyCalls
+    // channel, NEVER FocusCalls. The cache-hit/focus-only and non-group branches return
+    // early and issue NO busy call. busy is fire-and-forget: it never rides the focus channel
+    // and the existing FocusCalls pins below must stay byte-for-byte green.
+
+    [Fact]
+    public async Task FetchExpand_PaintsBusyOn_ThenOff_InOrder_AroundTheRoundTrip()
+    {
+        var snapshot = GroupScope(SalesDn);
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // Gate the provider round-trip so we can observe the busy-ON BEFORE it.
+        var fetchGate = new TaskCompletionSource<IReadOnlyList<AdObject>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.GetMembersHandler = (_, _) => fetchGate.Task;
+
+        fake.RaiseNodeExpandRequested(SalesDn, "GlobalGroup");
+
+        // busy-ON precedes the provider round-trip: the ring is up while the fetch is in
+        // flight, recorded on its OWN channel (not FocusCalls).
+        Assert.False(vm.Expansion.IsCompleted);
+        Assert.Equal([(SalesDn, true)], fake.SetBusyCalls);
+        Assert.Empty(fake.FocusCalls);
+
+        fetchGate.SetResult(
+        [
+            Obj("Ada Lovelace", AdaDn, AdObjectKind.User),
+            Obj("GG_Ops", OpsDn),
+        ]);
+        await vm.Expansion;
+
+        // [(dn,true),(dn,false)] in order — on around the round-trip, off in the finally.
+        Assert.Equal([(SalesDn, true), (SalesDn, false)], fake.SetBusyCalls);
+
+        // The fetch-path focus pin is UNAFFECTED — busy is its own channel.
+        AssertFocusSet(Assert.Single(fake.FocusCalls), SalesDn, AdaDn, OpsDn);
+        Assert.True(snapshot.IsLoaded(SalesDn));
+        Assert.Null(vm.LoadError);
+        Assert.False(vm.IsLoading);
+    }
+
+    [Fact]
+    public async Task FetchExpand_ClearsBusy_EvenWhenTheFetchFails()
+    {
+        var snapshot = GroupScope(SalesDn);
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        provider.GetMembersHandler = (_, _) => Task.FromException<IReadOnlyList<AdObject>>(
+            new DirectoryUnavailableException("expand boom"));
+
+        fake.RaiseNodeExpandRequested(SalesDn, "GlobalGroup");
+        await vm.Expansion; // handled inline — must NOT throw
+
+        // The ring is cleared on the catch path too: the finally clears it regardless of
+        // outcome (CancellationToken.None on the off-call).
+        Assert.Equal([(SalesDn, true), (SalesDn, false)], fake.SetBusyCalls);
+        // The ADR-019 token contract: busy-ON rides the expand's real cancellable token,
+        // busy-OFF rides CancellationToken.None so the finally clears even a cancelled expand.
+        Assert.True(fake.SetBusyTokens[0].CanBeCanceled);
+        Assert.Equal(CancellationToken.None, fake.SetBusyTokens[1]);
+        Assert.Equal("expand boom", vm.LoadError);
+
+        // The failed fetch never reached the renderer's graph/focus surface.
+        Assert.Empty(fake.UpdatedGraphs);
+        Assert.Empty(fake.FocusCalls);
+        Assert.False(vm.IsLoading);
+    }
+
+    [Fact]
+    public async Task CacheHitFocusOnlyExpand_RecordsNoBusy()
+    {
+        var snapshot = CircleScope(); // GG_Circle_A LOADED with cached members
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        fake.RaiseNodeExpandRequested(CircleADn, "GlobalGroup"); // cache hit -> focus path
+        await vm.Expansion;
+
+        // The focus-only branch returns before the fetch arm — no round-trip, no ring.
+        Assert.Empty(fake.SetBusyCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+
+        // The existing focus-only pin stays green.
+        AssertFocusSet(Assert.Single(fake.FocusCalls), CircleADn, CircleBDn, AdaDn, ExternalDn);
+        Assert.Null(vm.LoadError);
+    }
+
+    [Theory]
+    [InlineData(RootDn, "OrganizationalUnit")]
+    [InlineData(AdaDn, "User")]
+    [InlineData(PcDn, "Computer")]
+    public async Task NonGroupExpand_RecordsNoBusy(string dn, string kind)
+    {
+        var snapshot = CircleScope();
+        var provider = Provider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        fake.RaiseNodeExpandRequested(dn, kind); // non-group -> focus path, no fetch
+        await vm.Expansion;
+
+        // A non-group dbltap never fetches, so it never paints the ring.
+        Assert.Empty(fake.SetBusyCalls);
+        Assert.Equal(0, provider.GetMembersCalls);
+        AssertFocusSet(Assert.Single(fake.FocusCalls), dn);
+        Assert.Null(vm.LoadError);
+    }
+
     // --- helpers ------------------------------------------------------------------------
 
     private static AdObject Obj(

@@ -666,6 +666,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         // the focus-only branch included, so the entry guards drop overlapping
         // gestures during an in-flight camera move exactly like during a fetch.
         IsLoading = true;
+        var busySet = false;
         try
         {
             var fetchable = IsFetchable(snapshot.GetKind(dn));
@@ -688,6 +689,14 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             }
 
             LoadError = null; // every new attempt clears the inline error (load policy)
+
+            // ADR-019 (#94): paint the in-canvas busy ring for the directory round-trip.
+            // FETCH PATH ONLY — the cache-hit/focus-only branch above already returned, so
+            // it has no round-trip to mark. Fire-and-forget: SetBusyAsync never takes the
+            // renderer single-flight (must not deadlock the UpdateGraphAsync/FocusAsync this
+            // pipeline issues) and never records on the focus channel.
+            busySet = true;
+            await renderer.SetBusyAsync(dn, true, cancellationToken);
 
             // Transactional fetch (ADR-005 D3): resolve the parent object only when its
             // DN is missing from the snapshot (External frontier node → true kind), then
@@ -744,6 +753,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            // ADR-019 (#94): clear the busy ring iff the fetch path set it. CancellationToken.None
+            // so a cancelled/failed expand still clears the ring (the on-call used the real ct).
+            if (busySet)
+            {
+                await renderer.SetBusyAsync(dn, false, CancellationToken.None);
+            }
+
             // ADR-007 D1: re-project the CURRENT selection — an upserted/refreshed
             // selected object updates the open panel; a stale panel is impossible.
             RecomputeDetailPanel();

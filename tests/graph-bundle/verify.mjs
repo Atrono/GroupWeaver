@@ -63,6 +63,14 @@ const SEVERITY_OVERLAY = {
 // opacity 0.30 (< every per-sev opacity), color = SEVERITY[belowSev].
 const ROLLUP_OVERLAY = { opacity: 0.30, padding: 10 };
 
+// THE in-canvas busy-ring tripwire (ADR-019 / #94). The graph.js node[busy][!sev]
+// rule sits AFTER node[below] and paints the overlay channel ONLY on a node with NO
+// own severity ([!sev]) - so a finding's halo always wins (severity > busy). The
+// `busy` data flag is transient (set by the {type:'busy'} command, self-cleared by
+// the next graphUpdate's remove-all/add-all). Static: no tween. Hand-copied from
+// graph.js so any drift in the rule's color/opacity/padding fails HERE.
+const BUSY = { color: '#4FA3E3', opacity: 0.35, padding: 8 };
+
 // THE C#/JS diff parity tripwire (AP 66, ADR-015 Slice 5). The graph-layer
 // analogue of SEVERITY: hand-copied from the diff palette so a drift between the
 // wire `diff` tokens, graph.js' node[diff=...]/edge[diff=...] rules, and this
@@ -1642,6 +1650,83 @@ async function main() {
     await page.screenshot({ path: join(screenshotDir, 'graph-cycle.png') });
     phase('cycle screenshot');
 
+    // --- ADR-019 (#94): the in-canvas busy ring -----------------------------
+    // A live cy exists (post-graphCommit). The {type:'busy'} command toggles a
+    // transient `busy` data flag; the node[busy][!sev] rule paints the overlay
+    // channel ONLY on a finding-free node (severity > busy). It is STATIC (no
+    // tween) and self-clears on the next graphUpdate. Reuses the unflagged control
+    // node (no sev/below/root => the overlay channel is free) and the error pin
+    // (SEV_PINS.error => the [!sev] gate must keep severity winning). Placed BEFORE
+    // the graphUpdate phase so the busy left set below is cleared by it (the
+    // transient-clear proof); a {type:'busy'} of an unknown command would also trip
+    // the zero-jsError audit, so these asserts double as the "case exists" tripwire.
+    await page.evaluate(() => {
+      window.__gwAnimateCalls = 0;
+      window.__gwAnimateLastDuration = null;
+      window.__gwEnterAnims = [];
+    });
+
+    // busy ON an unflagged node => the #4FA3E3/0.35/8 overlay paints.
+    await page.evaluate(
+      (id) => window.bridge.dispatch({ type: 'busy', id, on: true }), unflagged.id);
+    const busyOn = await overlayOf(page, unflagged.id);
+    assert(busyOn.found, `busy control node '${unflagged.id}' not found`);
+    assert(toHex(busyOn.color) === BUSY.color.toUpperCase(),
+      `busy overlay-color for '${unflagged.id}': rendered '${busyOn.color}' (${toHex(busyOn.color)}) != ${BUSY.color}`);
+    assert(Math.abs(toNumber(busyOn.opacity) - BUSY.opacity) < 1e-6,
+      `busy overlay-opacity for '${unflagged.id}': rendered ${busyOn.opacity} != ${BUSY.opacity}`);
+    assert(Math.abs(toNumber(busyOn.padding) - BUSY.padding) < 1e-6,
+      `busy overlay-padding for '${unflagged.id}': rendered ${busyOn.padding} != ${BUSY.padding}`);
+    phase(`busy ring paints on unflagged node ('${unflagged.id}')`);
+
+    // busy ON a sev=error node => the [!sev] gate keeps the ERROR halo winning
+    // (severity > busy: a finding's halo must never be hidden by a busy ring).
+    await page.evaluate(
+      (id) => window.bridge.dispatch({ type: 'busy', id, on: true }), SEV_PINS.error);
+    const busyOverError = await overlayOf(page, SEV_PINS.error);
+    assert(busyOverError.found, `busy-over-error pin '${SEV_PINS.error}' not found`);
+    assert(toHex(busyOverError.color) === SEVERITY_OVERLAY.error.color.toUpperCase()
+      && Math.abs(toNumber(busyOverError.opacity) - SEVERITY_OVERLAY.error.opacity) < 1e-6
+      && Math.abs(toNumber(busyOverError.padding) - SEVERITY_OVERLAY.error.padding) < 1e-6,
+      `busy must NOT paint over a finding ([!sev]): error pin '${SEV_PINS.error}' overlay `
+      + `rendered '${busyOverError.color}' (${toHex(busyOverError.color)})/${busyOverError.opacity}/${busyOverError.padding} `
+      + `!= error halo ${SEVERITY_OVERLAY.error.color}/${SEVERITY_OVERLAY.error.opacity}/${SEVERITY_OVERLAY.error.padding}`);
+    phase(`busy does not override severity ('${SEV_PINS.error}' keeps its error halo)`);
+
+    // busy OFF the unflagged node => the overlay channel returns to opacity 0. This
+    // pins that removeData('busy') actually triggers a style RECOMPUTE on the live
+    // element: cytoscape leaves a selector-set property frozen at its last value when
+    // an element merely stops matching a rule, so the off-command must force the
+    // recalc (a stuck 0.35 ring on the expand failure/cancel path is the regression
+    // this catches — there is no following graphUpdate on those paths to clear it).
+    await page.evaluate(
+      (id) => window.bridge.dispatch({ type: 'busy', id, on: false }), unflagged.id);
+    const busyOff = await overlayOf(page, unflagged.id);
+    assert(busyOff.found && Math.abs(toNumber(busyOff.opacity)) < 1e-6,
+      `busy OFF must clear the overlay on '${unflagged.id}': overlay-opacity rendered ${busyOff.opacity} != 0`);
+    phase(`busy ring clears on off-command ('${unflagged.id}')`);
+
+    // The busy block is STATIC: no camera animate, no enter tween fired across it.
+    const busyMotion = await page.evaluate(() => ({
+      animateCalls: window.__gwAnimateCalls,
+      enterCount: (window.__gwEnterAnims || []).length,
+    }));
+    assert(busyMotion.animateCalls === 0,
+      `busy ring must be STATIC (ADR-019): no cy.animate may fire across the block - __gwAnimateCalls ${busyMotion.animateCalls} != 0`);
+    assert(busyMotion.enterCount === 0,
+      `busy ring must be STATIC (ADR-019): no enter tween may fire across the block - __gwEnterAnims has ${busyMotion.enterCount} entries != 0`);
+
+    // Leave busy SET on the unflagged node: the graphUpdate phase below
+    // (remove-all/add-all) must drop the transient flag - the existing
+    // "unflagged stays clear after graphUpdate" assert at ~L1827 is the
+    // transient-clear proof.
+    await page.evaluate(
+      (id) => window.bridge.dispatch({ type: 'busy', id, on: true }), unflagged.id);
+    const busyBeforeUpdate = await overlayOf(page, unflagged.id);
+    assert(Math.abs(toNumber(busyBeforeUpdate.opacity) - BUSY.opacity) < 1e-6,
+      `busy must be SET on '${unflagged.id}' before the graphUpdate transient-clear check, got ${busyBeforeUpdate.opacity}`);
+    phase(`busy left set for the graphUpdate transient-clear check ('${unflagged.id}')`);
+
     // --- graphUpdate: replace-in-place on the LIVE instance (ADR-005 D1) -----
     // AP 2.3 wire pin: a mutated dataset re-fed through the graphChunk
     // accumulator and committed with the NEW verb {type:'graphUpdate'} must be
@@ -1826,6 +1911,11 @@ async function main() {
     const survivorClean = await overlayOf(page, unflagged.id);
     assert(survivorClean.found && Math.abs(toNumber(survivorClean.opacity)) < 1e-6,
       `unflagged node '${unflagged.id}' must keep overlay-opacity 0 after graphUpdate, got ${survivorClean.opacity}`);
+    // ADR-019 (#94) transient-clear: the busy phase above left `busy` SET on this
+    // unflagged node; the graphUpdate remove-all/add-all must have dropped the flag,
+    // so the busy ring is GONE (overlay-opacity back to 0, not BUSY.opacity 0.35).
+    assert(Math.abs(toNumber(survivorClean.opacity) - BUSY.opacity) > 1e-6,
+      `busy ring must SELF-CLEAR on graphUpdate (#94): '${unflagged.id}' still shows the busy overlay-opacity ${BUSY.opacity} after the update`);
     // ADR-017 #4: the F1 enter fade rides the element OPACITY channel and must
     // NOT bleed into a survivor's overlay/underlay layers. The same unflagged
     // survivor carries no `diff` field => a Common/undiffed survivor whose
@@ -1991,6 +2081,7 @@ async function main() {
       + `diff underlay/line + COEXIST verified, `
       + `F2 eased focus + F1 enter fade + reduced-motion verified, `
       + `selection + neighborhood dim + hover + selective labels verified (#89), `
+      + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `6 screenshots -> ${screenshotDir}`);
   } finally {

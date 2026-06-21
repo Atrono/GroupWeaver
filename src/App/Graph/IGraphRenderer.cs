@@ -85,6 +85,17 @@ public interface IGraphRenderer
     Task<byte[]?> ExportPngAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<byte[]?>(null);
 
+    /// <summary>Toggles the in-canvas BUSY ring on the node named <paramref name="dn"/>
+    /// (ADR-019, the F12 follow-up to ADR-017): a static overlay halo marking a directory
+    /// round-trip in progress on a lazy-expanded node. Fire-and-forget — dispatched WITHOUT
+    /// the renderer single-flight (it must not deadlock the in-flight expand that already
+    /// holds it) and WITHOUT a confirmation round-trip (never the 60 s BridgeTimeout, never
+    /// the focus channel). No-ops safely before the bundle is ready; the next graphUpdate
+    /// clears the transient flag regardless. Default no-op (mirroring
+    /// <see cref="ShowDiffGraphAsync"/>); only the real <c>CytoscapeGraphRenderer</c> overrides.</summary>
+    Task SetBusyAsync(string dn, bool on, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
