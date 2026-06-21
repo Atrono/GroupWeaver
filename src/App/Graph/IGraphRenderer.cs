@@ -96,6 +96,17 @@ public interface IGraphRenderer
     Task SetBusyAsync(string dn, bool on, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 
+    /// <summary>Drives <c>node:selected</c> + neighborhood dim on the node named
+    /// <paramref name="dn"/> from OUTSIDE a graph tap (ADR-020, the reverse sidebar->graph
+    /// sync deferred from ADR-018): a sidebar/jump selection projects onto the canvas.
+    /// INSTANT — the bundle uses addClass/removeClass only (never <c>cy.animate</c>), so the
+    /// #88 motion counters stay untouched. Fire-and-forget — no single-flight, no
+    /// confirmation, NEVER the focus channel (the pinned JumpCommand test requires FocusAsync
+    /// to fire exactly once per jump). An empty <paramref name="dn"/> clears the selection.
+    /// No-ops safely before the bundle is ready. Default no-op; only the real renderer overrides.</summary>
+    Task SelectAsync(string dn, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 

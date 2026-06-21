@@ -280,6 +280,81 @@ public sealed class WorkspaceViolationsTests
         vm.Dispose();
     }
 
+    // --- (c2) reverse selection sync: every SelectedDn change drives renderer.SelectAsync,
+    //          on its OWN channel, NEVER perturbing the FocusAsync count (ADR-020 #96) -----
+
+    [Fact]
+    public async Task JumpCommand_DispatchesSelectToItsOwnChannel_FocusStaysExactlyPlusOne()
+    {
+        var snapshot = LoadedGroupScope();
+        var provider = StubProvider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        var focusBefore = fake.FocusCalls.Count;
+        var selectBefore = fake.SelectCalls.Count;
+
+        vm.JumpCommand.Execute(SalesDn);
+
+        // The jump sets SelectedDn, which (ADR-020) fires renderer.SelectAsync on the SELECT
+        // channel — distinct from the jump's own FocusAsync([dn]). The load-bearing pin
+        // (JumpCommand_SetsSelectedDn_AndFocusesTheAnchor) requires FocusCalls to grow by
+        // EXACTLY 1 per jump, so the select dispatch must NOT land on the focus channel.
+        Assert.Equal(focusBefore + 1, fake.FocusCalls.Count);
+        Assert.Equal(selectBefore + 1, fake.SelectCalls.Count);
+        Assert.Equal(SalesDn, fake.SelectCalls[^1]);
+        Assert.Equal(SalesDn, vm.SelectedDn);
+
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task BareSelectedDnSet_DrivesSelect_WithFocusUntouched_NullDispatchesEmptyString()
+    {
+        var snapshot = LoadedGroupScope();
+        var provider = StubProvider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // A bare SelectedDn set (no jump) still projects onto the canvas: SelectAsync fires on
+        // EVERY change, the null case as the empty string (clears the canvas JS-side). No jump
+        // anywhere in this test => the FocusAsync channel must stay EMPTY throughout.
+        vm.SelectedDn = SalesDn;
+        vm.SelectedDn = AdaDn;
+        vm.SelectedDn = null;
+        vm.SelectedDn = ExternalMemberDn;
+
+        Assert.Equal(new[] { SalesDn, AdaDn, string.Empty, ExternalMemberDn }, fake.SelectCalls);
+        Assert.Empty(fake.FocusCalls);
+
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task GraphTap_AlsoDispatchesSelect_WithoutPerturbingFocus()
+    {
+        var snapshot = LoadedGroupScope();
+        var provider = StubProvider(snapshot);
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+        var focusBefore = fake.FocusCalls.Count;
+        var selectBefore = fake.SelectCalls.Count;
+
+        // A graph tap (NodeClicked) sets SelectedDn just like a jump or a sidebar row — so the
+        // SAME reverse-sync select dispatch fires (every selection-change SOURCE syncs the
+        // canvas). The tap drives no FocusAsync, so that channel is untouched.
+        fake.RaiseNodeClicked(AdaDn, "User");
+
+        Assert.Equal(AdaDn, vm.SelectedDn);
+        Assert.Equal(selectBefore + 1, fake.SelectCalls.Count);
+        Assert.Equal(AdaDn, fake.SelectCalls[^1]);
+        Assert.Equal(focusBefore, fake.FocusCalls.Count);
+
+        vm.Dispose();
+    }
+
     // --- (d) selection sync: matching sidebar rows highlight ----------------------------
 
     [Fact(Timeout = 60_000)]

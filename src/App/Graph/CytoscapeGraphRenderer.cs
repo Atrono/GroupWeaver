@@ -267,6 +267,36 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     }
 
     /// <summary>
+    /// Drives the reverse selection sync (ADR-020): dispatches the <c>select</c> command
+    /// fire-and-forget. Same seam as <see cref="SetBusyAsync"/> — NO single-flight (the
+    /// caller is the selection-change hook, which by ADR-007 D1 is never busy-gated and must
+    /// stay responsive during any in-flight pipeline), NO confirmation (never the 60 s
+    /// BridgeTimeout, never the focus channel — the JumpCommand FocusAsync-exactly-once pin
+    /// depends on it). Non-blocking ready-guard; never-throw (the discarded-task caller has
+    /// no handler). An empty <paramref name="dn"/> clears the canvas selection JS-side.
+    /// </summary>
+    public async Task SelectAsync(string dn, CancellationToken cancellationToken = default)
+    {
+        if (_webView is null || !_ready.Task.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        try
+        {
+            await DispatchAsync([GraphJson.Serialize(new SelectDto("select", dn))], cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // own-Dispose cancellation: nothing to settle (fire-and-forget).
+        }
+        catch (Exception ex)
+        {
+            RaiseError("renderer", $"select dispatch failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Decodes the page's bare-base64 <c>pngExported</c> reply into bytes, FAILING TO
     /// <c>null</c> rather than throwing — the never-throw renderer contract
     /// (<see cref="IGraphRenderer.ExportPngAsync"/>: <c>null</c> on ANY error). The reply
@@ -366,6 +396,11 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// <see cref="GraphJson"/> so a comma/quote-containing DN is escaped (same rationale
     /// as <see cref="FocusDto"/>).</summary>
     private sealed record BusyDto(string Type, string Id, bool On);
+
+    /// <summary>The <c>select</c> bridge command (ADR-020); serialized through
+    /// <see cref="GraphJson"/> so a comma/quote-containing DN is escaped (same rationale as
+    /// <see cref="FocusDto"/>). An empty <c>Id</c> => clearSelection JS-side.</summary>
+    private sealed record SelectDto(string Type, string Id);
 
     private NativeWebView CreateWebView()
     {

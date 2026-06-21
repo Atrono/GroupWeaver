@@ -1473,6 +1473,88 @@ async function main() {
       `previously-dimmed non-neighbor '${nonNeighborDn}' must return to background-blacken 0 after clear, got ${cleared.nonBlacken}`);
     phase('background-tap clears selection + dim (clean state restored)');
 
+    // --- ADR-020 (#96): {type:'select'} command drives selection from OUTSIDE a tap
+    // The reverse sidebar->graph sync: a select command must reuse applySelection /
+    // clearSelection, so a COMMAND-driven select is byte-identical to the tap-driven
+    // one asserted above (same selected node, same closedNeighborhood un-dim, same
+    // +0.6 dim on non-neighbors). Runs from the clean post-background-tap state.
+    // Reset the #88 motion recorders: the command path is INSTANT (addClass /
+    // removeClass only, never cy.animate), so neither counter may move across this block.
+    await page.evaluate(() => {
+      window.__gwAnimateCalls = 0;
+      window.__gwAnimateLastDuration = null;
+      window.__gwEnterAnims = [];
+    });
+
+    // (1) select a real comma-DN node => IDENTICAL to a tap-driven applySelection.
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'select', id }), selectDn);
+    const cmdSelState = await page.evaluate((a) => {
+      const cy = window.__cy;
+      const sel = cy.getElementById(a.selectDn);
+      const nbr = cy.getElementById(a.neighborDn);
+      const non = cy.getElementById(a.nonNeighborDn);
+      return {
+        selectedCount: cy.nodes(':selected').length,
+        selSelected: sel.selected(),
+        selBlacken: sel.style('background-blacken'),
+        selBorderColor: sel.style('border-color'),
+        selBorderWidth: sel.style('border-width'),
+        selHasDim: sel.hasClass('gw-dim'),
+        nbrHasDim: nbr.hasClass('gw-dim'),
+        nbrBlacken: nbr.style('background-blacken'),
+        nonHasDim: non.hasClass('gw-dim'),
+        nonBlacken: non.style('background-blacken'),
+      };
+    }, { selectDn, neighborDn, nonNeighborDn });
+    assert(cmdSelState.selSelected === true && cmdSelState.selectedCount === 1,
+      `{type:'select', id:'${selectDn}'} must select EXACTLY that node via applySelection (reverse sync, ADR-020): selected()=${cmdSelState.selSelected}, count=${cmdSelState.selectedCount}`);
+    assert(!cmdSelState.selHasDim && Math.abs(toNumber(cmdSelState.selBlacken)) < 1e-6,
+      `command-selected node '${selectDn}' must be UN-dimmed (byte-identical to the tap path): background-blacken ${cmdSelState.selBlacken}, gw-dim=${cmdSelState.selHasDim}`);
+    assert(toHex(cmdSelState.selBorderColor) === SELECTION.selBorderColor.toUpperCase()
+      && Math.abs(toNumber(cmdSelState.selBorderWidth) - SELECTION.selBorderWidth) < 1e-6,
+      `command-selected node '${selectDn}' must carry the node:selected border (${SELECTION.selBorderColor} / width ${SELECTION.selBorderWidth}): rendered '${cmdSelState.selBorderColor}' (${toHex(cmdSelState.selBorderColor)}) / ${cmdSelState.selBorderWidth}`);
+    assert(!cmdSelState.nbrHasDim && Math.abs(toNumber(cmdSelState.nbrBlacken)) < 1e-6,
+      `1-hop neighbor '${neighborDn}' must be UN-dimmed under a command select (closedNeighborhood): background-blacken ${cmdSelState.nbrBlacken}, gw-dim=${cmdSelState.nbrHasDim}`);
+    assert(cmdSelState.nonHasDim && Math.abs(toNumber(cmdSelState.nonBlacken) - SELECTION.dimBlacken) < 1e-6,
+      `non-neighbor '${nonNeighborDn}' must be dimmed +${SELECTION.dimBlacken} under a command select (background-blacken): rendered ${cmdSelState.nonBlacken}, gw-dim=${cmdSelState.nonHasDim}`);
+    phase(`select command selects + dims identical to a tap ('${selectDn}')`);
+
+    // (2) select with the EMPTY id => clearSelection (a null sidebar selection clears).
+    await page.evaluate(() => window.bridge.dispatch({ type: 'select', id: '' }));
+    const cmdCleared = await page.evaluate(() => {
+      const cy = window.__cy;
+      return { selectedCount: cy.nodes(':selected').length, anyDim: cy.nodes('.gw-dim').length };
+    });
+    assert(cmdCleared.selectedCount === 0 && cmdCleared.anyDim === 0,
+      `{type:'select', id:''} must clearSelection (null sidebar selection visibly clears the canvas): selected=${cmdCleared.selectedCount}, dim=${cmdCleared.anyDim}`);
+    phase("select command with empty id clears the selection");
+
+    // (3) re-select, then select an UNKNOWN comma DN => clearSelection (a stale/unknown
+    // DN clears rather than leaving a frozen highlight) AND, crucially, hits the
+    // `case 'select'` branch — never `default` (a default would emit a jsError, tripping
+    // the zero-jsError audit). The unknown DN is comma-containing so getElementById is
+    // exercised on the byte-identical lookup path (ADR-004 D5), returning empty.
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'select', id }), selectDn);
+    const UNKNOWN_SELECT_DN = 'CN=NoSuch,OU=Phantom,DC=groupweaver,DC=invalid';
+    await page.evaluate(
+      (id) => window.bridge.dispatch({ type: 'select', id }), UNKNOWN_SELECT_DN);
+    const cmdUnknown = await page.evaluate(() => {
+      const cy = window.__cy;
+      return { selectedCount: cy.nodes(':selected').length, anyDim: cy.nodes('.gw-dim').length };
+    });
+    assert(cmdUnknown.selectedCount === 0 && cmdUnknown.anyDim === 0,
+      `{type:'select'} of an UNKNOWN DN '${UNKNOWN_SELECT_DN}' must clearSelection (getElementById empty -> clear, never a stale highlight): selected=${cmdUnknown.selectedCount}, dim=${cmdUnknown.anyDim}`);
+    phase("select command with an unknown DN clears (hits 'select' case, not default)");
+
+    // (4) the WHOLE select block is INSTANT — no camera animate, no enter tween fired.
+    const cmdSelectMotion = await page.evaluate(() => ({
+      animateCalls: window.__gwAnimateCalls,
+      enterCount: (window.__gwEnterAnims || []).length,
+    }));
+    assert(cmdSelectMotion.animateCalls === 0 && cmdSelectMotion.enterCount === 0,
+      `the select command must be INSTANT (ADR-020: addClass/removeClass only, never cy.animate): __gwAnimateCalls ${cmdSelectMotion.animateCalls}, __gwEnterAnims ${cmdSelectMotion.enterCount} (both must be 0)`);
+    phase('select command block is instant (#88 motion counters untouched)');
+
     // --- hover: mouseover adds gw-hover (brightens), mouseout restores ---------
     const hoverOn = await page.evaluate((id) => {
       const el = window.__cy.getElementById(id);
@@ -2081,6 +2163,7 @@ async function main() {
       + `diff underlay/line + COEXIST verified, `
       + `F2 eased focus + F1 enter fade + reduced-motion verified, `
       + `selection + neighborhood dim + hover + selective labels verified (#89), `
+      + `reverse select command (tap-identical/empty-clear/unknown-clear/instant) verified (#96), `
       + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `6 screenshots -> ${screenshotDir}`);

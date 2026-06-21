@@ -119,6 +119,10 @@ public sealed class WebBundleTests
         // ADR-019 (#94): the in-canvas busy-ring command. Single-quoted to match the
         // `case 'busy':` literal so the case can't silently vanish from the bundle.
         Assert.Contains("'busy'", text, StringComparison.Ordinal);
+
+        // ADR-020 (#96): the reverse sidebar->graph selection-sync command. Single-quoted
+        // to match the `case 'select':` literal so the case can't silently vanish.
+        Assert.Contains("'select'", text, StringComparison.Ordinal);
     }
 
     [Fact]
