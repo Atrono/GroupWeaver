@@ -33,6 +33,11 @@ const PALETTE = {
   Computer: '#556070',
   External: '#757575',
 };
+// The 7 AdObjectKind names, in PALETTE order. The encoding-key legend (#87) must
+// carry exactly one `#legend [data-kind="<Kind>"]` row per name, each with a live
+// per-kind `.count` matching cy.nodes() grouped by data('kind'). Pinned here so a
+// legend that drops/renames a kind row, or adds an 8th, fails loudly.
+const KIND_NAMES = Object.keys(PALETTE);
 
 // THE C#/JS severity parity tripwire (AP 3.4, ADR-010 D1). Hand-copied from the
 // pinned palette: if ADR-010 / GraphJson.SeverityWire / graph.js' node[sev=...]
@@ -999,9 +1004,132 @@ async function main() {
       `anti-vacuous floor: demo graph must have >= 190 nodes, got ${loaded.nodeCount}`);
     phase(`loaded (${loaded.nodeCount} nodes, ${loaded.edgeCount} edges)`);
 
+    // --- encoding-key legend signature (#87, ui-checklist "Encoding-key
+    // signature") -------------------------------------------------------------
+    // The static top-left legend becomes a crafted KEY with four structurally-keyed
+    // channels:
+    //   KINDS    - 7 rows `#legend [data-kind="<AdObjectKind>"]`, each carrying an
+    //              inline real-shape SVG swatch + a `<span class="count">` showing a
+    //              LIVE per-kind tally (updateLegendCounts() groups cy.nodes() by
+    //              data('kind'), called inside sendLoaded() so it refreshes on both
+    //              graphCommit and graphUpdate).
+    //   SEVERITY - 3 `#legend [data-sev="error|warning|info"]` (key glyphs, NO counts).
+    //   DIFF     - 3 `#legend [data-diff="added|removed|unchecked"]` (key, no counts).
+    //   edges    - >= 2 `#legend .edge-sample` (member + contains samples).
+    // The whole legend stays `pointer-events:none`, left of viewport-center, fully
+    // within the viewport. RED until index.html grows the data-attrs/.count spans and
+    // graph.js' sendLoaded() calls updateLegendCounts(). primitives only out of
+    // page.evaluate (CI moral): we read the legend `.count` text into a plain map AND
+    // independently group window.__cy.nodes() by data('kind') into a tally, both as
+    // primitives, and compare in Node.
+
+    // (#1) per-kind legend counts == live cy.nodes() tally, and the 7 counts sum to
+    // loaded.nodeCount. ONE round-trip returns both the legend map and the cy tally.
+    const legendVsCy = await page.evaluate((kinds) => {
+      const legendCount = {};
+      for (const k of kinds) {
+        const row = document.querySelector(`#legend [data-kind="${k}"]`);
+        // null row / null .count text => leave undefined so the Node-side equality
+        // (treated as 0) fails loudly against a non-zero cy tally rather than here.
+        const countEl = row && row.querySelector('.count');
+        legendCount[k] = countEl ? Number(countEl.textContent.trim()) : null;
+      }
+      const cyTally = {};
+      window.__cy.nodes().forEach((node) => {
+        const k = node.data('kind');
+        cyTally[k] = (cyTally[k] || 0) + 1;
+      });
+      return { legendCount, cyTally };
+    }, KIND_NAMES);
+    let legendSum = 0;
+    for (const kind of KIND_NAMES) {
+      const legendN = legendVsCy.legendCount[kind];
+      const cyN = legendVsCy.cyTally[kind] || 0;
+      assert(legendN !== null,
+        `#87: legend row '#legend [data-kind="${kind}"] .count' is missing (no data-kind row or no .count span) - the encoding-key legend must carry one live-count row per kind`);
+      assert(legendN === cyN,
+        `#87: per-kind legend count for '${kind}' (${legendN}) must equal the live cy.nodes() tally (${cyN}) - updateLegendCounts() must group cy.nodes() by data('kind')`);
+      legendSum += legendN;
+    }
+    assert(legendSum === loaded.nodeCount,
+      `#87: the 7 legend per-kind counts must sum to loaded.nodeCount (${loaded.nodeCount}), got ${legendSum} - a kind row missing or double-counted`);
+    phase(`legend: per-kind counts == cy.nodes() tally (sum ${legendSum} == nodeCount ${loaded.nodeCount})`);
+
+    // (#2) 4 channels keyed STRUCTURALLY by querySelectorAll counts. KINDS == 7,
+    // edge samples >= 2, SEVERITY == 3, DIFF == 3. No assertion on sev/diff COUNTS:
+    // those strips are key-only by design (a count there would contradict the
+    // sidebar's authoritative finding tally - ui-checklist #87).
+    const channelCounts = await page.evaluate(() => ({
+      kinds: document.querySelectorAll('#legend [data-kind]').length,
+      edges: document.querySelectorAll('#legend .edge-sample').length,
+      sevs: document.querySelectorAll('#legend [data-sev]').length,
+      diffs: document.querySelectorAll('#legend [data-diff]').length,
+    }));
+    assert(channelCounts.kinds === 7,
+      `#87: #legend must carry exactly 7 [data-kind] rows (one per AdObjectKind), got ${channelCounts.kinds}`);
+    assert(channelCounts.edges >= 2,
+      `#87: #legend must carry >= 2 .edge-sample rows (member + contains samples), got ${channelCounts.edges}`);
+    assert(channelCounts.sevs === 3,
+      `#87: #legend must carry exactly 3 [data-sev] key glyphs (error/warning/info, NO counts), got ${channelCounts.sevs}`);
+    assert(channelCounts.diffs === 3,
+      `#87: #legend must carry exactly 3 [data-diff] key glyphs (added/removed/unchecked, NO counts), got ${channelCounts.diffs}`);
+    phase(`legend: 4 channels keyed (kinds ${channelCounts.kinds}/edges ${channelCounts.edges}/sev ${channelCounts.sevs}/diff ${channelCounts.diffs})`);
+
+    // (#3) airspace: the legend is position:fixed, so getBoundingClientRect is
+    // viewport-relative. It must sit top-left-ish: left/top non-negative, RIGHT of
+    // its own box strictly LEFT of viewport center (never covering the central
+    // cluster - the true invariant), and the WHOLE box within the viewport height
+    // (bottom <= innerHeight; NOT bottom < innerHeight/2, which a short window breaks).
+    // pointer-events stays 'none' so clicks fall through to the canvas.
+    const airspace = await page.evaluate(() => {
+      const el = document.getElementById('legend');
+      const box = el.getBoundingClientRect();
+      return {
+        left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+        innerWidth: window.innerWidth, innerHeight: window.innerHeight,
+        pointerEvents: getComputedStyle(el).pointerEvents,
+      };
+    });
+    assert(airspace.left >= 0 && airspace.top >= 0,
+      `#87: legend box must not bleed off the top-left of the viewport (left ${airspace.left}, top ${airspace.top})`);
+    assert(airspace.right < airspace.innerWidth / 2,
+      `#87: legend must stay LEFT of viewport center (never cover the central cluster): box.right ${airspace.right} >= innerWidth/2 ${airspace.innerWidth / 2}`);
+    assert(airspace.bottom <= airspace.innerHeight,
+      `#87: legend must stay fully within the viewport height (max-height clamped): box.bottom ${airspace.bottom} > innerHeight ${airspace.innerHeight}`);
+    assert(airspace.pointerEvents === 'none',
+      `#87: #legend must keep pointer-events:none so taps fall through to the canvas, got '${airspace.pointerEvents}'`);
+    phase(`legend: airspace (left-of-center, in-viewport, pointer-events none)`);
+
+    // (#5, optional high-value) swatch parity tripwire: each [data-kind] row's inner
+    // SVG real-shape swatch `fill` must toHex-match PALETTE[kind] - making the legend
+    // a 4th palette parity tripwire alongside the canvas node fill, the C# converter,
+    // and graph.js. Reads the fill of the first <svg> shape element inside each row.
+    const swatchFills = await page.evaluate((kinds) => {
+      const out = {};
+      for (const k of kinds) {
+        const row = document.querySelector(`#legend [data-kind="${k}"]`);
+        const svg = row && row.querySelector('svg');
+        // the painted shape: prefer an explicit shape element, else the svg itself.
+        const shape = svg && (svg.querySelector('circle, ellipse, rect, polygon, path') || svg);
+        out[k] = shape ? (shape.getAttribute('fill') || getComputedStyle(shape).fill) : null;
+      }
+      return out;
+    }, KIND_NAMES);
+    for (const kind of KIND_NAMES) {
+      const fill = swatchFills[kind];
+      assert(fill !== null && fill !== 'none' && fill !== '',
+        `#87: legend [data-kind="${kind}"] must contain an inline SVG real-shape swatch with a fill (the canvas-node mirror), got ${JSON.stringify(fill)}`);
+      assert(toHex(fill) === PALETTE[kind].toUpperCase(),
+        `#87: legend swatch fill for '${kind}' ('${fill}' -> ${toHex(fill)}) must match PALETTE ${PALETTE[kind]} (4th palette parity tripwire)`);
+    }
+    phase(`legend: SVG swatch fill parity vs PALETTE (7/7 kinds)`);
+
     // --- screenshot 1: overview (initGraph already ran cy.fit()) -------------
     await page.screenshot({ path: join(screenshotDir, 'graph-overview.png') });
     phase('overview screenshot');
+    // --- the encoding-key legend frame the ui-verifier judges (#87) ----------
+    await page.screenshot({ path: join(screenshotDir, 'graph-legend-key.png') });
+    phase('legend-key screenshot');
 
     // --- preset layout honored: 5 sampled DNs at exact fixture positions -----
     const rootNode = fixture.nodes.find((n) => n.root === true);
@@ -1729,6 +1857,81 @@ async function main() {
     await assertEasedFocus(page, [newNode.id], 'post-update node');
     await page.screenshot({ path: join(screenshotDir, 'graph-expanded.png') });
     phase('graphUpdate replace-in-place (instance, viewport, handlers survive)');
+
+    // --- (#4) legend counts REFRESH on lazy-expand (#87 self-correction) ------
+    // updateLegendCounts() runs inside sendLoaded(), which fires on BOTH graphCommit
+    // AND graphUpdate - so a lazy-expand that re-keys a frontier-External node to its
+    // true loaded kind must make the legend's External bucket DECREMENT (the design
+    // critique's self-correction path: an unexpanded External resolves and the key
+    // re-tallies). We snapshot the post-update legend counts, then dispatch a fresh
+    // graphUpdate that re-sends an External-kinded fixture node with a NON-External
+    // kind (GlobalGroup), and assert: (a) per-kind legend == live cy tally STILL
+    // holds, and (b) the External count strictly DECREASED.
+    //
+    // The graph at this point is `updatedNodes` (= [...fixture.nodes, newNode]) minus
+    // droppedEdge. The fixture carries 2 External nodes (the two ignored builtin
+    // member DNs); re-keying one to GlobalGroup is the frontier-resolves-on-expand
+    // analogue. We rebuild the payload from `updatedNodes` so the External-count math
+    // is exact (newNode is a User, irrelevant to the External bucket).
+    const externalFixtureNode = fixture.nodes.find((x) => x.kind === 'External');
+    assert(externalFixtureNode !== undefined,
+      '#87 (#4): demo fixture must contain >= 1 External node to exercise the frontier-resolve legend self-correction (the two ignored builtin member DNs)');
+    const REKEYED_KIND = 'GlobalGroup';
+
+    const legendBefore = await page.evaluate((kinds) => {
+      const out = {};
+      for (const k of kinds) {
+        const row = document.querySelector(`#legend [data-kind="${k}"]`);
+        const countEl = row && row.querySelector('.count');
+        out[k] = countEl ? Number(countEl.textContent.trim()) : null;
+      }
+      return out;
+    }, KIND_NAMES);
+    assert(legendBefore.External !== null && legendBefore.External >= 1,
+      `#87 (#4): pre-refresh legend must show >= 1 External (the frontier bucket about to self-correct), got ${JSON.stringify(legendBefore.External)}`);
+
+    // Re-key exactly ONE External node to GlobalGroup; keep every other node + the
+    // surviving edges identical. Same node/edge COUNT as the prior graphUpdate, so
+    // this phase's `loaded` totals are unchanged - only the per-kind split shifts.
+    const rekeyedNodes = updatedNodes.map((x) =>
+      x.id === externalFixtureNode.id ? { ...x, kind: REKEYED_KIND } : x);
+    for (const chunk of toChunks(rekeyedNodes, updatedEdges)) {
+      await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+    }
+    await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+    await awaitMessage('loaded', '#87 (#4): re-keyed graphUpdate -> legend self-correction refresh');
+
+    const refreshed = await page.evaluate((kinds) => {
+      const legendCount = {};
+      for (const k of kinds) {
+        const row = document.querySelector(`#legend [data-kind="${k}"]`);
+        const countEl = row && row.querySelector('.count');
+        legendCount[k] = countEl ? Number(countEl.textContent.trim()) : null;
+      }
+      const cyTally = {};
+      window.__cy.nodes().forEach((node) => {
+        const k = node.data('kind');
+        cyTally[k] = (cyTally[k] || 0) + 1;
+      });
+      return { legendCount, cyTally };
+    }, KIND_NAMES);
+    // (a) per-kind equality STILL holds after the refresh (the key re-tallied).
+    for (const kind of KIND_NAMES) {
+      const legendN = refreshed.legendCount[kind];
+      const cyN = refreshed.cyTally[kind] || 0;
+      assert(legendN !== null,
+        `#87 (#4): legend row '#legend [data-kind="${kind}"] .count' missing after the refresh graphUpdate`);
+      assert(legendN === cyN,
+        `#87 (#4): per-kind legend count for '${kind}' (${legendN}) must STILL equal the live cy tally (${cyN}) after a re-keying graphUpdate - sendLoaded() must call updateLegendCounts() on graphUpdate too`);
+    }
+    // (b) the External bucket strictly DECREMENTED (self-correction proven): the
+    // re-keyed External node now tallies under GlobalGroup. This is the design
+    // critique's explicit ask - a frontier External resolving to its true kind.
+    assert(refreshed.legendCount.External === legendBefore.External - 1,
+      `#87 (#4): re-keying an External node to ${REKEYED_KIND} must DECREMENT the live External legend count by 1 (frontier self-correction): before ${legendBefore.External}, after ${refreshed.legendCount.External}`);
+    assert(refreshed.legendCount[REKEYED_KIND] === (legendBefore[REKEYED_KIND] ?? 0) + 1,
+      `#87 (#4): the re-keyed node must move INTO the ${REKEYED_KIND} bucket (before ${legendBefore[REKEYED_KIND]}, after ${refreshed.legendCount[REKEYED_KIND]})`);
+    phase(`legend: counts refresh on lazy-expand (External ${legendBefore.External} -> ${refreshed.legendCount.External}, self-correction)`);
 
     // --- PNG export round-trip (AP 4.1, ADR-013) -----------------------------
     // Dispatch the new {type:'exportPng'} command and await the {type:'pngExported',
