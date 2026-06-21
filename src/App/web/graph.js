@@ -20,6 +20,25 @@
   // update) - no cy.animate, no opacity tween.
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // ADR-018 (#89): selection + neighborhood dim. INSTANT class toggles only -
+  // never cy.animate / collection.animate (the #88 isolated motion counters must
+  // stay 0). applySelection enforces exactly-one-selected: drop any prior
+  // selection/dim/hover, select the tapped node EXPLICITLY (synthetic emit('tap')
+  // does not run native select), dim everything, then un-dim the node + its 1-hop
+  // closed neighborhood (node + neighbors + connecting edges stay bright).
+  function applySelection(node) {
+    cy.$(':selected').unselect();
+    cy.elements().removeClass('gw-dim gw-hover');
+    node.select();
+    cy.elements().addClass('gw-dim');
+    node.closedNeighborhood().removeClass('gw-dim');
+  }
+
+  function clearSelection() {
+    cy.elements().removeClass('gw-dim gw-hover');
+    cy.$(':selected').unselect();
+  }
+
   // Builds cytoscape element descriptors from the accumulated chunks and CLEARS
   // the accumulator: each chunk+commit cycle starts from scratch, never re-feeds
   // the accumulated union (duplicate-id errors). Shared by both commit verbs
@@ -116,8 +135,10 @@
           }
         },
         {
+          // ADR-018 D4 (F9): force the root label on at fit zoom (mzfs 0) so the
+          // overview stays orientable; the base node floor stays 10.
           selector: 'node[?root]',
-          style: { width: 30, height: 30, 'border-width': 3, 'border-color': '#E8ECF2' }
+          style: { width: 30, height: 30, 'border-width': 3, 'border-color': '#E8ECF2', 'min-zoomed-font-size': 0 }
         },
         // Severity (AP 3.4, ADR-010): owns the overlay-* channel ONLY - the halo
         // paints behind the node, touching neither the kind fill/shape nor the
@@ -127,8 +148,10 @@
         // field => no rule matches => overlay-opacity default 0 => byte-identical.
         // NO label override anywhere: the kind name stays the only label.
         {
+          // ADR-018 D4 (F9): Error nodes stay labeled at fit zoom (mzfs 0) - the
+          // AP 3.4 max-severity-always-on mandate; warning/info keep the base floor.
           selector: "node[sev='error']",
-          style: { 'overlay-color': '#D13438', 'overlay-opacity': 0.45, 'overlay-padding': 7 }
+          style: { 'overlay-color': '#D13438', 'overlay-opacity': 0.45, 'overlay-padding': 7, 'min-zoomed-font-size': 0 }
         },
         {
           selector: "node[sev='warning']",
@@ -228,11 +251,40 @@
             'line-color': '#8A8F98', 'target-arrow-color': '#8A8F98',
             'line-style': 'dotted', opacity: 0.5
           }
+        },
+        // Interaction feedback (ADR-018 / #89): APPENDED LAST, in this source order
+        // (last wins on a shared channel). All cues ride background-blacken / border
+        // / z-index / text-opacity ONLY - NEVER element opacity (the #88 enter-fade,
+        // ADR-017), so a dimmed node's severity overlay-* halo and diff underlay-*
+        // stay full-strength (background-blacken darkens only the kind fill).
+        // - gw-dim darkens the fill (+0.6 = darker) and fades the label.
+        // - gw-hover AFTER gw-dim so hovering a dimmed node BRIGHTENS it (negative
+        //   blacken = brighter; there is NO background-brighten property).
+        // - node:selected LAST so its white border always wins; mzfs 0 forces the
+        //   selected node's label on regardless of zoom.
+        {
+          selector: 'node.gw-dim',
+          style: { 'background-blacken': 0.6, 'text-opacity': 0.15 }
+        },
+        {
+          selector: 'node.gw-hover',
+          style: { 'background-blacken': -0.15, 'border-opacity': 1 }
+        },
+        {
+          selector: 'node:selected',
+          style: { 'border-color': '#FFFFFF', 'border-width': 3, 'border-opacity': 1, 'z-index': 10, 'min-zoomed-font-size': 0 }
+        },
+        {
+          selector: 'edge.gw-dim',
+          style: { opacity: 0.12 }
         }
       ]
     });
 
-    // Same code path a human click takes: cy tap handler -> bridge -> .NET.
+    // Same code path a human click takes: cy tap handler -> bridge -> .NET. The
+    // nodeClick send stays the UNCONDITIONAL FIRST statement (the graph->VM
+    // SelectedDn contract, keyed off tap); applySelection then paints the
+    // selection + neighborhood dim (ADR-018 D3).
     cy.on('tap', 'node', function (evt) {
       window.bridge.send({
         type: 'nodeClick',
@@ -240,7 +292,15 @@
         label: evt.target.data('label'),
         kind: evt.target.data('kind')
       });
+      applySelection(evt.target);
     });
+    // Core-level background tap (evt.target === cy): clear selection + dim/hover.
+    cy.on('tap', function (evt) {
+      if (evt.target === cy) { clearSelection(); }
+    });
+    // Hover feedback (ADR-018 D1): instant gw-hover toggle, no transition.
+    cy.on('mouseover', 'node', function (evt) { evt.target.addClass('gw-hover'); });
+    cy.on('mouseout', 'node', function (evt) { evt.target.removeClass('gw-hover'); });
     cy.on('dbltap', 'node', function (evt) {
       window.bridge.send({ type: 'nodeExpand', id: evt.target.id() });
     });

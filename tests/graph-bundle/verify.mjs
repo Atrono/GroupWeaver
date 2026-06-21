@@ -89,6 +89,30 @@ const DIFF_LINE = {
   unchecked: { color: '#8A8F98', style: 'dotted' },
 };
 
+// THE interaction-feedback parity tripwire (ADR-018 / #89). The graph-layer
+// analogue of PALETTE/SEVERITY/DIFF: hand-copied from ADR-018 D1 so any drift
+// between the ADR's channel-ownership contract and graph.js' node.gw-dim /
+// node.gw-hover / node:selected rules fails HERE. The brightness channel is
+// cytoscape `background-blacken` (NEGATIVE = brighter; there is NO
+// `background-brighten` property - do not assert it): dim darkens the kind fill
+// by +0.6 (leaving the severity overlay-* halo and diff underlay-* at full
+// strength - the whole reason dim rides background-blacken, never element
+// opacity), hover brightens it by -0.15. Selection rides border + z only
+// (white #FFFFFF border, width 3) so it composes with kind/root/External/diff.
+const SELECTION = {
+  dimBlacken: 0.6,
+  hoverBlacken: -0.15,
+  selBorderColor: '#FFFFFF',
+  selBorderWidth: 3,
+};
+// The base/selective label-gate floor (ADR-018 D4 / ADR-004): the base `node`
+// rule keeps min-zoomed-font-size 10 (labels hidden until zoomed in), but the
+// node[?root] and node[sev='error'] rules force 0 so the root and Error-severity
+// nodes stay labeled at the fit-zoom overview. node:selected ALSO forces 0 (a
+// transient force while selected) - so the F9 selective-label assert below pins
+// root + Error against a PLAIN unflagged, UNSELECTED node, never the selection.
+const LABEL_MZFS = { forced: 0, baseFloor: 10 };
+
 const MESSAGE_TIMEOUT_MS = 60_000;
 // Node diameter D=44 (ADR-004 D3): model-space floor; the xUnit geometry test
 // pins the stronger ~59.7 bound, this render-side assert pins "no overlap".
@@ -198,6 +222,24 @@ function toChunks(nodes, edges) {
     edgeIndex += chunkEdges.length;
   }
   return chunks;
+}
+
+// Undirected adjacency over the fixture (ADR-018 selection phase): a node's
+// 1-hop neighbors = every node it shares an edge with, ignoring edge direction
+// (the dim ring is closedNeighborhood(), which is direction-agnostic). Only
+// edges with both endpoints present as fixture nodes count - a raw-DN frontier
+// member edge has no node and is irrelevant to the dim ring. Keyed by exact DN
+// string (comma-safe; getElementById is the byte-identical lookup downstream).
+function buildAdjacency(nodes, edges) {
+  const adj = new Map();
+  for (const n of nodes) { adj.set(n.id, new Set()); }
+  for (const e of edges) {
+    if (adj.has(e.s) && adj.has(e.t)) {
+      adj.get(e.s).add(e.t);
+      adj.get(e.t).add(e.s);
+    }
+  }
+  return adj;
 }
 
 // cytoscape's canvas renderer reports colors as rgb(...)/rgba(...); normalize to
@@ -1146,6 +1188,280 @@ async function main() {
       `nodeClick id roundtrip not byte-identical: got '${click.id}', sent '${clickDn}'`);
     phase('click roundtrip');
 
+    // --- ADR-018 (#89): selection + neighborhood dim + hover + selective labels
+    // Inserted AFTER the click roundtrip (so the nodeClick-first contract above is
+    // already pinned) and BEFORE the dbltap/focus phases: the trailing background-
+    // tap clear leaves a clean (no selection, no dim, no hover) state, and the
+    // camera is still at the post-graphCommit fit (overview) zoom - the dbltap and
+    // focus phases below assume both. Selection is driven via the SAME clickTest
+    // path the click roundtrip used (cy.getElementById(id).emit('tap')); a
+    // synthetic emit('tap') does NOT run cytoscape's native select, so the
+    // implementer's tap handler must call node.select() explicitly inside
+    // applySelection - the selected()===true assert is exactly that pin.
+
+    // Build undirected adjacency once from the fixture for the dim-ring asserts.
+    const adjacency = buildAdjacency(fixture.nodes, fixture.edges);
+
+    // Clean tap subject: a comma-containing DN that is NOT root / NOT sev-flagged /
+    // NOT a roll-up (below) node, with >= 1 neighbor. Non-root/non-flagged so the
+    // ONLY border + background-blacken effects on it come from selection/dim (a
+    // root node owns its own border; a flagged node's overlay is irrelevant but a
+    // clean subject keeps the dim/border asserts unambiguous). Auto-selected from
+    // the fixture (never a hard-coded DN) so it survives demo-baseline drift.
+    const selectNode = fixture.nodes.find((x) =>
+      x.id.includes(',') && !x.root && !x.sev && !x.below && adjacency.get(x.id).size >= 1);
+    assert(selectNode !== undefined,
+      'fixture must contain a comma-DN, non-root, unflagged node with >= 1 neighbor for the selection phase');
+    const selectDn = selectNode.id;
+    const neighborSet = adjacency.get(selectDn);
+    // Anti-vacuous: the dim ring (un-dim closedNeighborhood, dim everything else)
+    // is only meaningful if the subject actually HAS a neighbor and a non-neighbor.
+    assert(neighborSet.size >= 1,
+      `selection subject '${selectDn}' must have >= 1 neighbor (anti-vacuous dim ring)`);
+    const neighborDn = [...neighborSet][0];
+    const nonNeighborNode = fixture.nodes.find((x) =>
+      x.id !== selectDn && !neighborSet.has(x.id));
+    assert(nonNeighborNode !== undefined,
+      `selection subject '${selectDn}' must have a non-neighbor node (anti-vacuous dim)`);
+    const nonNeighborDn = nonNeighborNode.id;
+
+    // The halo-survives tripwire subject: a sev='error', NON-below (pure per-sev
+    // overlay #D13438 / 0.45 / padding 7) node that is ALSO a non-neighbor of the
+    // selection (so it IS dimmed). SEV_PINS.error is below-free by an assert above;
+    // confirm it is a genuine non-neighbor here so the tripwire is anti-vacuous.
+    const errorNonNeighborDn = SEV_PINS.error;
+    assert(errorNonNeighborDn !== selectDn && !neighborSet.has(errorNonNeighborDn),
+      `severity-error halo-survives pin '${errorNonNeighborDn}' must be a NON-neighbor of the selection '${selectDn}' (anti-vacuous: it must actually be dimmed)`);
+
+    // Reset BOTH #88 isolated motion recorders before the whole select/hover/clear
+    // sequence: ADR-018 D2 - selection/dim/hover are INSTANT addClass/removeClass
+    // toggles, never cy.animate / collection.animate, so neither counter may move
+    // across this entire block. Asserted at the end (item 7).
+    await page.evaluate(() => {
+      window.__gwAnimateCalls = 0;
+      window.__gwAnimateLastDuration = null;
+      window.__gwEnterAnims = [];
+    });
+
+    // --- select + dim (drive via the clickTest tap path) ----------------------
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), selectDn);
+    // The tap handler still sends nodeClick FIRST (ADR-018 D3, unchanged contract).
+    const selClick = await awaitMessage('nodeClick', `clickTest (select) on '${selectDn}'`);
+    assert(selClick.id === selectDn,
+      `nodeClick must still fire FIRST on tap (ADR-018 D3): got '${selClick.id}', sent '${selectDn}'`);
+
+    const selState = await page.evaluate((a) => {
+      const cy = window.__cy;
+      const sel = cy.getElementById(a.selectDn);
+      const nbr = cy.getElementById(a.neighborDn);
+      const non = cy.getElementById(a.nonNeighborDn);
+      return {
+        selectedCount: cy.nodes(':selected').length,
+        selSelected: sel.selected(),
+        selBlacken: sel.style('background-blacken'),
+        selBorderColor: sel.style('border-color'),
+        selBorderWidth: sel.style('border-width'),
+        selHasDim: sel.hasClass('gw-dim'),
+        nbrBlacken: nbr.style('background-blacken'),
+        nbrHasDim: nbr.hasClass('gw-dim'),
+        nonBlacken: non.style('background-blacken'),
+        nonHasDim: non.hasClass('gw-dim'),
+      };
+    }, { selectDn, neighborDn, nonNeighborDn });
+
+    // The tapped node is selected (applySelection called node.select() explicitly -
+    // synthetic emit('tap') would NOT have) and un-dimmed (background-blacken ~ 0).
+    assert(selState.selSelected === true,
+      `selection subject '${selectDn}' must report selected()===true after the tap - applySelection must call node.select() explicitly (synthetic emit('tap') never runs native select, ADR-018 D3)`);
+    assert(selState.selectedCount === 1,
+      `exactly ONE node must be selected after a single tap, got ${selState.selectedCount}`);
+    assert(!selState.selHasDim && Math.abs(toNumber(selState.selBlacken)) < 1e-6,
+      `selected node '${selectDn}' must be UN-dimmed (closedNeighborhood un-dim): background-blacken rendered ${selState.selBlacken} != ~0, gw-dim=${selState.selHasDim}`);
+    // Selection border parity (ADR-018 D1): white #FFFFFF, width 3.
+    assert(toHex(selState.selBorderColor) === SELECTION.selBorderColor.toUpperCase(),
+      `selected node '${selectDn}' border-color: rendered '${selState.selBorderColor}' (${toHex(selState.selBorderColor)}) != pinned ${SELECTION.selBorderColor} (node:selected rule missing?)`);
+    assert(Math.abs(toNumber(selState.selBorderWidth) - SELECTION.selBorderWidth) < 1e-6,
+      `selected node '${selectDn}' border-width: rendered ${selState.selBorderWidth} != pinned ${SELECTION.selBorderWidth}`);
+    // A 1-hop neighbor is un-dimmed (inside closedNeighborhood).
+    assert(!selState.nbrHasDim && Math.abs(toNumber(selState.nbrBlacken)) < 1e-6,
+      `1-hop neighbor '${neighborDn}' must be UN-dimmed (closedNeighborhood): background-blacken ${selState.nbrBlacken}, gw-dim=${selState.nbrHasDim}`);
+    // A non-neighbor carries .gw-dim with background-blacken === +0.6.
+    assert(selState.nonHasDim,
+      `non-neighbor '${nonNeighborDn}' must carry the .gw-dim class during a live selection (ADR-018 neighborhood dim)`);
+    assert(Math.abs(toNumber(selState.nonBlacken) - SELECTION.dimBlacken) < 1e-6,
+      `dimmed non-neighbor '${nonNeighborDn}' background-blacken: rendered ${selState.nonBlacken} != pinned +${SELECTION.dimBlacken} (node.gw-dim rule missing/wrong?)`);
+    phase(`selection + neighborhood dim ('${selectDn}': selected + ring un-dimmed, rest +0.6)`);
+
+    // --- HALO SURVIVES DIM (load-bearing): a dimmed sev='error' non-neighbor keeps
+    // its FULL-strength severity overlay (#D13438 / 0.45 / padding 7) UNCHANGED.
+    // This is the whole reason dim rides background-blacken (kind-fill only) and
+    // NEVER element opacity (which per ADR-017 D3 composites the overlay/underlay
+    // and would HIDE the halo). The node is dimmed (asserted) yet its overlay is
+    // pristine - proving the channels are disjoint.
+    const dimmedErr = await page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      return {
+        hasDim: el.hasClass('gw-dim'),
+        blacken: el.style('background-blacken'),
+        overlayColor: el.style('overlay-color'),
+        overlayOpacity: el.style('overlay-opacity'),
+        overlayPadding: el.style('overlay-padding'),
+      };
+    }, errorNonNeighborDn);
+    assert(dimmedErr.hasDim && Math.abs(toNumber(dimmedErr.blacken) - SELECTION.dimBlacken) < 1e-6,
+      `halo-survives pin '${errorNonNeighborDn}' must itself be dimmed first (gw-dim=${dimmedErr.hasDim}, blacken ${dimmedErr.blacken})`);
+    assert(toHex(dimmedErr.overlayColor) === SEVERITY.error.toUpperCase()
+      && Math.abs(toNumber(dimmedErr.overlayOpacity) - SEVERITY_OVERLAY.error.opacity) < 1e-6
+      && Math.abs(toNumber(dimmedErr.overlayPadding) - SEVERITY_OVERLAY.error.padding) < 1e-6,
+      `dim must use background-blacken (kind fill ONLY), never element opacity: the dimmed sev='error' node '${errorNonNeighborDn}' must keep its FULL error halo (${SEVERITY.error} / ${SEVERITY_OVERLAY.error.opacity} / padding ${SEVERITY_OVERLAY.error.padding}) - `
+      + `rendered overlay '${dimmedErr.overlayColor}' (${toHex(dimmedErr.overlayColor)}) / opacity ${dimmedErr.overlayOpacity} / padding ${dimmedErr.overlayPadding} (element-opacity dimming would have composited/faded it)`);
+    phase(`halo survives dim (dimmed error node keeps full overlay) ('${errorNonNeighborDn}')`);
+
+    // --- background-tap clears selection + dim (also cleanup for downstream) ---
+    // evt.target === cy => the core-level background tap handler clears everything.
+    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    const cleared = await page.evaluate((a) => {
+      const cy = window.__cy;
+      return {
+        selectedCount: cy.nodes(':selected').length,
+        anyDim: cy.nodes('.gw-dim').length,
+        selBlacken: cy.getElementById(a.selectDn).style('background-blacken'),
+        nonBlacken: cy.getElementById(a.nonNeighborDn).style('background-blacken'),
+      };
+    }, { selectDn, nonNeighborDn });
+    assert(cleared.selectedCount === 0,
+      `background-tap (evt.target===cy) must clear the selection: ${cleared.selectedCount} node(s) still selected`);
+    assert(cleared.anyDim === 0,
+      `background-tap must remove ALL .gw-dim classes: ${cleared.anyDim} node(s) still carry it`);
+    assert(Math.abs(toNumber(cleared.nonBlacken)) < 1e-6,
+      `previously-dimmed non-neighbor '${nonNeighborDn}' must return to background-blacken 0 after clear, got ${cleared.nonBlacken}`);
+    phase('background-tap clears selection + dim (clean state restored)');
+
+    // --- hover: mouseover adds gw-hover (brightens), mouseout restores ---------
+    const hoverOn = await page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      el.emit('mouseover');
+      return {
+        hasHover: el.hasClass('gw-hover'),
+        blacken: el.style('background-blacken'),
+        borderOpacity: el.style('border-opacity'),
+      };
+    }, selectDn);
+    assert(hoverOn.hasHover,
+      `mouseover on '${selectDn}' must add the .gw-hover class (ADR-018 hover cue)`);
+    assert(Math.abs(toNumber(hoverOn.blacken) - SELECTION.hoverBlacken) < 1e-6,
+      `hovered node '${selectDn}' must BRIGHTEN via background-blacken ${SELECTION.hoverBlacken} (negative; there is NO background-brighten): rendered ${hoverOn.blacken}`);
+    assert(Math.abs(toNumber(hoverOn.borderOpacity) - 1) < 1e-6,
+      `hovered node '${selectDn}' must carry border-opacity 1 (node.gw-hover rule): rendered ${hoverOn.borderOpacity}`);
+
+    const hoverOff = await page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      el.emit('mouseout');
+      return { hasHover: el.hasClass('gw-hover'), blacken: el.style('background-blacken') };
+    }, selectDn);
+    assert(!hoverOff.hasHover,
+      `mouseout on '${selectDn}' must remove the .gw-hover class`);
+    assert(Math.abs(toNumber(hoverOff.blacken)) < 1e-6,
+      `un-hovered node '${selectDn}' must restore background-blacken 0, got ${hoverOff.blacken}`);
+    phase('hover (mouseover brightens via gw-hover, mouseout restores)');
+
+    // --- hovered-AND-dimmed source order: gw-hover wins over gw-dim ------------
+    // Source order is `... node.gw-dim, node.gw-hover, node:selected` (ADR-018 D1):
+    // gw-hover AFTER gw-dim, so hovering a DIMMED node brightens it (the shared
+    // background-blacken channel resolves last-wins to the hover value -0.15, not
+    // the dim +0.6). Re-establish a selection to dim the non-neighbor, then hover it.
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), selectDn);
+    await awaitMessage('nodeClick', `clickTest (re-select for hover-over-dim) on '${selectDn}'`);
+    const hoverOverDim = await page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      const dimmedBefore = el.hasClass('gw-dim');
+      el.emit('mouseover');
+      return {
+        dimmedBefore,
+        hasDim: el.hasClass('gw-dim'),
+        hasHover: el.hasClass('gw-hover'),
+        blacken: el.style('background-blacken'),
+      };
+    }, nonNeighborDn);
+    assert(hoverOverDim.dimmedBefore,
+      `hover-over-dim subject '${nonNeighborDn}' must be dimmed by the re-selection before hovering (anti-vacuous)`);
+    assert(hoverOverDim.hasDim && hoverOverDim.hasHover,
+      `hover-over-dim subject '${nonNeighborDn}' must carry BOTH gw-dim and gw-hover (dim=${hoverOverDim.hasDim}, hover=${hoverOverDim.hasHover})`);
+    assert(Math.abs(toNumber(hoverOverDim.blacken) - SELECTION.hoverBlacken) < 1e-6,
+      `hover must WIN over dim by source order (gw-hover after gw-dim, ADR-018 D1): effective background-blacken on a hovered+dimmed node must be ${SELECTION.hoverBlacken} (hover), got ${hoverOverDim.blacken} (if +0.6, the gw-hover rule is BEFORE gw-dim in source order)`);
+    // Drop the hover, then clear the selection so the label phase starts clean.
+    await page.evaluate((id) => { window.__cy.getElementById(id).emit('mouseout'); }, nonNeighborDn);
+    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    phase('hovered-AND-dimmed source order (gw-hover wins over gw-dim)');
+
+    // --- #88 motion counters UNTOUCHED across the whole select/hover/clear block
+    // ADR-018 D2: every cue is an instant class toggle - no cy.animate (camera) and
+    // no collection.animate (enter), so both isolated #88 recorders must read 0.
+    const motionAfterInteraction = await page.evaluate(() => ({
+      animateCalls: window.__gwAnimateCalls,
+      enterCount: (window.__gwEnterAnims || []).length,
+    }));
+    assert(motionAfterInteraction.animateCalls === 0,
+      `selection/dim/hover must be INSTANT (ADR-018 D2) - no cy.animate may fire across the block: __gwAnimateCalls ${motionAfterInteraction.animateCalls} != 0 (#88 isolation broken?)`);
+    assert(motionAfterInteraction.enterCount === 0,
+      `selection/dim/hover must NOT trigger any enter tween (ADR-018 D2): __gwEnterAnims has ${motionAfterInteraction.enterCount} entries != 0`);
+    phase('#88 motion counters untouched across the interaction block (instant toggles)');
+
+    // --- F9 selective labels at fit zoom --------------------------------------
+    // At the post-graphCommit fit (overview) zoom, ADR-018 D4 keeps the root and
+    // every sev='error' node LABELED (min-zoomed-font-size forced to 0 on
+    // node[?root] and node[sev='error']) while a plain unflagged node stays hidden
+    // (the base node floor 10). Read with NO live selection (cleared above) so the
+    // node:selected mzfs-0 force cannot contaminate the plain control. mzfs is a
+    // resolved STYLE value (zoom-independent to read), so this pins the rule, not
+    // the camera; the screenshot below is the visual proof at the actual fit zoom.
+    const plainNode = fixture.nodes.find((x) => !x.sev && !x.below && !x.root);
+    assert(plainNode !== undefined,
+      'fixture must contain a plain unflagged non-root node (min-zoomed-font-size 10 control)');
+    const labels = await page.evaluate((a) => {
+      const cy = window.__cy;
+      const mzfs = (id) => cy.getElementById(id).style('min-zoomed-font-size');
+      return {
+        selectedCount: cy.nodes(':selected').length,
+        root: mzfs(a.rootDn),
+        error: mzfs(a.errorDn),
+        plain: mzfs(a.plainDn),
+      };
+    }, { rootDn: rootNode.id, errorDn: SEV_PINS.error, plainDn: plainNode.id });
+    assert(labels.selectedCount === 0,
+      `F9 label read must run with NO live selection (the :selected mzfs-0 force would contaminate the control): ${labels.selectedCount} node(s) selected`);
+    const rootMzfs = toNumber(labels.root);
+    const errorMzfs = toNumber(labels.error);
+    const plainMzfs = toNumber(labels.plain);
+    assert(Math.abs(rootMzfs - LABEL_MZFS.forced) < 1e-6,
+      `F9: root node '${rootNode.id}' must be LABELED at fit (min-zoomed-font-size forced to ${LABEL_MZFS.forced} on node[?root], ADR-018 D4): rendered ${labels.root}`);
+    assert(Math.abs(errorMzfs - LABEL_MZFS.forced) < 1e-6,
+      `F9: sev='error' node '${SEV_PINS.error}' must be LABELED at fit (min-zoomed-font-size forced to ${LABEL_MZFS.forced} on node[sev='error'], ADR-018 D4): rendered ${labels.error}`);
+    assert(Math.abs(plainMzfs - LABEL_MZFS.baseFloor) < 1e-6,
+      `F9: plain unflagged node '${plainNode.id}' must stay HIDDEN at fit (base node min-zoomed-font-size floor ${LABEL_MZFS.baseFloor}): rendered ${labels.plain}`);
+    // Tripwire: root + Error strictly below the plain floor (an overzealous "label
+    // everything" regression - mzfs 0 on the base node rule - would make them equal).
+    assert(rootMzfs < plainMzfs && errorMzfs < plainMzfs,
+      `F9 selective-label invariant: root (${rootMzfs}) and Error (${errorMzfs}) min-zoomed-font-size must each be STRICTLY below the plain floor (${plainMzfs}) - else labels are not selective`);
+    phase('F9 selective labels at fit (root + Error labeled, plain hidden)');
+
+    // --- screenshot: graph-selection.png (the verified select+dim+label frame) -
+    // Re-establish the selection so the artifact ui-verifier judges actually shows
+    // the live selection border + neighborhood dim + selective labels at fit zoom,
+    // then clear so the dbltap/focus phases below start from a clean state.
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), selectDn);
+    await awaitMessage('nodeClick', `clickTest (re-select for screenshot) on '${selectDn}'`);
+    await page.screenshot({ path: join(screenshotDir, 'graph-selection.png') });
+    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    const finalClear = await page.evaluate(() => ({
+      selectedCount: window.__cy.nodes(':selected').length,
+      anyDim: window.__cy.nodes('.gw-dim').length,
+      anyHover: window.__cy.nodes('.gw-hover').length,
+    }));
+    assert(finalClear.selectedCount === 0 && finalClear.anyDim === 0 && finalClear.anyHover === 0,
+      `interaction block must leave a CLEAN state for the downstream dbltap/focus phases: selected=${finalClear.selectedCount}, dim=${finalClear.anyDim}, hover=${finalClear.anyHover}`);
+    phase('graph-selection screenshot (select + dim + selective labels, then cleared)');
+
     // --- expand protocol (dbltap -> nodeExpand, AP 2.3's wire) ----------------
     // Braces matter: emit() returns the cytoscape collection - returning it makes
     // Playwright serialize a huge cyclic object graph (renderer caches included),
@@ -1471,8 +1787,9 @@ async function main() {
       + `${belowNodes.length} roll-up rings, `
       + `diff underlay/line + COEXIST verified, `
       + `F2 eased focus + F1 enter fade + reduced-motion verified, `
+      + `selection + neighborhood dim + hover + selective labels verified (#89), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
-      + `5 screenshots -> ${screenshotDir}`);
+      + `6 screenshots -> ${screenshotDir}`);
   } finally {
     expectedShutdown = true;
     await browser.close();
