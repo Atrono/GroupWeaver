@@ -243,6 +243,111 @@ async function overlayOf(page, id) {
 }
 
 // ---------------------------------------------------------------------------
+// ADR-017 motion recorders (F1 enter fade + F2 eased focus-fit). Installed in
+// the PAGE context via addInitScript on the SAME page that publishes window.__cy
+// (and on the standalone reduced-motion probe page). TWO recorders, isolated on
+// purpose so a node enter tween never touches the camera counter - the #1
+// critique finding: if it did, assertion #4 (camera must NOT move on graphUpdate)
+// false-fails. Both record at CALL time (no mid-tween timing sampling): the enter
+// recorder reads `fromOpacity` = the 0 graph.js just set, deterministically.
+//   - window.__gwAnimateCalls  : count of cy.animate (CORE method = camera fit, F2)
+//   - window.__gwAnimateLastDuration : last camera fit's options duration
+//   - window.__gwEnterAnims    : [{id, fromOpacity, duration}] for node enter tweens
+//                                (COLLECTION-prototype animate calls carrying a
+//                                style.opacity target, F1) - survivors never appear.
+// This function is serialized and run as an addInitScript; it must be self-
+// contained (no closure over Node-side variables).
+function installMotionRecordersSource() {
+  window.installMotionRecorders = function (instance) {
+    window.__gwAnimateCalls = 0;
+    window.__gwAnimateLastDuration = null;
+    window.__gwEnterAnims = [];
+
+    // Camera (F2): wrap the CORE animate method. focusOn calls
+    // cy.animate({fit:{...}}, {duration, easing, complete}). This counter must
+    // ONLY move for the camera fit, never the enter tween (which goes through the
+    // collection-prototype animate wrapped below).
+    var coreAnimate = instance.animate;
+    instance.animate = function (opts, params) {
+      window.__gwAnimateCalls += 1;
+      window.__gwAnimateLastDuration = (params && params.duration) != null
+        ? params.duration
+        : (opts && opts.duration);
+      return coreAnimate.apply(this, arguments);
+    };
+
+    // Enter (F1): wrap the COLLECTION prototype animate. graph.js sets
+    // .style('opacity', 0) on genuinely-new nodes then calls
+    // <collection>.animate({style:{opacity:1}}, {duration, easing}). Record each
+    // element at call time (fromOpacity = the 0 just set) only when the target is
+    // a style.opacity tween, so a non-opacity collection animate (none today) is
+    // ignored and the camera fit (core method, not this prototype) never lands here.
+    var proto = Object.getPrototypeOf(instance.nodes());
+    var protoAnimate = proto.animate;
+    proto.animate = function (opts, params) {
+      if (opts && opts.style && Object.prototype.hasOwnProperty.call(opts.style, 'opacity')) {
+        var dur = params && params.duration;
+        this.forEach(function (el) {
+          window.__gwEnterAnims.push({
+            id: el.id(),
+            fromOpacity: Number(el.style('opacity')),
+            duration: dur,
+          });
+        });
+      }
+      return protoAnimate.apply(this, arguments);
+    };
+  };
+}
+
+// ADR-017 F2 barrier: after an animated 'focused' has settled, assert the camera
+// EASED (the core cy.animate ran >=1 with a positive duration) AND that the eased
+// end-viewport lands on the SAME target a synchronous cy.fit(col,80) would (proves
+// the ease's endpoint is the right padding/easing target, not a wrong one). The
+// reference fit is computed NON-DESTRUCTIVELY: snapshot the real end viewport,
+// fit on a throwaway read, capture it, then restore the snapshot - the visible
+// camera is left exactly where the ease left it. Counter reads cross the bridge
+// as primitives (CI moral); getElementById keeps comma DNs byte-identical.
+async function assertEasedFocus(page, ids, label) {
+  const cam = await page.evaluate(() => ({
+    calls: window.__gwAnimateCalls,
+    duration: window.__gwAnimateLastDuration,
+  }));
+  assert(cam.calls >= 1,
+    `F2 (${label}): camera must EASE via cy.animate on focus - __gwAnimateCalls ${cam.calls} < 1 (still synchronous cy.fit?)`);
+  assert(typeof cam.duration === 'number' && cam.duration > 0,
+    `F2 (${label}): camera fit must carry a positive animation duration, got ${JSON.stringify(cam.duration)}`);
+
+  const cmp = await page.evaluate((nids) => {
+    const cy = window.__cy;
+    let col = cy.collection();
+    for (let i = 0; i < nids.length; i++) {
+      col = col.union(cy.getElementById(nids[i]));
+    }
+    // Snapshot the eased end viewport.
+    const endPan = cy.pan();
+    const end = { zoom: cy.zoom(), panX: endPan.x, panY: endPan.y };
+    // Reference fit on a throwaway read, then restore the snapshot so the
+    // visible camera is left where the ease landed.
+    cy.fit(col, 80);
+    const refPan = cy.pan();
+    const ref = { zoom: cy.zoom(), panX: refPan.x, panY: refPan.y };
+    cy.zoom(end.zoom);
+    cy.pan({ x: end.panX, y: end.panY });
+    return { end, ref };
+  }, ids);
+  // Tolerance: the ease lands on the fit target up to float/animation rounding.
+  const dz = Math.abs(cmp.end.zoom - cmp.ref.zoom);
+  const dpx = Math.abs(cmp.end.panX - cmp.ref.panX);
+  const dpy = Math.abs(cmp.end.panY - cmp.ref.panY);
+  assert(dz < 1e-3 && dpx < 0.5 && dpy < 0.5,
+    `F2 (${label}): eased end-viewport must equal the reference cy.fit(col,80) target - `
+    + `end (zoom ${cmp.end.zoom}, pan ${cmp.end.panX}/${cmp.end.panY}) `
+    + `!= fit (zoom ${cmp.ref.zoom}, pan ${cmp.ref.panX}/${cmp.ref.panY}); `
+    + `dz=${dz}, dpx=${dpx}, dpy=${dpy} (wrong padding/easing endpoint?)`);
+}
+
+// ---------------------------------------------------------------------------
 // Fresh-page probe (AP 2.3 review pin): graphUpdate dispatched BEFORE any
 // graphCommit has no live cytoscape instance to update - ADR-005 D1 pins
 // "graphUpdate before any graphCommit -> jsError". A SEPARATE page (own
@@ -563,6 +668,182 @@ async function diffRenderTripwire(browser, indexHtml, screenshotDir) {
   await page.close();
 }
 
+// ---------------------------------------------------------------------------
+// Fresh-page REDUCED-MOTION probe (ADR-017 D5): with
+// prefers-reduced-motion:reduce, BOTH motions degrade to the instant pre-slice
+// paths - focus is a synchronous cy.fit + cy.one('render', confirmFocus) (NO
+// cy.animate), and update adds new nodes at full opacity (NO opacity tween). Its
+// OWN page/context/channel, and crucially its OWN emulateMedia override set
+// BEFORE goto so the reduce setting NEVER leaks into the animated main run (a
+// shared page would). Modeled on probeGraphUpdateBeforeCommit / diffRenderTripwire:
+// every wait is a bridge-message promise (MESSAGE_TIMEOUT_MS), primitives only
+// out of evaluate, the bare protocol awaits fall under the global watchdog, no
+// sleeps. Reuses the SAME motion recorders (installMotionRecordersSource) so a
+// regression that animates under reduce is caught on the same counters.
+async function reducedMotionProbe(browser, indexHtml, fixture) {
+  const probeMessages = [];
+  const probePending = new Map();
+  const probeWaiters = new Map();
+
+  function onProbeMessage(text) {
+    const msg = JSON.parse(text);
+    probeMessages.push(msg);
+    const waiter = probeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!probePending.has(msg.type)) {
+      probePending.set(msg.type, []);
+    }
+    probePending.get(msg.type).push(msg);
+  }
+
+  function awaitProbeMessage(type, context) {
+    const queued = probePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = probeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = probeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (reduced-motion: ${context}); probe messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!probeWaiters.has(type)) {
+        probeWaiters.set(type, []);
+      }
+      probeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: reduced-motion probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  page.on('pageerror', (err) => onProbeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onProbeMessage);
+
+  // emulateMedia BEFORE goto: graph.js reads matchMedia('(prefers-reduced-motion:
+  // reduce)').matches ONCE at IIFE init (ADR-017 D5), so the override must be in
+  // place before the bundle script runs. Own page => never leaks into the main run.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+
+  // Same recorders as the main run, on this page's own context.
+  await page.addInitScript(installMotionRecordersSource);
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          window.installMotionRecorders(instance);
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitProbeMessage('ready', 'reduced-motion bundle startup after goto');
+
+  // Feed the real demo fixture + commit (instant init path is shared with the
+  // animated run; the reduce branch only touches focus + update).
+  for (const chunk of toChunks(fixture.nodes, fixture.edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitProbeMessage('loaded', 'reduced-motion graphCommit -> first render');
+
+  // --- focus under reduce: synchronous fit, NO camera animate ---------------
+  const rootNode = fixture.nodes.find((n) => n.root === true);
+  const ring1 = fixture.edges
+    .filter((e) => e.rel === 'contains' && e.s === rootNode.id)
+    .map((e) => e.t);
+  const focusIds = [rootNode.id, ...ring1];
+  await page.evaluate(() => { window.__gwAnimateCalls = 0; });
+  await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), focusIds);
+  await awaitProbeMessage('focused', 'reduced-motion focus (instant fit path)');
+
+  // On the FIRST 'focused', the viewport is already the fit target (instant
+  // path), and NO camera animate fired. Reference fit computed non-destructively.
+  const focusCmp = await page.evaluate((nids) => {
+    const cy = window.__cy;
+    let col = cy.collection();
+    for (let i = 0; i < nids.length; i++) {
+      col = col.union(cy.getElementById(nids[i]));
+    }
+    const endPan = cy.pan();
+    const end = { zoom: cy.zoom(), panX: endPan.x, panY: endPan.y };
+    cy.fit(col, 80);
+    const refPan = cy.pan();
+    const ref = { zoom: cy.zoom(), panX: refPan.x, panY: refPan.y };
+    cy.zoom(end.zoom);
+    cy.pan({ x: end.panX, y: end.panY });
+    return { animateCalls: window.__gwAnimateCalls, end, ref };
+  }, focusIds);
+  assert(focusCmp.animateCalls === 0,
+    `reduced-motion: focus must take the INSTANT cy.fit path, NO cy.animate - __gwAnimateCalls ${focusCmp.animateCalls} != 0`);
+  assert(Math.abs(focusCmp.end.zoom - focusCmp.ref.zoom) < 1e-3
+    && Math.abs(focusCmp.end.panX - focusCmp.ref.panX) < 0.5
+    && Math.abs(focusCmp.end.panY - focusCmp.ref.panY) < 0.5,
+    `reduced-motion: end-viewport must already equal the fit target on first 'focused' - `
+    + `end (zoom ${focusCmp.end.zoom}, pan ${focusCmp.end.panX}/${focusCmp.end.panY}) `
+    + `!= fit (zoom ${focusCmp.ref.zoom}, pan ${focusCmp.ref.panX}/${focusCmp.ref.panY})`);
+  phase('reduced-motion: focus is instant fit (no camera animate)');
+
+  // --- update under reduce: full-opacity add, NO enter tween ----------------
+  const maxAbs = fixture.nodes.reduce(
+    (acc, x) => Math.max(acc, Math.abs(x.x), Math.abs(x.y)), 0);
+  const newNode = {
+    id: 'CN=Reduced Probe,OU=LazyExpand,DC=groupweaver,DC=invalid',
+    label: 'Reduced Probe',
+    kind: 'User',
+    x: maxAbs + 191.4375,
+    y: -(maxAbs + 157.8125),
+  };
+  const updatedNodes = [...fixture.nodes, newNode];
+  await page.evaluate(() => { window.__gwEnterAnims = []; window.__gwAnimateCalls = 0; });
+  for (const chunk of toChunks(updatedNodes, fixture.edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+  await awaitProbeMessage('loaded', 'reduced-motion graphUpdate (instant add path)');
+
+  const updateState = await page.evaluate((id) => ({
+    enterCount: (window.__gwEnterAnims || []).length,
+    animateCalls: window.__gwAnimateCalls,
+    newOpacity: Number(window.__cy.getElementById(id).style('opacity')),
+  }), newNode.id);
+  assert(updateState.enterCount === 0,
+    `reduced-motion: graphUpdate must add new nodes at full opacity, NO enter tween - __gwEnterAnims has ${updateState.enterCount} entries`);
+  assert(updateState.animateCalls === 0,
+    `reduced-motion: graphUpdate must not animate the camera either - __gwAnimateCalls ${updateState.animateCalls} != 0`);
+  assert(Math.abs(updateState.newOpacity - 1) < 1e-6,
+    `reduced-motion: new node '${newNode.id}' must be at opacity 1 on the FIRST 'loaded' (no fade), got ${updateState.newOpacity}`);
+  phase('reduced-motion: update is instant full-opacity add (no enter tween)');
+
+  // This phase is itself jsError-free on its own channel.
+  const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
+  assert(probeJsErrors.length === 0,
+    `reduced-motion probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
+
+  await page.close();
+}
+
 async function main() {
   const fixturePath = process.argv[2];
   const screenshotDir = process.argv[3];
@@ -616,6 +897,15 @@ async function main() {
     // UMD's `window.cytoscape = factory` assignment so every instance the page
     // creates is published as window.__cy - position/style/emit probes work
     // without touching the shipped bundle.
+    // ADR-017 motion instrumentation, installed on the SAME page as the
+    // __cy publisher so the camera (F2) and enter (F1) tweens are recorded
+    // deterministically at CALL time (never a flaky mid-tween read). Two
+    // ISOLATED recorders - the camera counter MUST never be bumped by a node
+    // enter tween, or assertion #4 (camera does not move on graphUpdate) would
+    // false-fail. addInitScript blocks run in order, so this global is defined
+    // before the wrapper below calls window.installMotionRecorders().
+    await page.addInitScript(installMotionRecordersSource);
+
     await page.addInitScript(() => {
       let wrapped;
       Object.defineProperty(window, 'cytoscape', {
@@ -625,6 +915,7 @@ async function main() {
           wrapped = function (...args) {
             const instance = real.apply(this, args);
             window.__cy = instance;
+            window.installMotionRecorders(instance);
             return instance;
           };
           Object.assign(wrapped, real);
@@ -870,8 +1161,18 @@ async function main() {
       .filter((e) => e.rel === 'contains' && e.s === rootNode.id)
       .map((e) => e.t);
     assert(ring1.length > 0, 'demo fixture must have containment children of the root (ring 1)');
+    await page.evaluate(() => { window.__gwAnimateCalls = 0; window.__gwAnimateLastDuration = null; });
     await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), [rootNode.id, ...ring1]);
     await awaitMessage('focused', `focus on root + ${ring1.length} ring-1 children`);
+    // ADR-017 F2: the non-reduced-motion focus path eases the camera via
+    // cy.animate({fit:{eles,padding:80}}, {duration:280, easing:'ease-out-cubic',
+    // complete:confirmFocus}). The 'focused' bridge message fires from the
+    // animation COMPLETE callback (no longer cy.one('render')), so awaiting it is
+    // the settle barrier - by here the ease has landed. Assert the camera animate
+    // ran (>=1) with a positive duration, and that the eased end-viewport equals
+    // the reference cy.fit(col,80) target (right padding/easing endpoint, not a
+    // wrong one) within tolerance.
+    await assertEasedFocus(page, [rootNode.id, ...ring1], 'root + ring-1');
     await page.screenshot({ path: join(screenshotDir, 'graph-focus.png') });
     phase('focus screenshot');
 
@@ -889,8 +1190,11 @@ async function main() {
     assert(cycleEdge !== undefined,
       'demo fixture must contain an antiparallel membership pair (the seeded A<->B cycle)');
     const cycleIds = [cycleEdge.s, cycleEdge.t];
+    await page.evaluate(() => { window.__gwAnimateCalls = 0; window.__gwAnimateLastDuration = null; });
     await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), cycleIds);
     await awaitMessage('focused', `focus on cycle pair ${cycleIds.join(' <-> ')}`);
+    // ADR-017 F2: the cycle-pair focus eases too (and lands on the fit target).
+    await assertEasedFocus(page, cycleIds, 'cycle pair');
     await page.screenshot({ path: join(screenshotDir, 'graph-cycle.png') });
     phase('cycle screenshot');
 
@@ -942,6 +1246,16 @@ async function main() {
     for (const chunk of toChunks(updatedNodes, updatedEdges)) {
       await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
     }
+    // ADR-017 F1+#4: reset BOTH isolated recorders immediately before the
+    // graphUpdate so they capture only this phase - the enter recorder must see
+    // exactly the genuinely-new node's fade, and the camera counter must stay 0
+    // (ADR-005 D1: graphUpdate never moves the camera). Reset together so the
+    // window between reset and dispatch contains no other animate call.
+    await page.evaluate(() => {
+      window.__gwAnimateCalls = 0;
+      window.__gwAnimateLastDuration = null;
+      window.__gwEnterAnims = [];
+    });
     await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
     const updated = await awaitMessage('loaded',
       'graphUpdate commit -> replace-in-place re-render (new verb, ADR-005 D1)');
@@ -965,6 +1279,66 @@ async function main() {
       && Math.abs(postUpdate.panX - preUpdate.panX) < 1e-9
       && Math.abs(postUpdate.panY - preUpdate.panY) < 1e-9,
       `viewport must survive graphUpdate (no fit, ADR-005 D1): zoom/pan (${postUpdate.zoom}, ${postUpdate.panX}, ${postUpdate.panY}) != pre-update (${preUpdate.zoom}, ${preUpdate.panX}, ${preUpdate.panY})`);
+
+    // --- ADR-017 F1: new-node enter fade + #4 camera-untouched ----------------
+    // graphUpdate sets opacity 0 on GENUINELY-NEW nodes (incoming id not in the
+    // pre-removal live id set) then tweens them 0->1 (240 ms, ease-out-cubic);
+    // SURVIVORS get NO tween (replaced instantly, exactly as today). The enter
+    // recorder captured each enter tween at call time (fromOpacity = the 0 just
+    // set). #4: the camera (core cy.animate) must NOT fire across graphUpdate -
+    // ADR-005 D1, the WHOLE reason the two counters are isolated.
+    const enter = await page.evaluate((args) => {
+      const list = window.__gwEnterAnims || [];
+      const find = (id) => list.find((a) => a.id === id);
+      return {
+        animateCalls: window.__gwAnimateCalls,
+        count: list.length,
+        newAnim: find(args.newNodeId) || null,
+        rootPresent: list.some((a) => a.id === args.rootId),
+        errPinPresent: list.some((a) => a.id === args.errPinId),
+        newOpacity: Number(window.__cy.getElementById(args.newNodeId).style('opacity')),
+      };
+    }, { newNodeId: newNode.id, rootId: rootNode.id, errPinId: SEV_PINS.error });
+
+    // #4: camera must not move on graphUpdate (counter is isolated from enter
+    // tweens by construction - if a node enter tween bumped this, the isolation
+    // is broken and the whole F2-vs-F1 separation is unsound).
+    assert(enter.animateCalls === 0,
+      `F1/#4: graphUpdate must NOT move the camera (ADR-005 D1) - __gwAnimateCalls ${enter.animateCalls} != 0 `
+      + `(enter tween leaking into the CAMERA counter? counters MUST stay isolated)`);
+
+    // F1: the genuinely-new node fades in from opacity 0 with a positive duration.
+    assert(enter.newAnim !== null,
+      `F1: genuinely-new node '${newNode.id}' must enter via an opacity fade - absent from __gwEnterAnims (${enter.count} recorded)`);
+    assert(enter.newAnim.fromOpacity === 0,
+      `F1: new node '${newNode.id}' enter tween must start from opacity 0 (graph.js sets .style('opacity',0) first), got fromOpacity ${enter.newAnim.fromOpacity}`);
+    assert(typeof enter.newAnim.duration === 'number' && enter.newAnim.duration > 0,
+      `F1: new node '${newNode.id}' enter tween must carry a positive duration, got ${JSON.stringify(enter.newAnim.duration)}`);
+
+    // F1: SURVIVORS get NO enter tween - sampled twice (the root node AND the
+    // severity-error-pinned survivor, both re-fed in updatedNodes = [...fixture, new]).
+    assert(!enter.rootPresent,
+      `F1: survivor root node '${rootNode.id}' must NOT be in __gwEnterAnims - survivors replace instantly, no fade (ADR-017 D2)`);
+    assert(!enter.errPinPresent,
+      `F1: survivor '${SEV_PINS.error}' (severity-error pin) must NOT be in __gwEnterAnims - survivors replace instantly, no fade`);
+
+    // F1: the fade settles to full opacity. The 'loaded' barrier (sendLoaded on
+    // the FIRST post-batch render) fires when the enter tween STARTS, not when it
+    // settles (ADR-017: 240 ms ease-out-cubic element-opacity 0->1) - so the
+    // synchronous `enter.newOpacity` read above is a MID-TWEEN value (~0.645), not
+    // the resting state. Poll deterministically (NOT a fixed sleep) until the
+    // element opacity has reached its terminal frame (the ease-out-cubic only
+    // hits EXACTLY 1 on the final tick - any < 1 value is still tweening), then
+    // assert it is exactly 1. The tween is 240 ms; 2 s is ample headroom on the
+    // slow CI runner.
+    await page.waitForFunction(
+      (id) => Math.abs(Number(window.__cy.getElementById(id).style('opacity')) - 1) < 1e-6,
+      newNode.id, { timeout: 2000 });
+    const settledOpacity = await page.evaluate(
+      (id) => Number(window.__cy.getElementById(id).style('opacity')), newNode.id);
+    assert(Math.abs(settledOpacity - 1) < 1e-6,
+      `F1: new node '${newNode.id}' must settle to opacity 1 after the enter fade, got ${settledOpacity}`);
+    phase('F1 enter fade (new node fades 0->1, survivors instant, camera untouched)');
 
     // cy.getElementById ONLY (ADR-004 D5); position() guarded behind the
     // found-check so a missing node fails the assert, not the evaluate.
@@ -1008,6 +1382,17 @@ async function main() {
     const survivorClean = await overlayOf(page, unflagged.id);
     assert(survivorClean.found && Math.abs(toNumber(survivorClean.opacity)) < 1e-6,
       `unflagged node '${unflagged.id}' must keep overlay-opacity 0 after graphUpdate, got ${survivorClean.opacity}`);
+    // ADR-017 #4: the F1 enter fade rides the element OPACITY channel and must
+    // NOT bleed into a survivor's overlay/underlay layers. The same unflagged
+    // survivor carries no `diff` field => a Common/undiffed survivor whose
+    // underlay-opacity must read 0 throughout (the enter tween never touched it).
+    // We DELIBERATELY do not sample any new+flagged node here: its own halo
+    // legitimately fades in with it (element-opacity composites overlay/underlay,
+    // ADR-017 D3), so that would be a transient/flaky read.
+    const survivorUnderlayOpacity = await page.evaluate(
+      (id) => Number(window.__cy.getElementById(id).style('underlay-opacity')), unflagged.id);
+    assert(Math.abs(survivorUnderlayOpacity) < 1e-6,
+      `unflagged Common/undiffed survivor '${unflagged.id}' must keep underlay-opacity 0 after graphUpdate (enter fade must not touch survivor underlay, ADR-017 D3), got ${survivorUnderlayOpacity}`);
     phase('severity survives graphUpdate (error halo re-attaches, unflagged stays clear)');
 
     // Handler survival: dbltap on the NEWLY ADDED node (comma DN) must still
@@ -1021,8 +1406,11 @@ async function main() {
     // --- screenshot 4: focus on the freshly expanded node ---------------------
     // Deliberate camera move AFTER the viewport-untouched assert; also pins
     // that the focus verb still works against the post-update element set.
+    await page.evaluate(() => { window.__gwAnimateCalls = 0; window.__gwAnimateLastDuration = null; });
     await page.evaluate((ids) => window.bridge.dispatch({ type: 'focus', ids }), [newNode.id]);
     await awaitMessage('focused', `focus on post-update node '${newNode.id}'`);
+    // ADR-017 F2: focus on the post-update element set eases too and lands on fit.
+    await assertEasedFocus(page, [newNode.id], 'post-update node');
     await page.screenshot({ path: join(screenshotDir, 'graph-expanded.png') });
     phase('graphUpdate replace-in-place (instance, viewport, handlers survive)');
 
@@ -1066,6 +1454,15 @@ async function main() {
     await diffRenderTripwire(browser, indexHtml, screenshotDir);
     phase('diff render tripwire (fresh page: underlay nodes + line edges + COEXIST keystone)');
 
+    // --- fresh-page REDUCED-MOTION probe (ADR-017 D5) ------------------------
+    // After the audit and the other probes, on its OWN page/context/channel with
+    // its OWN emulateMedia({reducedMotion:'reduce'}) set before goto - the reduce
+    // override must never leak into the animated main run above. Pins that BOTH
+    // focus and update degrade to the instant pre-slice paths (no cy.animate, no
+    // opacity tween) and reach end-state immediately.
+    await reducedMotionProbe(browser, indexHtml, fixture);
+    phase('reduced-motion probe (fresh page: instant focus fit + full-opacity add, no tweens)');
+
     console.log(
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
       + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
@@ -1073,6 +1470,7 @@ async function main() {
       + `${flaggedBySev.error.length}/${flaggedBySev.warning.length}/${flaggedBySev.info.length} err/warn/info halos, `
       + `${belowNodes.length} roll-up rings, `
       + `diff underlay/line + COEXIST verified, `
+      + `F2 eased focus + F1 enter fade + reduced-motion verified, `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `5 screenshots -> ${screenshotDir}`);
   } finally {

@@ -14,6 +14,12 @@
   var pendingNodes = [];
   var pendingEdges = [];
 
+  // ADR-017 D5: read ONCE at IIFE init. prefers-reduced-motion:reduce degrades
+  // BOTH the F2 eased focus-fit and the F1 enter fade to the instant pre-slice
+  // paths (synchronous cy.fit + cy.one('render') for focus; full-opacity add for
+  // update) - no cy.animate, no opacity tween.
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // Builds cytoscape element descriptors from the accumulated chunks and CLEARS
   // the accumulator: each chunk+commit cycle starts from scratch, never re-feeds
   // the accumulated union (duplicate-id errors). Shared by both commit verbs
@@ -253,11 +259,27 @@
     // fit() forces one on this path), and a listener attached after a render
     // already fired would leave 'loaded' unsent. Same synchronous turn, so no
     // stale pre-update render can slip in between.
+    // Capture the pre-removal live node-id set BEFORE the batch so genuinely-new
+    // nodes (incoming id not seen here) can be distinguished from survivors.
+    var existing = {};
+    cy.nodes().forEach(function (n) { existing[n.id()] = true; });
     cy.one('render', sendLoaded);
     cy.batch(function () {
       cy.elements().remove();
       cy.add(elements);
     });
+    // ADR-017 F1: fade ONLY genuinely-new nodes in via the element opacity
+    // channel (0->1, 240 ms, ease-out-cubic); survivors are replaced instantly
+    // (no tween), exactly as before. The collection-prototype animate is on
+    // purpose (the F2 camera fit is the core cy.animate - a separate counter);
+    // opacity composites the whole node, never touching position/fit.
+    if (!reduceMotion) {
+      var newNodes = cy.nodes().filter(function (n) { return !existing[n.id()]; });
+      if (newNodes.nonempty()) {
+        newNodes.style('opacity', 0);
+        newNodes.animate({ style: { opacity: 1 } }, { duration: 240, easing: 'ease-out-cubic' });
+      }
+    }
   }
 
   // AP 4.1 (ADR-013): rasterize the LIVE instance via cytoscape's built-in
@@ -283,12 +305,22 @@
     for (var i = 0; i < ids.length; i++) {
       col = col.union(cy.getElementById(ids[i]));
     }
-    // Register BEFORE mutating, same rationale as updateGraph: cy.fit schedules
-    // the redraw, and a listener attached after a render already fired would
-    // leave 'focused' unsent (FocusAsync would hit its bounded wait). Same
-    // synchronous turn, so no stale pre-fit render can slip in between.
-    cy.one('render', function () { window.bridge.send({ type: 'focused' }); });
-    cy.fit(col, 80);
+    function confirmFocus() { window.bridge.send({ type: 'focused' }); }
+    // Empty/un-pannable target (unknown or raw-External single DN): instant fit
+    // so 'focused' still posts exactly once. Guarded BEFORE the reduce check
+    // (ADR-017 D5). cy.fit schedules the redraw; the listener registered first,
+    // same synchronous turn, so no stale pre-fit render can slip in between.
+    if (col.empty()) { cy.one('render', confirmFocus); cy.fit(col, 80); return; }
+    // ADR-017 D5: reduced motion degrades to the instant pre-slice fit path.
+    if (reduceMotion) { cy.one('render', confirmFocus); cy.fit(col, 80); return; }
+    // ADR-017 F2: ease the camera to the fit target. cy.stop() coalesces a focus
+    // arriving mid-ease so a superseded animation never strands its complete. The
+    // 'focused' confirmation comes SOLELY from `complete` (fires even for a
+    // zero-distance fit), not cy.one('render') - the render frame precedes settle.
+    cy.stop();
+    cy.animate(
+      { fit: { eles: col, padding: 80 } },
+      { duration: 280, easing: 'ease-out-cubic', complete: confirmFocus });
   }
 
   window.bridge.onCommand(function (cmd) {
