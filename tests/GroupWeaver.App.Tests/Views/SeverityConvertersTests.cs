@@ -50,6 +50,64 @@ public sealed class SeverityConvertersTests
         Assert.Equal(glyph, Glyph(severity));
     }
 
+    /// <summary>
+    /// The per-hue ON-BADGE text contract (ADR-021 / #90, WCAG 1.4.3): Error keeps WHITE
+    /// (<see cref="BrandTokens.OnDarkText"/>, 4.93:1 on the red fill ✓), but Warning and
+    /// Info switch to the DARK page-bg ink (<see cref="BrandTokens.OnLightText"/> #1b1f27 —
+    /// white was 2.06:1 / 2.73:1 ✗ on the amber/light-blue fills). Pinned to the BrandTokens
+    /// brushes (the consolidated source of truth) so the badge ink can never drift off them;
+    /// the screenshot pins judge the rendered Background, this pins the structured contract.
+    /// </summary>
+    [Theory]
+    [InlineData(RuleSeverity.Error, "#FFFFFF")]
+    [InlineData(RuleSeverity.Warning, "#1b1f27")]
+    [InlineData(RuleSeverity.Info, "#1b1f27")]
+    public void ToTextBrush_MapsEachSeverity_ToItsPerHueInk(RuleSeverity severity, string hex)
+    {
+        var brush = Assert.IsAssignableFrom<ISolidColorBrush>(TextBrush(severity));
+        Assert.Equal(Color.Parse(hex), brush.Color);
+    }
+
+    /// <summary>The badge ink brushes ARE the consolidated BrandTokens role tokens
+    /// (ADR-021): Error → <see cref="BrandTokens.OnDarkText"/>, Warning/Info →
+    /// <see cref="BrandTokens.OnLightText"/>. Compares the resolved Color values (a
+    /// projection), never brush identity, so it pins the token wiring without coupling to
+    /// the brush instance.</summary>
+    [Theory]
+    [InlineData(RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Info)]
+    public void ToTextBrush_IsWiredToBrandTokensRoleInk(RuleSeverity severity)
+    {
+        var expected = severity == RuleSeverity.Error
+            ? BrandTokens.OnDarkText.Color
+            : BrandTokens.OnLightText.Color;
+
+        var brush = Assert.IsAssignableFrom<ISolidColorBrush>(TextBrush(severity));
+        Assert.Equal(expected, brush.Color);
+    }
+
+    /// <summary>The glyph FILL brushes ARE the consolidated BrandTokens severity tokens
+    /// (ADR-021) — Error/Warning/Info → <see cref="BrandTokens.Error"/>/<see cref="BrandTokens.Warning"/>/<see cref="BrandTokens.Info"/>.
+    /// Compares resolved Color values (a projection), pinning that the token consolidation
+    /// left the fill palette transparent.</summary>
+    [Theory]
+    [InlineData(RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Info)]
+    public void ToBrush_IsWiredToBrandTokensSeverityFill(RuleSeverity severity)
+    {
+        var expected = severity switch
+        {
+            RuleSeverity.Error => BrandTokens.Error.Color,
+            RuleSeverity.Warning => BrandTokens.Warning.Color,
+            _ => BrandTokens.Info.Color,
+        };
+
+        var brush = Assert.IsAssignableFrom<ISolidColorBrush>(Brush(severity));
+        Assert.Equal(expected, brush.Color);
+    }
+
     /// <summary>The three severities map to three distinct brushes — no palette
     /// collision (the colorblind-redundant letter exists, but the color channel must
     /// still be unambiguous on its own).</summary>
@@ -78,6 +136,11 @@ public sealed class SeverityConvertersTests
     /// <summary>Invoke the brush converter through its binding seam exactly as XAML does.</summary>
     private static object? Brush(RuleSeverity severity) =>
         SeverityConverters.ToBrush.Convert(
+            severity, typeof(IBrush), null, CultureInfo.InvariantCulture);
+
+    /// <summary>Invoke the per-hue text-ink converter through its binding seam.</summary>
+    private static object? TextBrush(RuleSeverity severity) =>
+        SeverityConverters.ToTextBrush.Convert(
             severity, typeof(IBrush), null, CultureInfo.InvariantCulture);
 
     /// <summary>Invoke the glyph converter through its binding seam exactly as XAML does.</summary>

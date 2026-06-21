@@ -140,6 +140,21 @@ public sealed class WebBundleTests
     }
 
     [Fact]
+    public void Graph_LiftsLowContrastKindFillsWithABorder()
+    {
+        var text = ReadShippedText("graph.js");
+
+        // ADR-021 / WCAG 1.4.11 (#90): the three kind FILLS whose graphical-object
+        // contrast vs the #1b1f27 page bg falls below the 3:1 floor (DL 2.55:1 /
+        // UG 2.66:1 / Computer 2.59:1) are LIFTED by a 2px ring — color pinned to
+        // BrandTokens.NodeLiftRing (#8A93A3, 5.33:1). The fills are UNCHANGED (the
+        // PaletteHexes containment above still holds). Match the EXACT graph.js
+        // literal so a drift in either the value or the quoting fails here.
+        Assert.Contains("'border-color': '#8A93A3'", text, StringComparison.Ordinal);
+        Assert.Contains("'border-width': 2", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Graph_HidesLabelsAtFitZoom()
     {
         var text = ReadShippedText("graph.js");

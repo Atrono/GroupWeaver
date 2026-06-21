@@ -62,7 +62,9 @@
         </StackPanel.IsVisible>
         <Border Width="18" Height="18" CornerRadius="3"
                 Background="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-          <TextBlock Text="E" Foreground="White" FontSize="11" FontWeight="SemiBold"
+          <TextBlock Text="E"
+                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                     FontSize="11" FontWeight="SemiBold"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
@@ -86,7 +88,9 @@
         </StackPanel.IsVisible>
         <Border Width="18" Height="18" CornerRadius="3"
                 Background="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-          <TextBlock Text="W" Foreground="White" FontSize="11" FontWeight="SemiBold"
+          <TextBlock Text="W"
+                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                     FontSize="11" FontWeight="SemiBold"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
@@ -110,7 +114,9 @@
         </StackPanel.IsVisible>
         <Border Width="18" Height="18" CornerRadius="3"
                 Background="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-          <TextBlock Text="i" Foreground="White" FontSize="11" FontWeight="SemiBold"
+          <TextBlock Text="i"
+                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                     FontSize="11" FontWeight="SemiBold"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
         <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
@@ -149,7 +155,8 @@
                       VerticalAlignment="Top"
                       Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
                 <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                           Foreground="White" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                           FontSize="12" FontWeight="SemiBold"
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
 

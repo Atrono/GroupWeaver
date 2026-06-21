@@ -1,6 +1,5 @@
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 using GroupWeaver.App.Settings;
 using GroupWeaver.Core.Rules;
 
@@ -28,6 +27,18 @@ public static class CellChoiceConverters
     public static readonly IValueConverter ToBrush =
         new FuncValueConverter<CellChoice, IBrush>(BrushFor);
 
+    /// <summary>
+    /// Choice → the per-chip TEXT brush (ADR-021 / #90, the WCAG 1.4.3 re-tone): Allow → white
+    /// and Deny → white (both ≥ 4.5:1 on their own fills — green #107C10 4.43→OK and gray #757575
+    /// keep white), while the E/W/i severity overrides DELEGATE to
+    /// <see cref="SeverityConverters.ToTextBrush"/> so the amber/light-blue cells get the dark
+    /// page-bg ink (white failed 1.4.3 there) — exactly like the sidebar glyphs. Mirrors the
+    /// <see cref="ToBrush"/>/<see cref="ToGlyph"/> switch so a cell's fill and its ink share one
+    /// source.
+    /// </summary>
+    public static readonly IValueConverter ToTextBrush =
+        new FuncValueConverter<CellChoice, IBrush>(TextBrushFor);
+
     private static string GlyphFor(CellChoice choice) => choice switch
     {
         CellChoice.Allow => "✓",
@@ -39,11 +50,23 @@ public static class CellChoiceConverters
 
     private static IBrush BrushFor(CellChoice choice) => choice switch
     {
-        CellChoice.Allow => AllowBrush,
-        CellChoice.Deny => DenyBrush,
+        CellChoice.Allow => BrandTokens.Allow,
+        CellChoice.Deny => BrandTokens.Deny,
         CellChoice.Error => SeverityBrush(RuleSeverity.Error),
         CellChoice.Warning => SeverityBrush(RuleSeverity.Warning),
         _ => SeverityBrush(RuleSeverity.Info),
+    };
+
+    // The on-chip TEXT ink (ADR-021 / #90): Allow/Deny keep white (≥ 4.5:1 on their own fills);
+    // the E/W/i severity overrides reuse SeverityConverters.ToTextBrush so amber/light-blue cells
+    // get the dark page-bg ink — never a second hardcoded color.
+    private static IBrush TextBrushFor(CellChoice choice) => choice switch
+    {
+        CellChoice.Allow => BrandTokens.OnDarkText,
+        CellChoice.Deny => BrandTokens.OnDarkText,
+        CellChoice.Error => SeverityTextBrush(RuleSeverity.Error),
+        CellChoice.Warning => SeverityTextBrush(RuleSeverity.Warning),
+        _ => SeverityTextBrush(RuleSeverity.Info),
     };
 
     /// <summary>The deny-override colors come from the ONE SeverityConverters palette
@@ -52,6 +75,10 @@ public static class CellChoiceConverters
         (IBrush)SeverityConverters.ToBrush.Convert(
             severity, typeof(IBrush), null, System.Globalization.CultureInfo.InvariantCulture)!;
 
-    private static readonly ImmutableSolidColorBrush AllowBrush = new(Color.Parse("#107C10"));
-    private static readonly ImmutableSolidColorBrush DenyBrush = new(Color.Parse("#757575"));
+    /// <summary>The deny-override TEXT ink, also from the ONE SeverityConverters source
+    /// (<see cref="SeverityConverters.ToTextBrush"/>) so the amber/light-blue cell ink matches
+    /// the sidebar badges and can never drift.</summary>
+    private static IBrush SeverityTextBrush(RuleSeverity severity) =>
+        (IBrush)SeverityConverters.ToTextBrush.Convert(
+            severity, typeof(IBrush), null, System.Globalization.CultureInfo.InvariantCulture)!;
 }

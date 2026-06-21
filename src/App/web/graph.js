@@ -133,8 +133,15 @@
             'text-outline-color': '#1b1f27'
           }
         },
-        // Palette MUST stay in lockstep with src/App/Views/AdObjectKindConverters.cs
-        // (pinned by WebBundleTests.Graph_PaletteMatchesAdObjectKindConverters).
+        // Palette MUST stay in lockstep with src/App/Views/BrandTokens.cs (THE source of
+        // truth, ADR-021) / AdObjectKindConverters.cs (pinned by
+        // WebBundleTests.Graph_PaletteMatchesAdObjectKindConverters). The 2px #8A93A3
+        // border-width/-color on DomainLocalGroup/UniversalGroup/Computer is the WCAG
+        // 1.4.11 graphical-object-contrast LIFT (#90/ADR-021): those three FILLS measured
+        // 2.55/2.66/2.59 vs the #1b1f27 page bg (< the 3:1 floor); the ring (5.33:1) lifts
+        // them while the fill HEX stays unchanged, so the kind-badge white-on-fill text and
+        // the PaletteHexes parity both hold. The node[?root] white border (#E8ECF2 w3,
+        // appended later) still wins on root; the External dashed #B0B6BF border is distinct.
         {
           selector: "node[kind='User']",
           style: { shape: 'ellipse', width: 14, height: 14, 'background-color': '#038387' }
@@ -145,11 +152,17 @@
         },
         {
           selector: "node[kind='DomainLocalGroup']",
-          style: { shape: 'diamond', width: 22, height: 22, 'background-color': '#A14000' }
+          style: {
+            shape: 'diamond', width: 22, height: 22, 'background-color': '#A14000',
+            'border-width': 2, 'border-color': '#8A93A3'
+          }
         },
         {
           selector: "node[kind='UniversalGroup']",
-          style: { shape: 'pentagon', width: 22, height: 22, 'background-color': '#744DA9' }
+          style: {
+            shape: 'pentagon', width: 22, height: 22, 'background-color': '#744DA9',
+            'border-width': 2, 'border-color': '#8A93A3'
+          }
         },
         {
           selector: "node[kind='OrganizationalUnit']",
@@ -157,7 +170,10 @@
         },
         {
           selector: "node[kind='Computer']",
-          style: { shape: 'rectangle', width: 14, height: 14, 'background-color': '#556070' }
+          style: {
+            shape: 'rectangle', width: 14, height: 14, 'background-color': '#556070',
+            'border-width': 2, 'border-color': '#8A93A3'
+          }
         },
         {
           selector: "node[kind='External']",
