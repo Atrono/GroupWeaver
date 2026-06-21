@@ -165,7 +165,7 @@ Keine Scope-Schätzung – Priorisierung erfolgt über GitHub-Issues echter Nutz
 | v0.2 | Export (Verstoß-Report CSV/HTML + Graph als **PNG**; SVG zurückgestellt, ADR-013) · Plan-Modus (Gruppen/User/Mitgliedschaften entwerfen — **panel-basierter** Editor statt Canvas-Drag&Drop, ADR-014; Live-Validierung; inertes PowerShell-Skript, bleibt read-only) | **erledigt** (#56, #59); in **0.2.0** released (2026-06-15) |
 | v0.2 | winget-Einreichung (O5) | **zurückgestellt** — braucht eine Win-11-Testumgebung (auf dieser Box nicht verfügbar) |
 | v0.3 | Gap-Analyse: Diff Ist-Struktur vs. Plan (ADR-015, #66; SnapshotDiff/GapReport/GapSummary, Graph-Diff-Cues, GapViewModel + GapView) | **erledigt**; in **0.2.0** released (2026-06-15) |
-| v0.4 | Entra ID / M365 via Graph API (dynamische Gruppen, Verteiler – z. B. GG „Firma" ↔ Verteiler firma@…) | geplant; offene Follow-ups: ADR-015-Erweiterungen (DiffStatus.Modified, Cross-Scope-Rebase), #54 Graph-Layer-Pruning |
+| v0.4 | Entra ID / M365 via Graph API (dynamische Gruppen, Verteiler – z. B. GG „Firma" ↔ Verteiler firma@…) | geplant; offene Follow-ups: ADR-015-Erweiterungen (DiffStatus.Modified, Cross-Scope-Rebase); #54 Graph-Layer-Pruning — **ADR-016 entworfen (Status *Proposed*), Übernahme zurückgestellt**: Reload (#30) heilt das node-Refresh-Residuum bereits divergenzfrei, daher nur bei Nutzer-Feedback umsetzen |
 
 ---
 
