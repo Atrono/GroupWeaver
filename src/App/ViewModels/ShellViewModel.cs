@@ -26,6 +26,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private readonly Func<IGraphRenderer>? _graphRendererFactory;
     private readonly RulesetLocator _locator;
 
+    /// <summary>The ADR-022 D4 rail-state store, threaded down the Shell→RootPicker→Workspace
+    /// path exactly as <see cref="_locator"/> is; each workspace seeds + persists its rail state
+    /// through it. Defaulted (pre-ADR-022 call sites/tests get the real <c>%APPDATA%</c> layout).</summary>
+    private readonly UiStateStore _uiStateStore;
+
     /// <summary>Every disposable step the shell has created and must dispose at teardown
     /// (AP 4.2.2 dispose discipline): the Ist↔Plan switch keeps BOTH the workspace and the
     /// plan step alive — it never disposes the step it leaves, so teardown is the only place
@@ -44,17 +49,29 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private object _currentStep;
 
+    /// <summary>ADR-022 D2: focus (presentation) mode. The top command strip binds
+    /// <c>IsVisible="{Binding !IsFocusMode}"</c> so focus mode hides it (the WebView2-missing
+    /// banner stays visible). Shell-level because the strip is shell chrome; propagated to the
+    /// active workspace via the <see cref="CurrentStep"/>-dispatch seam in
+    /// <see cref="ToggleFocusMode"/>/<see cref="ExitFocusMode"/>.</summary>
+    [ObservableProperty]
+    private bool _isFocusMode;
+
     public ShellViewModel(
         Func<bool, IDirectoryProvider> providerFactory,
         StartupOptions startupOptions,
         WebView2RuntimeStatus? webView2Runtime = null,
         Func<IGraphRenderer>? graphRendererFactory = null,
         EffectiveRuleset? ruleset = null,
-        RulesetLocator? locator = null)
+        RulesetLocator? locator = null,
+        UiStateStore? uiStateStore = null)
     {
         _providerFactory = providerFactory;
         _graphRendererFactory = graphRendererFactory;
         _ruleset = ruleset;
+        // ADR-022 D4: defaulted like the locator — the composition root passes the one store,
+        // pre-ADR-022 tests omit it and get the real %APPDATA% layout.
+        _uiStateStore = uiStateStore ?? new UiStateStore();
         // Defaulted (AP 3.3 / ADR-011 §1): App.axaml.cs passes the one composition-root
         // locator; pre-S8 tests omit it and get the real %APPDATA% layout. Settings
         // Save persists to its UserRulesetPath; the headless tests inject a temp-dir seam.
@@ -161,6 +178,39 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>ADR-022 D2: flips focus mode and propagates the new state to the active workspace
+    /// step via the existing <see cref="CurrentStep"/>-dispatch seam (exactly as
+    /// <see cref="OnRulesetApplied"/> re-threads the live step). Non-workspace steps simply lose
+    /// the top strip (harmless). The workspace "Focus" button reaches this through the callback the
+    /// shell installs at <see cref="OnRootChosen"/>; the view also binds <c>Esc</c>/<c>F11</c>.</summary>
+    [RelayCommand]
+    private void ToggleFocusMode()
+    {
+        IsFocusMode = !IsFocusMode;
+        if (CurrentStep is WorkspaceViewModel workspace)
+        {
+            workspace.SetRailCollapsed(IsFocusMode);
+        }
+    }
+
+    /// <summary>ADR-022 D2: leaves focus mode unconditionally (the <c>Esc</c> exit affordance,
+    /// alongside full-screen exit in the view). A no-op when focus mode is already off; otherwise
+    /// re-expands the active workspace rail through the same <see cref="CurrentStep"/>-dispatch seam.</summary>
+    [RelayCommand]
+    private void ExitFocusMode()
+    {
+        if (!IsFocusMode)
+        {
+            return;
+        }
+
+        IsFocusMode = false;
+        if (CurrentStep is WorkspaceViewModel workspace)
+        {
+            workspace.SetRailCollapsed(false);
+        }
+    }
+
     /// <summary>The desktop main window, the modal owner for <see cref="OpenSettingsAsync"/>;
     /// <c>null</c> off the classic-desktop lifetime (headless theory) — the seam then
     /// falls back to a non-modal show, but tests never reach the show at all.</summary>
@@ -172,7 +222,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Provider = provider;
         CurrentStep = new RootPickerViewModel(
             provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing,
-            _graphRendererFactory, _ruleset);
+            _graphRendererFactory, _ruleset, _uiStateStore);
     }
 
     /// <summary>The picker's Back: drop the provider, start over on a fresh Connect step.</summary>
@@ -187,6 +237,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // Install the Plan-Mode switch callback (AP 4.2.2 / ADR-014) and track the workspace
         // as a disposable step so teardown disposes it even after a switch into Plan Mode.
         workspace.UseDesignPlanCallback(() => OnDesignPlan(workspace));
+        // Arm the workspace "Focus" button (ADR-022 D2) — dead until armed, exactly like the
+        // Design-plan callback, so a renderer-less/headless workspace never half-toggles.
+        workspace.UseFocusToggleCallback(() => ToggleFocusMode());
         Track(workspace);
         CurrentStep = workspace;
     }

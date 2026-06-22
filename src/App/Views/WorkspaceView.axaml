@@ -2,8 +2,15 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
              xmlns:views="using:GroupWeaver.App.Views"
+             xmlns:rules="using:GroupWeaver.Core.Rules"
              x:Class="GroupWeaver.App.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel">
+
+  <!-- ADR-022 D3: Ctrl+B toggles the rail collapse. The UserControl-level binding
+       keeps the gesture live wherever focus sits inside the workspace. -->
+  <UserControl.KeyBindings>
+    <KeyBinding Gesture="Ctrl+B" Command="{Binding ToggleRailCommand}" />
+  </UserControl.KeyBindings>
 
   <!-- Workspace step (AP 2.1): the airspace-shaped layout (ADR-003 D5, ADR-001
        guardrail 5). GraphHost is the reserved center region the AP 2.2 WebView's
@@ -13,7 +20,17 @@
        every airspace fight. Anything genuinely modal must be its own Window. -->
   <Grid RowDefinitions="*,Auto">
 
-    <Grid Grid.Row="0" ColumnDefinitions="*,300">
+    <!-- ADR-022 D3: *, Auto, {rail} — col 0 GraphHost (untouched), col 1 the thin native
+         SEAM (GridSplitter + always-present ◂/▸ collapse toggle), col 2 the adaptive rail.
+         The rail column width binds RailColumnWidth two-way (RailWidth px / 0 when collapsed);
+         the splitter resizes it, the toggle collapses it. Everything stays to the RIGHT of
+         GraphHost, never over it (ADR-001 airspace guardrail 5). -->
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="{Binding RailColumnWidth, Mode=TwoWay}" />
+      </Grid.ColumnDefinitions>
 
       <ContentControl Grid.Column="0" Name="GraphHost">
         <!-- Two placeholder variants switched on the runtime probe (AP 2.1 S7,
@@ -45,12 +62,42 @@
         </Panel>
       </ContentControl>
 
-      <!-- Right column (AP 3.4 S4, ADR-010 §5): a vertical split (2*,Auto,3*) of the
-           existing right column - the violations sidebar tops it (row 0), a 1px
-           separator (row 1), and the existing Refresh / LoadError / DetailPanelRegion
-           stack below (row 2). Beside GraphHost, never over it (ADR-001 airspace
-           guardrail 5); GraphHost (col 0) is untouched. -->
-      <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
+      <!-- The native SEAM (ADR-022 D3, col 1): the airspace-safe home for the rail
+           affordances when collapsed (ADR-001 intact — beside GraphHost, never over it).
+           Holds the GridSplitter (hidden when collapsed) overlaid with the always-present
+           ◂/▸ collapse toggle. The toggle's chevron reflects IsRailCollapsed (▸ = expand
+           when collapsed, ◂ = collapse when open). -->
+      <Panel Grid.Column="1" Width="28">
+        <GridSplitter Width="6" HorizontalAlignment="Center"
+                      ResizeDirection="Columns" Background="Transparent"
+                      IsVisible="{Binding !IsRailCollapsed}" />
+        <!-- The pill is a centered ~28px band so the full-height splitter stays grabbable
+             above and below it; it reads as a control (ghost border + hover) and its
+             chevron/tooltip flip with IsRailCollapsed (▸ expand / ◂ collapse). -->
+        <Button Name="RailCollapseToggle" Classes="ghost"
+                Width="28" Height="32" Padding="0" MinWidth="0"
+                VerticalAlignment="Center" HorizontalAlignment="Center"
+                Command="{Binding ToggleRailCommand}"
+                ToolTip.Tip="{Binding IsRailCollapsed, Converter={x:Static views:RailChevronConverter.ToTooltip}}">
+          <!-- Vector chevron (ADR-022 D3): a filled PathIcon gets clean grayscale edge AA
+               on the near-black seam — no subpixel colour fringe a triangle font glyph shows
+               at small size. ◂ collapse when open / ▸ expand when collapsed (ToGeometry). -->
+          <PathIcon Width="9" Height="9"
+                    Foreground="{StaticResource SecondaryForegroundBrush}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Data="{Binding IsRailCollapsed, Converter={x:Static views:RailChevronConverter.ToGeometry}}" />
+        </Button>
+      </Panel>
+
+      <!-- Right column (AP 3.4 S4, ADR-010 §5; ADR-022 D3 col 2): a vertical split
+           (2*,Auto,3*) of the rail - the violations sidebar tops it (row 0), a 1px
+           separator (row 1), and the Reload / Refresh / Export action row + LoadError +
+           DetailPanelRegion stack below (row 2). The whole rail hides when collapsed
+           (the column width is already 0; IsVisible keeps it out of the layout pass).
+           Beside GraphHost, never over it (ADR-001 airspace guardrail 5); GraphHost
+           (col 0) is untouched. -->
+      <Border Grid.Column="2" BorderThickness="1,0,0,0" BorderBrush="#33808080"
+              IsVisible="{Binding !IsRailCollapsed}">
         <Grid RowDefinitions="2*,Auto,3*">
 
           <!-- Violations sidebar (AP 3.4): binds the workspace VM's report projection
@@ -61,44 +108,38 @@
 
           <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
 
-            <!-- Detail-column header (AP 2.3 S4 / issue #30): whole-scope Reload
-                 (selection-independent, re-runs LoadScopeAsync for the root) beside
-                 per-node Refresh (forced re-fetch of the selected node, ADR-005 D4).
-                 Native chrome BESIDE the graph, ABOVE the AP 2.5 DetailPanelRegion
-                 seam - never over GraphHost (ADR-001 airspace guardrail 5). -->
-            <!-- Two right-aligned rows so the AP 4.2.2 "Design plan" button gets its own
-                 line ABOVE the existing trio — four buttons do not fit one row inside the
-                 fixed 300px detail column, and the existing Reload→Refresh→Export order +
-                 their single-row geometry stay pinned. Both rows live BESIDE GraphHost,
-                 never over it (ADR-001 guardrail 5). -->
-            <StackPanel Grid.Row="0" Spacing="8" Margin="12,12,12,0"
-                        HorizontalAlignment="Right">
+            <!-- Detail-column action row (AP 2.3 S4 / issue #30; ADR-022 D5): the four
+                 actions (Design plan / Reload scope / Refresh / Export image) reflow into
+                 ONE right-aligned WrapPanel that wraps only at the rail minimum, retiring
+                 the forced two-row stack. All Name / Command / tooltip / CanExecute bindings
+                 are kept verbatim (existing tests reference these button names). Native
+                 chrome BESIDE the graph, ABOVE the AP 2.5 DetailPanelRegion seam — never over
+                 GraphHost (ADR-001 airspace guardrail 5). -->
+            <WrapPanel Grid.Row="0" Margin="12,12,12,0"
+                       HorizontalAlignment="Right" Orientation="Horizontal">
 
               <!-- Design plan (AP 4.2.2 / ADR-014): switch into Plan Mode to author a
                    proposed structure. The command's CanExecute is armed once the shell
                    installs the switch callback (when this workspace becomes the step). -->
-              <Button Name="DesignPlanButton" Content="Design plan" HorizontalAlignment="Right"
+              <Button Name="DesignPlanButton" Content="Design plan" Margin="4"
                       ToolTip.Tip="Design a proposed structure and validate it live"
                       Command="{Binding DesignPlanCommand}" />
+              <Button Name="ReloadScopeButton" Content="Reload scope" Margin="4"
+                      ToolTip.Tip="Reload the whole scope from the directory"
+                      Command="{Binding ReloadScopeCommand}" />
+              <Button Name="RefreshButton" Content="Refresh" Margin="4"
+                      ToolTip.Tip="Re-fetch members of the selected node"
+                      Command="{Binding RefreshCommand}" />
+              <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG
+                   via the renderer's cy.png round-trip and save it to a user-picked file.
+                   Native chrome beside the graph, never over GraphHost (ADR-001 airspace
+                   guardrail 5); the command's CanExecute disables it while IsLoading or
+                   with no renderer / export seam. -->
+              <Button Name="ExportGraphImageButton" Content="Export image" Margin="4"
+                      ToolTip.Tip="Save the current graph as a PNG image"
+                      Command="{Binding ExportGraphImageCommand}" />
 
-              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                <Button Name="ReloadScopeButton" Content="Reload scope"
-                        ToolTip.Tip="Reload the whole scope from the directory"
-                        Command="{Binding ReloadScopeCommand}" />
-                <Button Name="RefreshButton" Content="Refresh"
-                        ToolTip.Tip="Re-fetch members of the selected node"
-                        Command="{Binding RefreshCommand}" />
-                <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG
-                     via the renderer's cy.png round-trip and save it to a user-picked file.
-                     Native chrome beside the graph, never over GraphHost (ADR-001 airspace
-                     guardrail 5); the command's CanExecute disables it while IsLoading or
-                     with no renderer / export seam. -->
-                <Button Name="ExportGraphImageButton" Content="Export image"
-                        ToolTip.Tip="Save the current graph as a PNG image"
-                        Command="{Binding ExportGraphImageCommand}" />
-              </StackPanel>
-
-            </StackPanel>
+            </WrapPanel>
 
             <!-- Inline load/renderer error (ADR-003 D7: DirectoryUnavailable only, no
                  demo hint - a connection already succeeded). Top of the detail column,
@@ -114,10 +155,144 @@
                  is still the workspace VM; the inner view's is the projection. -->
             <ContentControl Grid.Row="2" Name="DetailPanelRegion">
               <Panel>
-                <TextBlock Text="Click a node to inspect it."
-                           IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
-                           Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                <!-- ADR-022 D5: with nothing selected the empty rail reads as information,
+                     not a void — a compact scope-summary card (object/edge totals, per-kind
+                     tally, severity tallies) on the #91 card tokens, with a one-line "click a
+                     node" hint at the bottom. Replaces the old centered placeholder. -->
+                <Border Name="ScopeSummaryCard"
+                        IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
+                        Margin="12"
+                        Background="{StaticResource CardBackgroundBrush}"
+                        BorderBrush="{StaticResource CardBorderBrush}"
+                        BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}"
+                        Padding="12" VerticalAlignment="Top">
+                  <StackPanel Spacing="10">
+
+                    <TextBlock Text="Scope summary" Classes="heading" />
+
+                    <!-- Object / edge totals (reuses GraphSummary; null until first load). -->
+                    <TextBlock Text="{Binding GraphSummary}"
+                               Classes="secondary" TextWrapping="Wrap"
+                               IsVisible="{Binding GraphSummary, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                    <!-- Per-kind tally: one row per drawn kind (badge swatch + count),
+                         in the AP 2.2 kind palette so it matches the graph + root picker. -->
+                    <ItemsControl ItemsSource="{Binding ScopeKindTally}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:KindTallyRow">
+                          <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,12,6">
+                            <Border Width="22" Height="18" CornerRadius="3"
+                                    Background="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                              <TextBlock Text="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                         Foreground="White" FontSize="10" FontWeight="SemiBold"
+                                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="{Binding Count}" VerticalAlignment="Center"
+                                       FontSize="12" Opacity="0.85" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Severity tallies: the same per-severity counts the sidebar chip
+                         strip derives (SeverityConverters.CountForSeverity over Violations);
+                         shown only when there is at least one finding. -->
+                    <StackPanel Orientation="Horizontal" Spacing="12"
+                                IsVisible="{Binding HasViolations}">
+
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <StackPanel.IsVisible>
+                          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
+                                        ConverterParameter="{x:Static rules:RuleSeverity.Error}">
+                            <Binding Path="Violations" />
+                            <Binding Path="Violations.Count" />
+                          </MultiBinding>
+                        </StackPanel.IsVisible>
+                        <Border Width="18" Height="18" CornerRadius="3"
+                                Background="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                          <TextBlock Text="E"
+                                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                                     FontSize="11" FontWeight="SemiBold"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
+                          <TextBlock.Text>
+                            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
+                                          ConverterParameter="{x:Static rules:RuleSeverity.Error}">
+                              <Binding Path="Violations" />
+                              <Binding Path="Violations.Count" />
+                            </MultiBinding>
+                          </TextBlock.Text>
+                        </TextBlock>
+                      </StackPanel>
+
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <StackPanel.IsVisible>
+                          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
+                                        ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
+                            <Binding Path="Violations" />
+                            <Binding Path="Violations.Count" />
+                          </MultiBinding>
+                        </StackPanel.IsVisible>
+                        <Border Width="18" Height="18" CornerRadius="3"
+                                Background="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                          <TextBlock Text="W"
+                                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                                     FontSize="11" FontWeight="SemiBold"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
+                          <TextBlock.Text>
+                            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
+                                          ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
+                              <Binding Path="Violations" />
+                              <Binding Path="Violations.Count" />
+                            </MultiBinding>
+                          </TextBlock.Text>
+                        </TextBlock>
+                      </StackPanel>
+
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <StackPanel.IsVisible>
+                          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
+                                        ConverterParameter="{x:Static rules:RuleSeverity.Info}">
+                            <Binding Path="Violations" />
+                            <Binding Path="Violations.Count" />
+                          </MultiBinding>
+                        </StackPanel.IsVisible>
+                        <Border Width="18" Height="18" CornerRadius="3"
+                                Background="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                          <TextBlock Text="i"
+                                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                                     FontSize="11" FontWeight="SemiBold"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
+                          <TextBlock.Text>
+                            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
+                                          ConverterParameter="{x:Static rules:RuleSeverity.Info}">
+                              <Binding Path="Violations" />
+                              <Binding Path="Violations.Count" />
+                            </MultiBinding>
+                          </TextBlock.Text>
+                        </TextBlock>
+                      </StackPanel>
+
+                    </StackPanel>
+
+                    <!-- The one-line inspect hint stays at the bottom of the card. -->
+                    <TextBlock Text="Click a node to inspect it."
+                               Classes="secondary" TextWrapping="Wrap" Margin="0,2,0,0" />
+
+                  </StackPanel>
+                </Border>
+
                 <Panel IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNotNull}}">
                   <views:DetailPanelView DataContext="{Binding DetailPanel}" />
                 </Panel>

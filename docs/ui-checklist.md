@@ -72,9 +72,11 @@ renders every shipped shell state via real Skia (real DemoProvider, real views) 
 `artifacts/ui/<view>-<W>x<H>.png` at **both** 1280×720 and 1920×1080:
 `connection-idle`, `connection-error`, `rootpicker-demo`, `rootpicker-demo-tail`,
 `workspace-demo`, `workspace-webview2-missing`, `workspace-detail`,
-`workspace-detail-frontier`, `workspace-violations`, `settings-naming`,
+`workspace-detail-frontier`, `workspace-violations`, `workspace-scope-summary`,
+`workspace-rail-collapsed`, `workspace-focus`, `settings-naming`,
 `settings-rules`, `settings-matrix`, `settings-ignore`, `settings-exceptions`,
-`settings-file`, `settings-validation` — 32 PNGs per run.
+`settings-file`, `settings-validation` — plus the single-size
+`workspace-ultrawide-2560x1080` (the large-monitor proof, ADR-022) — 39 PNGs per run.
 
 Evidence tags: **[S:name]** = judge from the `name-*.png` pair; **[I]** = interactive
 or transient — cannot be evidenced by a static frame; covered by headless tests
@@ -128,6 +130,21 @@ badges use the stronger `BrandTokens.OnLightTextStrong` (#000000) ink, not the p
 - [ ] Refresh enablement: armed iff the selection is a fetchable kind (GG/DL/UG/External frontier — loaded or not; refresh is a FORCED re-fetch) and nothing is loading; disarmed for users/computers/OUs, with no selection, and while any load/expand is in flight [I — pinned by WorkspaceLoadTests (button wiring) and WorkspaceExpandTests (command matrix)]
 - [ ] "Export image" button (AP 4.1, ADR-013 §3) sits in the same header row beside Reload scope / Refresh — native chrome, never over GraphHost; label "Export image", tooltip present; armed once a load completes with a renderer wired (CanExportGraphImage), greyed pre-load / while loading [S:workspace-demo] [I — enablement pinned by WorkspaceExportTests]
 - [ ] Nothing floats, pops up, or layers over GraphHost; anything modal is its own Window [I — design rule, re-check on every workspace change]
+
+### Full-screen, focus mode & adaptive rail (ADR-022)
+
+The large-monitor pass: the right rail is no longer hard-pinned at 300px, and the app
+gains a real presentation surface. All new chrome is native and stays right of / around
+GraphHost — nothing floats over the WebView2 HWND (ADR-001 airspace held).
+
+- [ ] Adaptive rail default 340px: the right rail defaults to 340px (not the old 300) with a thin `Auto` seam holding the GridSplitter; the graph canvas still gets the bulk of the width (~933px usable at 1280) and nothing in the rail clips [S:workspace-demo]
+- [ ] Action-button WrapPanel reflow: the four actions (Design plan / Reload scope / Refresh / Export image) sit in a right-aligned WrapPanel that wraps to a second row only at the rail minimum — never clipped, never a forced fixed two-row stack [S:workspace-demo]
+- [ ] Scope-summary void-fill: with no node selected the lower rail shows a compact "Scope summary" card — object/edge totals, a per-kind tally (U/GG/DL/UG/OU/PC/EXT badges in graph-palette parity), the E/W/i severity tally (per-hue ink, ADR-010 palette), and a "Click a node to inspect it." hint — so empty rail reads as information, not a void [S:workspace-scope-summary]
+- [ ] Rail collapse: the rail collapses to 0 leaving the native seam; a legible ◂/▸ chevron toggle (readable glyph + direction, tooltip "Collapse/Expand rail (Ctrl+B)", reads as an interactive control, never colliding with the GridSplitter); the graph host reflows to fill [S:workspace-rail-collapsed] [S:workspace-demo — ◂ present]
+- [ ] Focus (presentation) mode: the top command strip is hidden, the rail collapsed, the graph edge-to-edge; the status bar and the WebView2-missing banner are retained; the ▸ expand chevron stays as the way back (alongside Esc); headless shows the GraphHost placeholder, the live app mounts the WebView [S:workspace-focus]
+- [ ] Large-monitor / ultrawide: at 2560×1080 the graph gets the bulk of the width and the 340px rail content stays sensible — no "1280 stretched onto a big screen" void [S:workspace-ultrawide-2560x1080]
+- [ ] F11 toggles native full-screen (title bar dropped); Esc exits full-screen and focus mode (and only marks the key handled when it actually exits) [I — pinned by ShellFocusModeTests; F11/Esc handled in MainWindow.OnKeyDown]
+- [ ] Ctrl+B toggles the rail; the GridSplitter drag resizes it within the [300,520] clamp; RailWidth + collapsed state persist to `%APPDATA%\GroupWeaver\ui-state.json` and restore on next launch (best-effort, never-throw, atomic) [I — pinned by WorkspaceRailStateTests + UiStateStoreTests]
 
 ### Detail panel
 

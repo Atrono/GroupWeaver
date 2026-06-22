@@ -45,6 +45,15 @@ public sealed class WorkspaceLoadTests
     /// <summary>GraphHost placeholder when no renderer factory was supplied.</summary>
     private const string UnavailablePlaceholder = "Graph view is unavailable in this environment.";
 
+    /// <summary>ADR-022 D3 re-baseline: the rail moved <c>*,300</c> ⇒ <c>*, Auto, {rail}</c> with
+    /// a 340px default rail and a 14px <c>Auto</c> seam (GridSplitter + ◂/▸ chevron) BESIDE
+    /// GraphHost. GraphHost (col 0) therefore ends 354px (340 rail + 14 seam) from the right
+    /// edge — that boundary is the airspace line (ADR-001 guardrail 5): every right-column
+    /// affordance (error block, Refresh/Reload buttons) must sit at or right of it, never over
+    /// the graph. Derived from the production layout, not a magic number; an affordance that
+    /// ever strayed over GraphHost would render left of it and fail.</summary>
+    private const double RailLeftEdgeFromRight = 340 + 14;
+
     /// <summary>GraphHost placeholder headline when the WebView2 Runtime is missing
     /// (same variant AP 2.1 S7 introduced — see WebView2BannerTests).</summary>
     private const string MissingRuntimeHeadline = "The Microsoft Edge WebView2 Runtime was not found.";
@@ -178,8 +187,10 @@ public sealed class WorkspaceLoadTests
         var detailRegionTop = Region(view, "DetailPanelRegion").TranslatePoint(new Point(0, 0), view);
         Assert.NotNull(errorTop);
         Assert.NotNull(detailRegionTop);
+        // ADR-022 D3: rail is now 340px + a 14px Auto seam, so the right column sits right of
+        // GraphHost's (Width-354) edge — beside the graph, never over it (ADR-001 #5).
         Assert.True(
-            errorTop.Value.X >= view.Bounds.Width - 320,
+            errorTop.Value.X >= view.Bounds.Width - RailLeftEdgeFromRight,
             $"the error belongs in the right detail column, beside GraphHost (was at X={errorTop.Value.X})");
         Assert.True(
             errorTop.Value.Y <= detailRegionTop.Value.Y + 0.5,
@@ -421,8 +432,9 @@ public sealed class WorkspaceLoadTests
         var regionTop = detailRegion.TranslatePoint(new Point(0, 0), view);
         Assert.NotNull(buttonTop);
         Assert.NotNull(regionTop);
+        // ADR-022 D3: rail 340px + 14px Auto seam ⇒ the column sits right of GraphHost (Width-354).
         Assert.True(
-            buttonTop.Value.X >= view.Bounds.Width - 320,
+            buttonTop.Value.X >= view.Bounds.Width - RailLeftEdgeFromRight,
             $"the Refresh button belongs in the right detail column (was at X={buttonTop.Value.X})");
         // AP 3.4 S4 (ADR-010 §5) demoted this stack to row 2 of the right column's
         // 2*,Auto,3* split — below the violations sidebar — so the Refresh button no
@@ -486,8 +498,9 @@ public sealed class WorkspaceLoadTests
         var regionTop = detailRegion.TranslatePoint(new Point(0, 0), view);
         Assert.NotNull(reloadTop);
         Assert.NotNull(regionTop);
+        // ADR-022 D3: rail 340px + 14px Auto seam ⇒ the column sits right of GraphHost (Width-354).
         Assert.True(
-            reloadTop.Value.X >= view.Bounds.Width - 320,
+            reloadTop.Value.X >= view.Bounds.Width - RailLeftEdgeFromRight,
             $"the Reload scope button belongs in the right detail column, beside GraphHost (was at X={reloadTop.Value.X})");
         Assert.True(
             reloadTop.Value.Y + reload.Bounds.Height <= regionTop.Value.Y + 0.5,

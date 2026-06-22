@@ -9,9 +9,11 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
+using GroupWeaver.App.Tests.Fakes;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
 using GroupWeaver.Core.Model;
@@ -143,6 +145,194 @@ public sealed class ShellScreenshotTests
 
         CapturePng(window, "workspace-webview2-missing", width, height);
         window.Close();
+    }
+
+    // --- ADR-022: adaptive rail + focus mode ------------------------------------------------
+
+    /// <summary>
+    /// ADR-022 D5: a loaded workspace with NOTHING selected (the default). The reclaimed rail
+    /// shows the compact <c>ScopeSummaryCard</c> (object/edge totals + per-kind tally + severity
+    /// tallies) instead of the old centered "Click a node…" void. The fixture pins soundness the
+    /// PNG can't: the named card Border is realized + effectively-visible (it binds
+    /// <c>DetailPanel is null</c>, which holds with no selection) AND the workspace's
+    /// <see cref="WorkspaceViewModel.ScopeKindTally"/> is non-empty (the demo scope draws nodes of
+    /// several kinds) — so the empty rail reads as information. The ui-verifier judges the rendered
+    /// frame against the new section-B scope-summary rows.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceScopeSummary(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // Nothing selected: the D5 void-fill card is the captured surface (DetailPanel is null).
+        Assert.Null(workspace.SelectedDn);
+        Assert.Null(workspace.DetailPanel);
+
+        // Force a render pass so the DetailPanelRegion ContentControl realizes its inline content
+        // (the card lives inside a ContentPresenter — unlike the directly-gridded sidebar, it
+        // materializes only once the window renders). Capture-and-discard flushes the batch.
+        window.CaptureRenderedFrame()?.Dispose();
+        Dispatcher.UIThread.RunJobs();
+
+        var card = Assert.Single(window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Border>(), b => b.Name == "ScopeSummaryCard");
+        Assert.True(
+            card.IsEffectivelyVisible,
+            "with nothing selected the scope-summary card must replace the empty-rail void (D5)");
+
+        // The per-kind tally actually populated — the empty rail reads as information, not a void.
+        Assert.NotEmpty(workspace.ScopeKindTally);
+
+        CapturePng(window, "workspace-scope-summary", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// ADR-022 D3: a loaded workspace with the rail COLLAPSED (<see cref="WorkspaceViewModel.IsRailCollapsed"/>
+    /// true). The rail column collapses to 0 and the whole rail Border (with the violations sidebar)
+    /// drops out of the layout, leaving only the thin native seam + ▸ expand chevron beside GraphHost,
+    /// which still fills. The fixture pins soundness the PNG can't: the <c>ViolationsSidebarView</c>
+    /// (the rail content) is NOT effectively-visible once collapsed, while GraphHost stays realized —
+    /// the graph reclaims the width. The ui-verifier judges the collapsed-rail frame.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceRailCollapsed(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // The rail is visible before collapse (the sidebar realizes), then collapses to nothing.
+        var sidebar = Assert.Single(window.GetVisualDescendants().OfType<ViolationsSidebarView>());
+        Assert.True(sidebar.IsEffectivelyVisible, "the rail must be visible before collapse");
+
+        workspace.IsRailCollapsed = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // Collapsed: the rail (and its sidebar) is no longer effectively-visible — the rail Border
+        // binds IsVisible="!IsRailCollapsed" and the column width is 0.
+        Assert.False(
+            sidebar.IsEffectivelyVisible,
+            "a collapsed rail must drop its sidebar out of the layout (D3)");
+
+        // GraphHost still fills — the graph reclaimed the rail's width (never re-laid-out, just reflowed).
+        var graphHost = Assert.Single(window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.ContentControl>(), c => c.Name == "GraphHost");
+        Assert.True(graphHost.IsEffectivelyVisible, "GraphHost must still fill when the rail collapses");
+        Assert.True(graphHost.Bounds.Width > 0, "GraphHost must keep a positive width");
+
+        // The collapse is a large relayout (the rail drops out, GraphHost widens) — flush an extra
+        // compositor batch so the settled frame is captured, not a transient blank mid-relayout.
+        window.CaptureRenderedFrame()?.Dispose();
+        Dispatcher.UIThread.RunJobs();
+
+        CapturePng(window, "workspace-rail-collapsed", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// ADR-022 D2: focus (presentation) mode on a loaded workspace, driven through
+    /// <see cref="ShellViewModel.ToggleFocusModeCommand"/> (the same seam the workspace "Focus"
+    /// button reaches via its installed callback). The top command strip hides
+    /// (<c>IsVisible="!IsFocusMode"</c>) and the active workspace rail collapses, giving the graph
+    /// the whole frame. The fixture pins soundness the PNG can't: <see cref="ShellViewModel.IsFocusMode"/>
+    /// is true, the top command-strip Border (the ⚙ Settings bar) is NOT effectively-visible, and the
+    /// workspace rail collapsed. The ui-verifier judges the strip-gone focus frame.
+    ///
+    /// <para>Unlike the other workspace frames, this one mounts a graph-surface stand-in into
+    /// GraphHost (a filled <see cref="Avalonia.Controls.Border"/> behind the renderer seam) — the
+    /// faithful focus-mode fixture is "the graph FILLS the screen" (strip gone, rail gone). The real
+    /// WebView2 graph cannot render headless, so the filled surface stands in for it; it also makes
+    /// the captured frame a non-uniform raster (the sparse renderer-LESS placeholder is a thin
+    /// centered block the void-of-chrome focus frame would otherwise reduce to).</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceFocus(int width, int height)
+    {
+        // A graph surface that FILLS GraphHost (the focus-mode intent: the graph gets the whole
+        // screen). Mounted through the renderer seam, replacing the placeholder — exactly the real
+        // mount path, with a filled Border standing in for the headless-unavailable WebView2 graph.
+        var graphSurface = new Avalonia.Controls.Border { Background = Brushes.SteelBlue };
+        var (window, shell) = ShowShell(
+            Present, width, height, () => new FakeGraphRenderer { View = graphSurface });
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // The top command strip (the ⚙ Settings bar) is the Border ancestor of that button's label.
+        var strip = CommandStripBorder(window);
+        Assert.True(strip.IsEffectivelyVisible, "the top command strip must show before focus mode");
+
+        shell.ToggleFocusModeCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        // Focus on: shell flag set, the strip gone, the active workspace rail collapsed (D2).
+        Assert.True(shell.IsFocusMode);
+        Assert.False(
+            strip.IsEffectivelyVisible,
+            "focus mode must hide the top command strip (IsVisible binds !IsFocusMode)");
+        Assert.True(workspace.IsRailCollapsed, "focus mode must collapse the active workspace rail");
+
+        // The graph surface fills GraphHost — the strip-and-rail-free focus frame is all graph.
+        Assert.True(graphSurface.IsEffectivelyVisible, "the graph surface must fill GraphHost in focus mode");
+
+        CapturePng(window, "workspace-focus", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// ADR-022 (the large-monitor proof): a loaded workspace at a 2560×1080 ULTRAWIDE frame — the
+    /// single size that evidences the void is gone. With the adaptive rail (340px + scope-summary
+    /// content) the rail fills sensibly while the graph takes the rest, instead of the old hard-pinned
+    /// 300px rail floating a tiny placeholder in a vast empty column. The fixture pins soundness (the
+    /// scope-summary card realized, the kind tally populated); the ui-verifier judges that the rail
+    /// content fills sensibly with no giant empty rail. One size only (the wide-monitor case).
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(2560, 1080)]
+    public async Task WorkspaceUltrawide(int width, int height)
+    {
+        var (window, shell) = ShowShell(Present, width, height);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // The reclaimed rail shows the scope summary (nothing selected) — the void-fill that proves
+        // the large-monitor empty-rail problem is solved. Force a render pass so the
+        // DetailPanelRegion ContentControl realizes its inline card content (see WorkspaceScopeSummary).
+        Assert.Null(workspace.DetailPanel);
+        window.CaptureRenderedFrame()?.Dispose();
+        Dispatcher.UIThread.RunJobs();
+
+        var card = Assert.Single(window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Border>(), b => b.Name == "ScopeSummaryCard");
+        Assert.True(card.IsEffectivelyVisible, "the ultrawide rail must show the scope summary, not a void");
+        Assert.NotEmpty(workspace.ScopeKindTally);
+
+        CapturePng(window, "workspace-ultrawide", width, height);
+        window.Close();
+    }
+
+    /// <summary>The top command-strip <see cref="Avalonia.Controls.Border"/> (the ⚙ Settings bar,
+    /// ADR-011 §1): located as the NEAREST Border ancestor of the "⚙ Settings" button, so the focus
+    /// fixture can assert it hides when <see cref="ShellViewModel.IsFocusMode"/> flips (ADR-022 D2).
+    /// The strip Border is the button's immediate Border container (XAML:
+    /// <c>&lt;Border&gt;&lt;Button/&gt;&lt;/Border&gt;</c>) and binds <c>IsVisible="!IsFocusMode"</c>
+    /// — the one control whose effective-visibility focus mode drives. The nearest ancestor (not the
+    /// outermost, which would be always-visible window chrome) is the strip itself.</summary>
+    private static Avalonia.Controls.Border CommandStripBorder(MainWindow window)
+    {
+        var settingsButton = Assert.Single(window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Button>(),
+            b => (b.Content as Avalonia.Controls.TextBlock)?.Text == "⚙ Settings");
+        return settingsButton.GetVisualAncestors()
+            .OfType<Avalonia.Controls.Border>().First();
     }
 
     /// <summary>
@@ -1287,12 +1477,24 @@ public sealed class ShellScreenshotTests
 
     // --- shell driving ----------------------------------------------------------------------------
 
-    /// <summary>Real DemoProvider behind the factory: these frames are the demo-mode truth.</summary>
+    /// <summary>Real DemoProvider behind the factory: these frames are the demo-mode truth.
+    /// The shell is seeded with a FRESH temp-dir <see cref="UiStateStore"/> (ADR-022 D4) so every
+    /// frame renders the DEFAULT rail state (expanded, 340px) reproducibly and — critically —
+    /// never reads or writes real <c>%APPDATA%</c>: a focus/collapse frame must not persist a
+    /// collapsed rail that would silently collapse every later demo frame (demo-mode discipline,
+    /// CLAUDE.md). The temp dir starts empty, so Load yields <see cref="UiState.Default"/>.
+    /// <paramref name="rendererFactory"/> is null for the renderer-less frames (GraphHost shows the
+    /// placeholder); the focus frame supplies one so a graph surface FILLS the host — the ADR-022 D2
+    /// "graph gets the whole screen" intent.</summary>
     private static (MainWindow Window, ShellViewModel Shell) ShowShell(
-        WebView2RuntimeStatus status, int width, int height)
+        WebView2RuntimeStatus status, int width, int height,
+        Func<IGraphRenderer>? rendererFactory = null)
     {
+        var uiStateBase = Directory.CreateTempSubdirectory("groupweaver-shellshot-uistate-").FullName;
         var shell = new ShellViewModel(
-            _ => new DemoProvider(), new StartupOptions(Demo: false), status);
+            _ => new DemoProvider(), new StartupOptions(Demo: false), status,
+            graphRendererFactory: rendererFactory, ruleset: null, locator: null,
+            uiStateStore: new UiStateStore(uiStateBase));
 
         // Size BEFORE Show so every layout pass — including ListBox virtualization —
         // happens against the final viewport.

@@ -8,6 +8,12 @@
         Width="1280" Height="720"
         MinWidth="960" MinHeight="600">
 
+  <!-- ADR-022 D1: full-screen is a pure view concern (no VM state). F11 toggles
+       WindowState between the remembered prior state and FullScreen; Esc exits
+       full-screen AND focus mode (the shell's ExitFocusModeCommand). Handled in the
+       code-behind OnKeyDown ([I] interactive, like OpenSettings' ShowDialog) — headless
+       screenshot fixtures size the window directly and never exercise these. -->
+
   <!-- Step-switched shell (ADR-003 D5): one DataTemplate per step content type,
        selected by ShellViewModel.CurrentStep. -->
   <Window.DataTemplates>
@@ -63,8 +69,12 @@
          and can never overlap the workspace's GraphHost native HWND (ADR-001 airspace
          guardrail 5). The button opens the modal SettingsWindow (its own top-level Window
          per ADR-003 D5 - never layered over the graph). -->
+    <!-- ADR-022 D2: focus (presentation) mode hides the top strip — IsVisible binds
+         !IsFocusMode. The WebView2-missing banner above stays visible regardless (a
+         missing-runtime warning must never be suppressed). -->
     <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#33808080"
-            Padding="8,4">
+            Padding="8,4"
+            IsVisible="{Binding !IsFocusMode}">
       <Button HorizontalAlignment="Right" Padding="10,4"
               Command="{Binding OpenSettingsCommand}">
         <TextBlock Text="⚙ Settings" />
