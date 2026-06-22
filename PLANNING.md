@@ -1,7 +1,7 @@
 # GroupWeaver – Projektplanung
 
 **Projektname:** GroupWeaver (GitHub-Fallback: `groupweaver-app`)
-**Stand:** Juni 2026 · **Status:** lebender Plan — **v0.2.0 öffentlich released (2026-06-15)**; Phase 4 läuft
+**Stand:** Juni 2026 · **Status:** lebender Plan — **v0.2.0 öffentlich released (2026-06-15)**, **v0.2.1 (UI-Politur) released (2026-06-22)**; Phase 4 läuft
 **Projekttyp:** Open-Source-Nebenprojekt, Solo-Start, Read-only-Tool
 
 ---
