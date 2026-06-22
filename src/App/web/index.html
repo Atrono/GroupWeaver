@@ -54,6 +54,51 @@
     }
     #legend .edge-sample.contains { border-top: 2px dashed #7A8699; }
     #legend .edge-arrow { color: #7A8699; margin: 0 -2px 0 -6px; line-height: 1; }
+    /* ADR-023: the first INTERACTIVE bundle overlay (legend is pointer-events:none).
+       Same neutral chrome as #legend; quiet/utilitarian. pointer-events scoped to
+       this box so graph pan/tap below stays unaffected. */
+    #controls {
+      position: fixed; right: 12px; bottom: 12px; z-index: 10;
+      pointer-events: auto;
+      background: rgba(22, 26, 33, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      padding: 8px 10px;
+      font-family: "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; gap: 6px;
+      max-width: 232px;
+    }
+    #controls .controls-row { display: flex; gap: 6px; align-items: center; }
+    #controls input[type="text"] {
+      flex: 1 1 auto; min-width: 0;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      padding: 4px 7px;
+      font-family: "Segoe UI", sans-serif; font-size: 12px;
+      color: #E8ECF2;
+    }
+    #controls input[type="text"]::placeholder { color: #8A93A3; }
+    #controls button {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      padding: 4px 8px;
+      font-family: "Segoe UI", sans-serif; font-size: 12px;
+      color: #E8ECF2;
+      cursor: pointer; line-height: 1.2;
+    }
+    #controls button:hover { background: rgba(255, 255, 255, 0.12); }
+    #controls button:focus-visible,
+    #controls input[type="text"]:focus-visible {
+      outline: 2px solid #4FA3E3; outline-offset: 1px;
+    }
+    #controls .zoom-btn { font-family: "Cascadia Mono", "Consolas", monospace; min-width: 26px; }
+    #controls .no-match {
+      font-size: 11px; color: #F7A30B; padding: 0 1px;
+    }
+    #controls .no-match[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -121,6 +166,21 @@
     <div class="legend-edges">
       <div><span class="edge-sample"></span><span class="edge-arrow">&rarr;</span>is member of</div>
       <div><span class="edge-sample contains"></span>contains</div>
+    </div>
+  </div>
+  <!-- ADR-023: interactive control cluster (find + camera + label gate override). -->
+  <div id="controls">
+    <div class="controls-row">
+      <input id="find-input" type="text" placeholder="Find a node by name or DN&hellip;"
+             aria-label="Find a node by name or DN" autocomplete="off" spellcheck="false" />
+    </div>
+    <div id="find-no-match" class="no-match" hidden>No match</div>
+    <div class="controls-row">
+      <button id="fit-btn" type="button" title="Fit graph to view (Ctrl+0)">Fit</button>
+      <button id="zoom-in-btn" class="zoom-btn" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
+      <button id="zoom-out-btn" class="zoom-btn" type="button" title="Zoom out (-)" aria-label="Zoom out">&minus;</button>
+      <button id="labels-btn" type="button" aria-pressed="false"
+              title="Toggle label visibility at fit zoom">Labels: auto</button>
     </div>
   </div>
   <!-- cytoscape 3.34.0, vendored - byte-identical to spikes/GraphSpike/web/vendor (pinned by WebBundleTests). -->

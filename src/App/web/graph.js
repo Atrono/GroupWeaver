@@ -14,6 +14,11 @@
   var pendingNodes = [];
   var pendingEdges = [];
 
+  // ADR-023 D4: Labels toggle state ('auto' = ADR-018 gate, 'all' = every label
+  // at fit zoom). Module-level so applyLabelMode() can re-assert it in sendLoaded
+  // after a graphUpdate adds new nodes. Default 'auto'.
+  var labelMode = 'auto';
+
   // ADR-017 D5: read ONCE at IIFE init. prefers-reduced-motion:reduce degrades
   // BOTH the F2 eased focus-fit and the F1 enter fade to the instant pre-slice
   // paths (synchronous cy.fit + cy.one('render') for focus; full-opacity add for
@@ -37,6 +42,34 @@
   function clearSelection() {
     cy.elements().removeClass('gw-dim gw-hover');
     cy.$(':selected').unselect();
+  }
+
+  // ADR-023 D4: apply the current labelMode to every live node. Called from the
+  // Labels-toggle handler AND from sendLoaded() so the chosen mode survives a
+  // graphUpdate (lazy expand) — new nodes pick up gw-labels-all when mode='all'.
+  function applyLabelMode() {
+    cy.nodes().toggleClass('gw-labels-all', labelMode === 'all');
+  }
+
+  // ADR-023 D3: find a node by Name (data('label')) OR DN (id()), case-insensitive,
+  // preferring an exact match, else the FIRST substring match (deterministic by
+  // cytoscape z-order). Iterates cy.nodes() comparing values (not selector
+  // concatenation), so comma-DNs are safe (ADR-004 D5). Returns a node or null.
+  function findNode(query) {
+    var q = query.trim().toLowerCase();
+    if (q === '') { return null; }
+    var nodes = cy.nodes();
+    var substr = null;
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var label = String(node.data('label') || '').toLowerCase();
+      var id = String(node.id() || '').toLowerCase();
+      if (label === q || id === q) { return node; }
+      if (substr === null && (label.indexOf(q) !== -1 || id.indexOf(q) !== -1)) {
+        substr = node;
+      }
+    }
+    return substr;
   }
 
   // Builds cytoscape element descriptors from the accumulated chunks and CLEARS
@@ -104,6 +137,7 @@
       edgeCount: cy.edges().length
     });
     updateLegendCounts();
+    applyLabelMode();  // ADR-023 D4: re-assert label mode across a graphUpdate.
   }
 
   function initGraph() {
@@ -336,6 +370,13 @@
         {
           selector: 'edge.gw-dim',
           style: { opacity: 0.12 }
+        },
+        // ADR-023 D4: Labels "all" mode override of the ADR-018 fit-zoom gate.
+        // Toggled on cy.nodes() by applyLabelMode(); drops min-zoomed-font-size to
+        // 0 so every label shows at fit zoom. Order-independent for mzfs.
+        {
+          selector: 'node.gw-labels-all',
+          style: { 'min-zoomed-font-size': 0 }
         }
       ]
     });
@@ -539,6 +580,117 @@
       });
     }
   });
+
+  // ADR-023: in-graph control cluster wiring. Attached ONCE at IIFE init (DOM is
+  // ready — this script runs at end of body). Every handler guards cy === null so
+  // a control press before graphCommit is a silent no-op (keeps the zero-jsError
+  // audit green). None of these touch the .NET `focused` confirmation channel.
+  function controlFit() {
+    if (cy === null) { return; }
+    cy.fit(cy.elements(), 80);  // same 80px padding as focusOn.
+  }
+
+  // Anchored at viewport center, clamped to cytoscape's configured min/max zoom.
+  function controlZoom(factor) {
+    if (cy === null) { return; }
+    var next = cy.zoom() * factor;
+    next = Math.max(cy.minZoom(), Math.min(cy.maxZoom(), next));
+    cy.zoom({ level: next, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+  }
+
+  // ADR-023 D3: find mirrors a tap (nodeClick + applySelection) then frames the
+  // node LOCALLY — it deliberately does NOT reuse focusOn() and NEVER emits a
+  // `focused` message (that confirmation is the .NET focus protocol's; an
+  // unsolicited one would perturb the JumpAsync/FocusCalls pin, ADR-017/020).
+  function controlFind(noMatchEl) {
+    if (cy === null) { return; }
+    var input = document.getElementById('find-input');
+    var node = findNode(input ? input.value : '');
+    if (node === null) {
+      if (noMatchEl) { noMatchEl.hidden = false; }
+      return;  // no bridge traffic on a no-match.
+    }
+    if (noMatchEl) { noMatchEl.hidden = true; }
+    // (a) the SAME message a tap sends — updates .NET SelectedDn + detail panel.
+    window.bridge.send({
+      type: 'nodeClick',
+      id: node.id(),
+      label: node.data('label'),
+      kind: node.data('kind')
+    });
+    // (b) instant selection + neighborhood dim (ADR-018).
+    applySelection(node);
+    // (c) a LOCAL eased frame; reduced motion degrades to an instant fit.
+    if (reduceMotion) {
+      cy.fit(node, 80);
+    } else {
+      cy.animate({ fit: { eles: node, padding: 80 } }, { duration: 280, easing: 'ease-out-cubic' });
+    }
+  }
+
+  function controlToggleLabels() {
+    if (cy === null) { return; }
+    labelMode = (labelMode === 'all') ? 'auto' : 'all';
+    applyLabelMode();
+    var btn = document.getElementById('labels-btn');
+    if (btn) {
+      btn.textContent = 'Labels: ' + labelMode;
+      btn.setAttribute('aria-pressed', labelMode === 'all' ? 'true' : 'false');
+    }
+  }
+
+  function wireControls() {
+    var findInput = document.getElementById('find-input');
+    var noMatchEl = document.getElementById('find-no-match');
+    var fitBtn = document.getElementById('fit-btn');
+    var zoomInBtn = document.getElementById('zoom-in-btn');
+    var zoomOutBtn = document.getElementById('zoom-out-btn');
+    var labelsBtn = document.getElementById('labels-btn');
+
+    if (fitBtn) { fitBtn.addEventListener('click', controlFit); }
+    if (zoomInBtn) { zoomInBtn.addEventListener('click', function () { controlZoom(1.2); }); }
+    if (zoomOutBtn) { zoomOutBtn.addEventListener('click', function () { controlZoom(1 / 1.2); }); }
+    if (labelsBtn) { labelsBtn.addEventListener('click', controlToggleLabels); }
+    if (findInput) {
+      findInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          controlFind(noMatchEl);
+        } else if (e.key === 'Escape') {
+          findInput.value = '';
+          if (noMatchEl) { noMatchEl.hidden = true; }
+          findInput.blur();
+        }
+      });
+    }
+
+    // ADR-023 D5: web-layer keyboard, scoped to the bundle (the native ADR-022
+    // shortcuts fire when Avalonia chrome has focus). Only act when cy exists;
+    // never swallow keys we do not handle.
+    document.addEventListener('keydown', function (e) {
+      var key = e.key;
+      if ((e.ctrlKey || e.metaKey) && (key === 'f' || key === 'F')) {
+        if (findInput) { e.preventDefault(); findInput.focus(); }
+        return;
+      }
+      // Esc handling for the find input lives on the input listener above.
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        if ((e.ctrlKey || e.metaKey) && key === '0') {
+          if (cy !== null) { e.preventDefault(); controlFit(); }
+        }
+        return;
+      }
+      // Plain keys: don't fight typing in the find box (or any text field).
+      if (document.activeElement === findInput) { return; }
+      if (key === '+' || key === '=') {
+        if (cy !== null) { e.preventDefault(); controlZoom(1.2); }
+      } else if (key === '-') {
+        if (cy !== null) { e.preventDefault(); controlZoom(1 / 1.2); }
+      }
+    });
+  }
+
+  wireControls();
 
   window.bridge.send({ type: 'ready', userAgent: navigator.userAgent });
 })();

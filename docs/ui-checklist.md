@@ -17,8 +17,9 @@ identity items below; never recolour without re-pinning the mirrors.
 Screenshot fixture: `tools/test-graph-bundle.ps1` drives `tests/graph-bundle/verify.mjs`
 (Playwright, headless Chromium, 1600×1000) against the LITERAL shipped `src/App/web`
 bundle fed the literal GraphBuilder demo dump — it writes `graph-overview.png`,
-`graph-focus.png`, `graph-cycle.png`, `graph-expanded.png` and `graph-diff.png`
-(the last from the hand-built gap dataset in the verify.mjs DIFF tripwire).
+`graph-focus.png`, `graph-cycle.png`, `graph-expanded.png`, `graph-diff.png`
+(from the hand-built gap dataset in the verify.mjs DIFF tripwire) and
+`graph-controls.png` (the ADR-023 in-graph control cluster).
 `workspace-live-graph.png` is the windowed smoke capture of the real app (`--demo`,
 DPI-aware PrintWindow via `tools/capture-window.ps1`) — re-take it whenever the
 renderer/mount path changes.
@@ -64,6 +65,20 @@ diffed-and-flagged node shows both cues.
 - [ ] COEXIST without collision: the node that is simultaneously Added (green underlay) and an Error finding (red severity overlay) shows BOTH cues legibly — the green underlay beneath and the red halo behind, neither masking the other nor the kind body [S:graph-diff] [P COEXIST keystone: underlay #2FAE4E + overlay #D13438 both present]
 - [ ] No-diff control unchanged: the Common node (no diff field) shows no underlay glow and the Common edge keeps its plain member styling — byte-identical to a pre-Gap render [S:graph-diff] [P Common node underlay-opacity 0]
 - [ ] Diff cues legible at demo node scale: underlay padding (8/8/6) reads as a visible ring around the small kind bodies, not a hairline; dashed/dotted edge patterns are distinguishable [S:graph-diff]
+
+### In-graph controls + find (ADR-023)
+
+`graph-controls.png` is the verify.mjs control-cluster frame. The `#controls` overlay
+(bottom-right, `pointer-events:auto`) holds Find / Fit / Zoom± / a Labels toggle — a
+quiet utilitarian cluster styled from the same neutral chrome as the legend (the legend
+stays the loud element). All web-layer, inside the bundle — never native over the
+GraphHost HWND (ADR-001).
+
+- [ ] Control cluster renders: `#controls` and each control (`#find-input`, `#fit-btn`, `#zoom-in-btn`, `#zoom-out-btn`, `#labels-btn`, `#find-no-match`) present, visible, bottom-right within the viewport; legible on the dark page, BrandTokens-neutral (no palette tones); `#controls` is `pointer-events:auto` while `#legend` stays `pointer-events:none` [S:graph-controls] [P cluster present + pe:auto vs legend pe:none]
+- [ ] Fit / Zoom local-only: Fit re-frames all elements (camera changes) and Zoom ± raise/lower `cy.zoom()` clamped to min/max — all bridge-silent and motion-counter-free (Fit/Zoom never bump `__gwAnimateCalls`, never emit `focused`) [P Fit camera change + counters 0 + zero focused] [P zoom in>out, clamp bites]
+- [ ] Find by Name OR DN: a name/DN query selects + frames the matching node exactly like a tap — one `nodeClick` (detail panel updates), `applySelection` neighborhood dim, a LOCAL eased frame, and **zero `focused`** (the focus protocol's confirmation is never spoofed); a comma-DN matches (value compare, not selector); no-match shows `#find-no-match` with zero bridge traffic [S:graph-controls] [P find Name + find comma-DN: 1 nodeClick / 0 focused / sole :selected; no-match silent]
+- [ ] Labels toggle: "Labels: all" forces every label on at fit zoom (`gw-labels-all` ⇒ `min-zoomed-font-size` 0) and survives a `graphUpdate` (re-applied in `sendLoaded`); "auto" restores the ADR-018 gate (root + Error stay forced on) [P labels-all class + mzfs 0 + persists across update; toggle-back reverts]
+- [ ] Web-layer keyboard (scoped to the bundle, no collision with the native F11/Esc/Ctrl+B): Ctrl+F focuses Find, Ctrl+0 fits, `+`/`-` zoom — suppressed while the Find input is focused so typing a `-` in a group name isn't hijacked; Esc in Find clears+blurs [P Ctrl+F focuses input; `-` in find doesn't zoom; plain `-` zooms out]
 
 ## B. Native chrome (Avalonia)
 
