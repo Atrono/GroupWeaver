@@ -167,6 +167,12 @@ public static class BrandTokens
     /// 1.4.3. Value #1b1f27.</summary>
     public const string OnLightTextHex = "#1b1f27";
 
+    /// <summary>Pure-black ink (#000000) for the MID-TONE fills the standard <see cref="OnLightTextHex"/>
+    /// (#1b1f27) cannot cover at 4.5:1 — the #106 diff-badge fix. The diff Removed fill #E0503A reaches
+    /// only 4.23:1 against #1b1f27 (FAILS 1.4.3); black clears all three diff fills (Added 7.28:1,
+    /// Removed 5.38:1, Unchecked 6.47:1). Routed through <see cref="GapKindConverters.ToTextBrush"/>.</summary>
+    public const string OnLightTextStrongHex = "#000000";
+
     /// <summary>The 1.4.11 node border-lift ring — #8A93A3 (5.33:1 vs the page bg). The 2px ring
     /// graph.js paints on the DL/UG/Computer fills whose graphical-object contrast fails 3:1; the
     /// fills themselves stay unchanged.</summary>
@@ -180,6 +186,9 @@ public static class BrandTokens
 
     /// <summary><see cref="OnLightTextHex"/> as a brush.</summary>
     public static readonly ImmutableSolidColorBrush OnLightText = new(Color.Parse(OnLightTextHex));
+
+    /// <summary><see cref="OnLightTextStrongHex"/> as a brush.</summary>
+    public static readonly ImmutableSolidColorBrush OnLightTextStrong = new(Color.Parse(OnLightTextStrongHex));
 
     /// <summary><see cref="NodeLiftRingHex"/> as a brush.</summary>
     public static readonly ImmutableSolidColorBrush NodeLiftRing = new(Color.Parse(NodeLiftRingHex));
