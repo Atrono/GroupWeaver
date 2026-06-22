@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
 
+using GroupWeaver.Core.Rules;
+
 namespace GroupWeaver.App.Settings;
 
 /// <summary>
@@ -39,9 +41,22 @@ public static class NamingPreview
     /// a full match, <see cref="NamingPreviewResult.Violation"/> when it does not
     /// match, or <see cref="NamingPreviewResult.PatternInvalid"/> when the pattern
     /// itself will not compile.
+    ///
+    /// <para>An over-long pattern is rejected on LENGTH before construction
+    /// (<see cref="GlobMatcher.MaxPatternLength"/>): NonBacktracking DFA construction cost
+    /// scales with pattern size and <see cref="MatchTimeout"/> bounds matching only, so the
+    /// length cap — shared with the loader — is the guard against a construction-time hang.</para>
     /// </summary>
     public static NamingPreviewResult Evaluate(string pattern, string sample)
     {
+        if (pattern.Length > GlobMatcher.MaxPatternLength)
+        {
+            return NamingPreviewResult.PatternInvalid(
+                $"pattern is {pattern.Length} characters and exceeds the maximum length of "
+                + $"{GlobMatcher.MaxPatternLength} characters (a long pattern can make the linear-time engine's "
+                + "Regex construction prohibitively slow).");
+        }
+
         Regex rx;
         try
         {
