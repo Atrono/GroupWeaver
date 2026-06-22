@@ -12,8 +12,7 @@
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto"
         MaxWidth="760" Margin="24">
 
-    <TextBlock Grid.Row="0" Text="Choose a root — OU or group"
-               FontSize="24" FontWeight="SemiBold" />
+    <TextBlock Grid.Row="0" Classes="title" Text="Choose a root — OU or group" />
 
     <TextBox Grid.Row="1" Margin="0,12,0,0"
              Watermark="Filter by name or DN"
@@ -38,7 +37,7 @@
             </Border>
             <StackPanel Grid.Column="1" Margin="10,0,0,0">
               <TextBlock Text="{Binding Name}" />
-              <TextBlock Text="{Binding Dn}" FontSize="11" Opacity="0.6"
+              <TextBlock Classes="dn" Text="{Binding Dn}" FontSize="11"
                          TextTrimming="CharacterEllipsis" />
             </StackPanel>
           </Grid>

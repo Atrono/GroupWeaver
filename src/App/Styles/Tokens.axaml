@@ -1,0 +1,26 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Design tokens (#91): the chrome FOUNDATION the type scale + #92/#93 consume.
+       Structural-neutral only — transparent white over the dark void (the existing
+       #…808080 separator language), NEVER a palette color (palette tone lives in
+       the graph bundle / converters, not here). -->
+
+  <!-- Spacing rhythm (a single 4px scale). -->
+  <x:Double x:Key="SpaceXs">4</x:Double>
+  <x:Double x:Key="SpaceSm">8</x:Double>
+  <x:Double x:Key="SpaceMd">12</x:Double>
+  <x:Double x:Key="SpaceLg">16</x:Double>
+  <x:Double x:Key="SpaceXl">24</x:Double>
+
+  <!-- Card chrome: transparent white over the dark void (mirrors the separator
+       language), so it tints with the background rather than introducing a tone. -->
+  <SolidColorBrush x:Key="CardBackgroundBrush" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="CardBorderBrush" Color="#22FFFFFF" />
+  <CornerRadius x:Key="CardCornerRadius">8</CornerRadius>
+
+  <!-- Tabular monospace name-stack for DNs / raw directory strings — no bundled
+       asset; mirrors the graph bundle's web/index.html legend font stack. -->
+  <FontFamily x:Key="FontFamilyMono">Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+
+</ResourceDictionary>

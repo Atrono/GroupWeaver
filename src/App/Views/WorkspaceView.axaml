@@ -25,8 +25,8 @@
                       HorizontalAlignment="Center" VerticalAlignment="Center">
             <TextBlock Text="Graph view is unavailable in this environment."
                        FontSize="20" HorizontalAlignment="Center" />
-            <TextBlock Text="{Binding RootDn}"
-                       Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+            <TextBlock Classes="dn" Text="{Binding RootDn}"
+                       TextWrapping="Wrap" TextAlignment="Center" />
           </StackPanel>
 
           <StackPanel IsVisible="{Binding WebView2Missing}" Spacing="8" MaxWidth="520"
