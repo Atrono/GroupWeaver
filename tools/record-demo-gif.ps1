@@ -217,8 +217,17 @@ try {
     }
     Log 'WebView2 canvas is up'
 
+    # The 2-node root scope (DL_FS-Finance_RW + its single External member) fits very
+    # zoomed-in, and the larger #87 encoding-key legend can tuck the rust root UNDER
+    # its top-left panel - so gate "rendered" on the External frontier node (blue,
+    # centre, never under the legend), NOT the now-occludable root. Then pan the graph
+    # down-right so the root clears the legend: this both lets the rust hunt find it
+    # AND keeps the captured frame from showing a node half-hidden behind the legend.
+    [void](Wait-NodeBlob { Save-Probe } $colorExternalNode 30 'the external frontier node (render signal)')
+    Send-CanvasDrag 620 280 940 470
+    Start-Sleep -Milliseconds 500
     [void](Wait-NodeBlob { Save-Probe } $colorRoot 30 'the root node (DomainLocalGroup rust)')
-    Log 'graph rendered'
+    Log 'graph rendered (panned clear of the legend)'
     Save-Frame 3
 
     # Self-verifying tap: success = the rust DL kind badge shows up in the detail

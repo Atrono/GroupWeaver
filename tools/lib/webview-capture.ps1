@@ -239,6 +239,36 @@ function Send-CanvasClick([int]$captureX, [int]$captureY, [bool]$double) {
     }
 }
 
+# Background drag = cytoscape PAN. A WM_MOUSEMOVE with MK_LBUTTON held between DOWN
+# and UP is exactly the "tap becomes a drag" case Send-CanvasClick avoids - here we
+# WANT it, on EMPTY canvas, so cytoscape grab-pans the viewport by the drag delta
+# (callers must NOT start on a node, or it drags the node instead). Capture coords,
+# converted to child-client like Send-CanvasClick; stepped moves so the pan registers.
+function Send-CanvasDrag([int]$fromX, [int]$fromY, [int]$toX, [int]$toY) {
+    $mainRect = Get-WindowRectOf $app.MainWindowHandle
+    $childRect = Get-WindowRectOf $chromiumHwnd
+    $lpFor = {
+        param([int]$cx, [int]$cy)
+        [GroupWeaver.WebViewCapture]::MakeLParam(
+            $mainRect.Left + $cx - $childRect.Left,
+            $mainRect.Top + $cy - $childRect.Top)
+    }
+    # Park hover at the start, settle, then press (MK_LBUTTON = 1).
+    [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_MOUSEMOVE, [IntPtr]::Zero, (& $lpFor $fromX $fromY))
+    Start-Sleep -Milliseconds 120
+    [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_LBUTTONDOWN, [IntPtr]1, (& $lpFor $fromX $fromY))
+    Start-Sleep -Milliseconds 40
+    $steps = 12
+    for ($s = 1; $s -le $steps; $s++) {
+        $ix = [int]($fromX + ($toX - $fromX) * $s / $steps)
+        $iy = [int]($fromY + ($toY - $fromY) * $s / $steps)
+        [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_MOUSEMOVE, [IntPtr]1, (& $lpFor $ix $iy))
+        Start-Sleep -Milliseconds 20
+    }
+    [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_LBUTTONUP, [IntPtr]::Zero, (& $lpFor $toX $toY))
+    Start-Sleep -Milliseconds 60
+}
+
 # WM_MOUSEWHEEL carries SCREEN coordinates (unlike the button messages). Optional
 # capture coordinates aim the wheel (cytoscape zooms toward the pointer); default
 # is the canvas center. One message per detent, MANY detents: cytoscape detects a
