@@ -49,6 +49,17 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private object _currentStep;
 
+    /// <summary>ADR-022 addendum: true only while the workspace step is current. The top strip's
+    /// "Focus" button binds <c>IsVisible</c> to this so it appears on the workspace step alone —
+    /// the Connect/RootPicker strips stay byte-identical. Recomputed (change-notified) on every
+    /// <see cref="CurrentStep"/> change via <see cref="OnCurrentStepChanged"/>.</summary>
+    public bool IsWorkspaceStep => CurrentStep is WorkspaceViewModel;
+
+    /// <summary>Raises <see cref="IsWorkspaceStep"/>'s change notification whenever the active step
+    /// changes (the generated setter already raises <c>CurrentStep</c>) — keeps the Focus button's
+    /// visibility binding in sync as steps switch (ADR-022 addendum).</summary>
+    partial void OnCurrentStepChanged(object value) => OnPropertyChanged(nameof(IsWorkspaceStep));
+
     /// <summary>ADR-022 D2: focus (presentation) mode. The top command strip binds
     /// <c>IsVisible="{Binding !IsFocusMode}"</c> so focus mode hides it (the WebView2-missing
     /// banner stays visible). Shell-level because the strip is shell chrome; propagated to the

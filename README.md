@@ -9,7 +9,7 @@ conventions. Where security-path tools like BloodHound or Adalanche show attack
 paths, GroupWeaver shows structural cleanliness and convention adherence — a
 governance perspective, not a security one.
 
-![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape, nesting drawn as edges, with a legend](docs/media/graph-explore.png)
+![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape, nesting drawn as edges, with a legend and in-graph find / zoom / labels controls](docs/media/graph-explore.png)
 
 *Exploring the bundled demo directory in demo mode: object kinds (user, global /
 domain-local / universal group, OU, computer, external) are distinct by both color
@@ -47,7 +47,10 @@ viewer (see the [project plan](PLANNING.md), German; architecture decisions in
 
 - Live LDAP connection (read-only, user context) plus a demo mode
 - Entry filter: pick a base OU or group as the graph root
-- Interactive graph: node types, nesting edges, lazy expand, drag/zoom
+- Interactive graph: node types, nesting edges, lazy expand, drag/zoom/fit,
+  find any node by name or DN, and an all-labels toggle
+- Adjustable, collapsible panel rail plus a distraction-free **focus mode**
+  (press `F`, or `F11` for full-screen) that folds the chrome away for presenting
 - Detail panel showing object attributes — restricted to an explicit
   attribute whitelist (the privacy baseline)
 - Rule engine: nesting-matrix and naming checks with traffic-light badges
@@ -77,10 +80,11 @@ GroupWeaver --demo
 All screenshots and GIFs published for this project are produced in demo mode
 only — never against a real directory.
 
-![Demo-mode walkthrough: picking the DL_FS-Finance_RW root, selecting it to inspect its attributes, lazy-expanding an external group to reveal its members, and zooming into the resulting cluster — all under the dark theme](docs/media/m2-explore.gif)
+![Demo-mode walkthrough: picking the DL_FS-Finance_RW root, selecting it to inspect its attributes, lazy-expanding an external group to reveal its members, zooming into the resulting cluster, then entering focus mode to hide the panels and view the graph edge-to-edge — all under the dark theme](docs/media/m2-explore.gif)
 
 *Picking a root, inspecting a node, lazy-expanding an unresolved group into its
-members, and zooming the AGDLP-Demo structure — entirely in demo mode.*
+members, zooming the AGDLP-Demo structure, then pressing **F** for focus mode — the
+panels fold away and the graph fills the window. Entirely in demo mode.*
 
 ## Rulesets
 

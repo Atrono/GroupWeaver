@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.Tests.Fakes;
@@ -128,6 +130,64 @@ public sealed class ShellFocusModeTests
         shell.Dispose();
     }
 
+    // --- IsWorkspaceStep notification (ADR-022 addendum) --------------------------------
+
+    [Fact]
+    public async Task IsWorkspaceStep_FalseOffWorkspace_TrueOnWorkspace_AndChangeNotifiedOnTransition()
+    {
+        // Pins the ADR-022 addendum gate the top-strip "⛶ Focus" button binds its IsVisible to:
+        // ShellViewModel.IsWorkspaceStep is false off the workspace step and true on it, AND a
+        // PropertyChanged for IsWorkspaceStep is raised on the transition INTO the workspace. That
+        // notification is the live proof OnCurrentStepChanged (the CommunityToolkit partial hook)
+        // actually fires — if its generated signature were wrong, no explicit-name notification
+        // would arrive and the button's visibility would silently stick. The drive is inlined (the
+        // DriveToWorkspaceAsync helper returns the shell already on the workspace step, too late to
+        // observe the transition), reusing that helper's StubDirectoryProvider construction.
+        using var dir = new TempDir();
+        var provider = NewWorkspaceProvider();
+        var shell = NewShell(provider, dir.Path);
+
+        // Fresh Connect step: not the workspace, so the gate is false before any drive.
+        var connect = Assert.IsType<ConnectionViewModel>(shell.CurrentStep);
+        Assert.False(shell.IsWorkspaceStep);
+
+        // Subscribe BEFORE the LoadRootCommand transition so the change is observable. Records
+        // the explicit-name notification (PropertyChanged also fires for null/"" meaning "all";
+        // we assert specifically on the explicit IsWorkspaceStep name the partial raises).
+        var workspaceStepNotified = false;
+        void OnShellChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ShellViewModel.IsWorkspaceStep))
+            {
+                workspaceStepNotified = true;
+            }
+        }
+
+        shell.PropertyChanged += OnShellChanged;
+
+        // Drive Connect → PickRoot, still off the workspace at subscribe time.
+        await connect.ConnectDemoCommand.ExecuteAsync(null);
+        var picker = Assert.IsType<RootPickerViewModel>(shell.CurrentStep);
+        await picker.LoadCandidates;
+        Assert.False(shell.IsWorkspaceStep); // still off the workspace on the picker step
+
+        // The transition into the workspace — the moment OnCurrentStepChanged must re-raise.
+        picker.SelectedCandidate = picker.Candidates[0];
+        picker.LoadRootCommand.Execute(null);
+        var workspace = Assert.IsType<WorkspaceViewModel>(shell.CurrentStep);
+        await workspace.Initialization;
+
+        shell.PropertyChanged -= OnShellChanged;
+
+        Assert.True(shell.IsWorkspaceStep); // now ON the workspace step
+        Assert.True(
+            workspaceStepNotified,
+            "the transition into the workspace must raise PropertyChanged for IsWorkspaceStep "
+            + "(proves OnCurrentStepChanged fires — the Focus button's visibility binding stays live)");
+
+        shell.Dispose();
+    }
+
     // --- helpers ------------------------------------------------------------------------
 
     /// <summary>Builds a shell whose workspace rail state persists to <paramref name="baseDir"/>
@@ -149,19 +209,25 @@ public sealed class ShellFocusModeTests
             new StartupOptions(Demo: false),
             new WebView2RuntimeStatus(IsInstalled: true, Version: "test"));
 
-    /// <summary>Drives Connect → PickRoot → Workspace and settles the scope load, landing the
-    /// shell on a loaded <see cref="WorkspaceViewModel"/> step (renderer-less — focus + rail are
-    /// VM state only). The workspace rail persists to <paramref name="baseDir"/>.</summary>
-    private static async Task<ShellViewModel> DriveToWorkspaceAsync(string baseDir)
-    {
-        var provider = new StubDirectoryProvider(
-            Task.FromResult(new DirectoryConnection("stub directory", 0)))
+    /// <summary>The stub provider <see cref="DriveToWorkspaceAsync"/> drives: one OU root
+    /// candidate and an empty scope snapshot — renderer-less, so the workspace is VM state only.
+    /// Extracted so the inline-drive tests (which must subscribe mid-drive) reuse the identical
+    /// provider construction.</summary>
+    private static StubDirectoryProvider NewWorkspaceProvider() =>
+        new(Task.FromResult(new DirectoryConnection("stub directory", 0)))
         {
             RootCandidatesResult = Task.FromResult<IReadOnlyList<AdObject>>([
                 new AdObject { Dn = RootDn, Kind = AdObjectKind.OrganizationalUnit, Name = "Lab" },
             ]),
             LoadScopeResult = Task.FromResult(new DirectorySnapshot()),
         };
+
+    /// <summary>Drives Connect → PickRoot → Workspace and settles the scope load, landing the
+    /// shell on a loaded <see cref="WorkspaceViewModel"/> step (renderer-less — focus + rail are
+    /// VM state only). The workspace rail persists to <paramref name="baseDir"/>.</summary>
+    private static async Task<ShellViewModel> DriveToWorkspaceAsync(string baseDir)
+    {
+        var provider = NewWorkspaceProvider();
 
         var shell = NewShell(provider, baseDir);
 

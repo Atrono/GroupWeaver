@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -283,9 +284,101 @@ public sealed class ShellScreenshotTests
         // The graph surface fills GraphHost — the strip-and-rail-free focus frame is all graph.
         Assert.True(graphSurface.IsEffectivelyVisible, "the graph surface must fill GraphHost in focus mode");
 
+        // ADR-022 addendum: the "⛶ Focus" button lives INSIDE the strip Border, so once focus mode
+        // hides the whole strip the button is no longer effectively-visible either — entered from
+        // the strip, the strip melts away, and Esc/F (not the button) bring it back. Pins that the
+        // entry point shares the strip's fate (no orphaned, still-clickable button over the graph).
+        var focusButton = FocusModeButton(window);
+        Assert.False(
+            focusButton!.IsEffectivelyVisible,
+            "the Focus button (inside the hidden strip) must not be effectively-visible in focus mode");
+
         CapturePng(window, "workspace-focus", width, height);
         window.Close();
     }
+
+    /// <summary>
+    /// ADR-022 addendum (the focus-mode ENTRY POINT D2 specified but the first cut omitted): the
+    /// "⛶ Focus" toggle in the top command strip. A soundness pin (not a screenshot): on a loaded
+    /// workspace the named <c>FocusModeButton</c> is realized AND effectively-visible (it binds
+    /// <c>IsVisible="{Binding IsWorkspaceStep}"</c>, true on the workspace), so focus mode is
+    /// user-reachable; on the Connect step the same button is NOT effectively-visible (and may not
+    /// be realized at all), so the Connect/RootPicker strips stay byte-identical. Without a control
+    /// the addendum closes, focus mode shipped reachable only programmatically.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task FocusModeButton_VisibleOnWorkspace_HiddenOnConnect()
+    {
+        // Workspace: the entry point is realized and visible — focus mode is user-reachable.
+        var (workspaceWindow, workspaceShell) = ShowShell(Present, 1280, 720);
+        await DriveToWorkspaceAsync(workspaceShell);
+        Dispatcher.UIThread.RunJobs();
+
+        var onWorkspace = FocusModeButton(workspaceWindow);
+        Assert.NotNull(onWorkspace);
+        Assert.True(
+            onWorkspace!.IsEffectivelyVisible,
+            "the Focus button must be visible on the workspace step (IsVisible binds IsWorkspaceStep)");
+        workspaceWindow.Close();
+
+        // Connect step (no drive): the strip's StackPanel realizes, but the Focus button binds
+        // IsWorkspaceStep=false, so it is collapsed (or not realized) — never a live affordance.
+        var (connectWindow, connectShell) = ShowShell(Present, 1280, 720);
+        Assert.IsType<ConnectionViewModel>(connectShell.CurrentStep);
+        Dispatcher.UIThread.RunJobs();
+
+        var onConnect = FocusModeButton(connectWindow);
+        Assert.True(
+            onConnect is null || !onConnect.IsEffectivelyVisible,
+            "the Focus button must not be a live affordance off the workspace step");
+        connectWindow.Close();
+    }
+
+    /// <summary>
+    /// ADR-022 addendum, the <c>[I]</c> INTERACTIVE layer: a single <c>F</c> key on the workspace
+    /// toggles focus mode through the REAL input pipeline — a dispatched headless KeyDown reaches
+    /// <see cref="MainWindow.OnKeyDown"/>, which (gated to the workspace step) executes
+    /// <see cref="ShellViewModel.ToggleFocusModeCommand"/>, flipping <see cref="ShellViewModel.IsFocusMode"/>
+    /// and collapsing the active workspace rail (D2). F again exits. This is the gesture the demo
+    /// recorder posts via <c>WM_KEYDOWN</c> (single-key, not a chord) so the chrome melts away. The
+    /// key is delivered with Avalonia.Headless's <c>KeyPressQwerty</c> extension (physical→Key.F,
+    /// down+up) — a genuine dispatched key, NOT the command path, so this pins the OnKeyDown wiring.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WorkspaceFocus_FKey_TogglesFocusMode_BothWays()
+    {
+        var (window, shell) = ShowShell(Present, 1280, 720);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.IsFocusMode);
+        Assert.False(workspace.IsRailCollapsed);
+
+        // A real dispatched 'F' KeyDown (QWERTY physical→Key.F; down+up) through the input pipeline.
+        window.KeyPressQwerty(PhysicalKey.F, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shell.IsFocusMode, "a dispatched 'F' on the workspace must enter focus mode (OnKeyDown)");
+        Assert.True(workspace.IsRailCollapsed, "focus mode must collapse the active workspace rail (D2)");
+
+        // 'F' again exits — the same single-key gesture toggles back.
+        window.KeyPressQwerty(PhysicalKey.F, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.IsFocusMode, "a second 'F' must exit focus mode");
+        Assert.False(workspace.IsRailCollapsed, "exiting focus mode must re-expand the rail");
+
+        window.Close();
+    }
+
+    /// <summary>The named "⛶ Focus" command-strip button (ADR-022 addendum) — the focus-mode entry
+    /// point, located by <see cref="Avalonia.StyledElement.Name"/> ("FocusModeButton"). Returns null
+    /// when not realized (e.g. on a step that never materializes the strip's StackPanel), so callers
+    /// can assert "absent OR not-visible" off the workspace.</summary>
+    private static Avalonia.Controls.Button? FocusModeButton(MainWindow window) =>
+        window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Button>()
+            .FirstOrDefault(b => b.Name == "FocusModeButton");
 
     /// <summary>
     /// ADR-022 (the large-monitor proof): a loaded workspace at a 2560×1080 ULTRAWIDE frame — the

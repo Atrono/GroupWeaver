@@ -16,6 +16,8 @@
       4. Lazy expand  -> posted double-click on the single External frontier node
                          (CN=GG_Finance_Staff resolves + 20 members: 2 -> 22 nodes)
       5. Zoom         -> posted WM_MOUSEWHEEL bursts aimed at the expanded cluster
+      6. Focus mode   -> posted single 'F' key (ADR-022 addendum) hides the command
+                         strip + right rail; the graph goes edge-to-edge (presentation)
 
     A frame is captured via tools/capture-window.ps1 (DPI-aware PrintWindow, window
     only - no desktop leakage) after each beat plus in-between, then assembled with
@@ -284,8 +286,21 @@ try {
         Start-Sleep -Milliseconds 350
         Save-Frame 1
     }
+    Save-Frame 1
+
+    # --- beat 6: focus (presentation) mode - hide the chrome, graph edge-to-edge -
+    # Post the single 'F' key (ADR-022 addendum: F toggles focus mode in the workspace)
+    # to the Avalonia window. The top command strip + the right rail collapse, leaving
+    # the graph the full width. VK_F = 0x46, posted to the MAIN-window HWND so it reaches
+    # Window.OnKeyDown even though the WebView canvas holds Win32 focus after the zoom.
+    # We deliberately do NOT use F11 full-screen: that drops the title bar and changes the
+    # capture dimensions mid-GIF; focus mode keeps the window size, so the frame stays the
+    # same while the chrome melts away. Hold on the clean view as the finale.
+    Log 'entering focus mode (F) - hiding panels for the presentation finale'
+    Send-Key 0x46
+    Start-Sleep -Milliseconds 900   # strip + rail collapse + WebView reflow settle
     Save-Frame 2
-    Hold-Frame 2
+    Hold-Frame 3
 }
 finally {
     if (-not $app.HasExited) {
