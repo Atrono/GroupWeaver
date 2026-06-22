@@ -85,10 +85,11 @@ and spot-checked by hand when the step changes.
 
 Cross-cutting bar; the per-surface items below inherit it. The type scale + tokens are
 available app-wide (App.axaml), but a view only reads them where it opts in by class —
-the v0.2 pass adopted them in **connect / root-picker / detail-panel / workspace / settings**.
-**Known follow-up:** Plan-mode and Gap-mode chrome (`PlanView`/`GapView`) are NOT yet on the
-type scale or the per-hue badge ink (their severity/diff glyphs still use the pre-#90 white
-ink) — propagate when those surfaces are next touched.
+adopted across **connect / root-picker / detail-panel / workspace / settings / plan / gap**
+(#106 brought Plan/Gap onto the scale + per-hue ink, closing the last gap). Gap's diff
+badges use the stronger `BrandTokens.OnLightTextStrong` (#000000) ink, not the page-bg
+`OnLightText` (#1b1f27): the mid-tone Removed `#E0503A` reaches only 4.23:1 with the latter
+(ADR-021, resolved deferral).
 
 - [ ] Declared type scale, not default-Fluent: the `src/App/Styles/Typography.axaml` classes (display / title / subtitle / heading / subheading / body / eyebrow / secondary / caption / dn / dn-strong) give a real hierarchy across the adopted views — they read as an intentional product, not a template [S:connection-idle] [S:workspace-detail] [S:rootpicker-demo] [T:TypographyTests — the display size + mono DN family are EFFECTIVELY applied, fail if the include is dropped]
 - [ ] Wordmark signature: the connect "GroupWeaver" is one display-class TextBlock with a weight-paired two-run split (Group = Light, Weaver = SemiBold) — one intentional move, no colour, no decoration [S:connection-idle] [T:TypographyTests — two Runs, weights Light then SemiBold]
