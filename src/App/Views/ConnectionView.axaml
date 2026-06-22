@@ -4,42 +4,69 @@
              x:Class="GroupWeaver.App.Views.ConnectionView"
              x:DataType="vm:ConnectionViewModel">
 
-  <!-- Connect step (AP 2.1): sparse centered card. There is no success state here -
-       on success the shell switches this view out for the PickRoot step. -->
-  <StackPanel Width="420" Spacing="12"
-              HorizontalAlignment="Center" VerticalAlignment="Center">
+  <!-- Connect step (AP 2.1): a sparse, centered quiet card on the dark void. There is no
+       success state here — on success the shell switches this view out for the PickRoot
+       step. #93: the bare two-grey-buttons-on-black layout gains a card frame, an eyebrow
+       voice line, and a real primary (accent Connect) / secondary (ghost Demo) hierarchy. -->
+  <Panel>
 
-    <!-- Wordmark signature (#91): one intentional move — a weight-paired split of the
-         two halves, no color, no decoration. -->
-    <TextBlock Classes="display" HorizontalAlignment="Center"><Run Text="Group" FontWeight="Light" /><Run Text="Weaver" FontWeight="SemiBold" /></TextBlock>
-    <TextBlock Classes="subtitle"
-               Text="Visualize and audit Active Directory group structure — strictly read-only."
-               TextWrapping="Wrap" TextAlignment="Center"
-               Margin="0,0,0,16" />
+    <!-- Concentric-ring signature (#93, the one sanctioned aesthetic risk): faint rings
+         behind the card echoing the graph's concentric layout. Structural-neutral white at
+         very low opacity (the separator language), hit-test-false so they never steal a
+         click. No GraphHost/native-HWND here, so no airspace concern. -->
+    <Ellipse Width="360" Height="360" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+             HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+    <Ellipse Width="520" Height="520" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+             HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+    <Ellipse Width="680" Height="680" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+             HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+    <Ellipse Width="840" Height="840" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+             HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
 
-    <Button Content="Connect to domain"
-            Command="{Binding ConnectCommand}"
-            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-    <TextBlock Classes="secondary"
-               Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
-               TextWrapping="Wrap" TextAlignment="Center" />
+    <Border Background="{StaticResource CardBackgroundBrush}"
+            BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
+            CornerRadius="{StaticResource CardCornerRadius}"
+            Padding="24" Width="420"
+            HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Spacing="12">
 
-    <Button Content="Demo mode"
-            Command="{Binding ConnectDemoCommand}"
-            Margin="0,8,0,0"
-            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-    <TextBlock Classes="secondary"
-               Text="Explores the embedded demo directory — no domain needed."
-               TextWrapping="Wrap" TextAlignment="Center" />
+        <!-- Eyebrow (the voice move): an ALL-CAPS tracked label above the wordmark. -->
+        <TextBlock Classes="eyebrow" Text="ACTIVE DIRECTORY AUDIT" HorizontalAlignment="Center" />
 
-    <ProgressBar IsIndeterminate="True" Margin="0,8,0,0"
-                 IsVisible="{Binding IsConnecting}" />
+        <!-- Wordmark signature (#91): one intentional move — a weight-paired split of the
+             two halves, no color, no decoration. -->
+        <TextBlock Classes="display" HorizontalAlignment="Center"><Run Text="Group" FontWeight="Light" /><Run Text="Weaver" FontWeight="SemiBold" /></TextBlock>
+        <TextBlock Classes="subtitle"
+                   Text="Visualize and audit Active Directory group structure — strictly read-only."
+                   TextWrapping="Wrap" TextAlignment="Center"
+                   Margin="0,0,0,16" />
 
-    <TextBlock Text="{Binding ErrorMessage}"
-               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
-               Foreground="#C42B1C" TextWrapping="Wrap"
-               Margin="0,8,0,0" />
+        <Button Classes="accent" Content="Connect to domain"
+                Command="{Binding ConnectCommand}"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        <TextBlock Classes="secondary"
+                   Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
+                   TextWrapping="Wrap" TextAlignment="Center" />
 
-  </StackPanel>
+        <Button Classes="ghost" Content="Demo mode"
+                Command="{Binding ConnectDemoCommand}"
+                Margin="0,8,0,0"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        <TextBlock Classes="secondary"
+                   Text="Explores the embedded demo directory — no domain needed."
+                   TextWrapping="Wrap" TextAlignment="Center" />
+
+        <ProgressBar IsIndeterminate="True" Margin="0,8,0,0"
+                     IsVisible="{Binding IsConnecting}" />
+
+        <TextBlock Text="{Binding ErrorMessage}"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   Foreground="#C42B1C" TextWrapping="Wrap"
+                   Margin="0,8,0,0" />
+
+      </StackPanel>
+    </Border>
+
+  </Panel>
 
 </UserControl>

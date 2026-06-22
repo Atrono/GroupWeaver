@@ -152,9 +152,9 @@
     <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#33808080"
             Padding="12,8">
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-        <Button Content="Apply" MinWidth="84" Command="{Binding ApplyActionCommand}" />
-        <Button Content="Save" MinWidth="84" IsDefault="True" Command="{Binding SaveActionCommand}" />
-        <Button Content="Cancel" MinWidth="84" IsCancel="True" Click="OnCancelClick" />
+        <Button Classes="ghost" Content="Apply" MinWidth="84" Command="{Binding ApplyActionCommand}" />
+        <Button Classes="accent" Content="Save" MinWidth="84" IsDefault="True" Command="{Binding SaveActionCommand}" />
+        <Button Classes="ghost" Content="Cancel" MinWidth="84" IsCancel="True" Click="OnCancelClick" />
       </StackPanel>
     </Border>
 
@@ -254,8 +254,12 @@
               <DataTemplate x:DataType="settings:NamingRuleEditor">
 
                 <!-- One naming-rule card: Id/Enabled/Severity/Kind/Pattern/Description,
-                     a PreviewSample TextBox, and the live-preview chip. -->
-                <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6"
+                     a PreviewSample TextBox, and the live-preview chip. #93: the outer card
+                     chrome adopts the shared structural-neutral tokens (card border / radius /
+                     padding) — inner controls + bindings untouched (soundness pins). -->
+                <Border BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
+                        Background="{StaticResource CardBackgroundBrush}"
+                        CornerRadius="{StaticResource CardCornerRadius}"
                         Padding="12" Margin="0,0,0,10">
                   <StackPanel Spacing="8">
 
