@@ -1741,6 +1741,450 @@ async function main() {
       `interaction block must leave a CLEAN state for the downstream dbltap/focus phases: selected=${finalClear.selectedCount}, dim=${finalClear.anyDim}, hover=${finalClear.anyHover}`);
     phase('graph-selection screenshot (select + dim + selective labels, then cleared)');
 
+    // =========================================================================
+    // ADR-023 (#WP-B): in-graph control cluster + find-a-node (web-layer).
+    // Placed here on purpose: the interaction block above left a CLEAN state
+    // (no selection/dim/hover, asserted) and the camera at the post-graphCommit
+    // fit, and the downstream focus phases reset __gwAnimateCalls before they
+    // use it - so this block may freely move the camera and select a node. The
+    // run has emitted ZERO 'focused' messages so far (every focus phase is
+    // BELOW), which makes the "Fit/Zoom/Find are 'focused'-silent" asserts a
+    // clean before/after delta over allMessages. ids/classes mirror the shipped
+    // src/App/web/index.html + graph.js verbatim (read, not guessed):
+    //   #controls (pointer-events:auto), #find-input, #find-no-match (.no-match,
+    //   toggled via the `hidden` ATTRIBUTE - graph.js sets noMatchEl.hidden, and
+    //   the CSS is `.no-match[hidden]{display:none}`; there is NO `.hidden`
+    //   class), #fit-btn, #zoom-in-btn/#zoom-out-btn (.zoom-btn), #labels-btn
+    //   (aria-pressed + "Labels: auto"<->"Labels: all"). Find: ONE nodeClick +
+    //   applySelection + a LOCAL cy.animate fit, NEVER focusOn/'focused'. Note
+    //   that Find's frame IS a real core cy.animate, so it DOES bump
+    //   __gwAnimateCalls (asserted only for Fit/Zoom that it does NOT) - the
+    //   load-bearing Find invariant is zero 'focused', not the animate counter.
+
+    // (1) Cluster renders: #controls + each control exists, is visible, and the
+    // interactive overlay is pointer-events:auto while #legend stays :none. A
+    // control is "visible" = a non-zero client rect AND display !== 'none'
+    // (getBoundingClientRect is viewport-relative; position:fixed bottom-right).
+    const controlsDom = await page.evaluate(() => {
+      const ids = ['controls', 'find-input', 'fit-btn', 'zoom-in-btn', 'zoom-out-btn', 'labels-btn', 'find-no-match'];
+      const out = {};
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) { out[id] = { present: false }; continue; }
+        const box = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        out[id] = {
+          present: true,
+          width: box.width, height: box.height,
+          left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+          display: cs.display, visibility: cs.visibility,
+          pointerEvents: cs.pointerEvents,
+        };
+      }
+      out.__viewport = { innerWidth: window.innerWidth, innerHeight: window.innerHeight };
+      out.__legendPE = getComputedStyle(document.getElementById('legend')).pointerEvents;
+      return out;
+    });
+    // Every control PRESENT.
+    for (const id of ['controls', 'find-input', 'fit-btn', 'zoom-in-btn', 'zoom-out-btn', 'labels-btn', 'find-no-match']) {
+      assert(controlsDom[id].present,
+        `ADR-023 (1): #${id} must exist in the shipped bundle (control cluster missing)`);
+    }
+    // Every control EXCEPT the no-match affordance is visible right now (the
+    // no-match starts hidden via the `hidden` attribute - asserted separately).
+    for (const id of ['controls', 'find-input', 'fit-btn', 'zoom-in-btn', 'zoom-out-btn', 'labels-btn']) {
+      const c = controlsDom[id];
+      assert(c.width > 0 && c.height > 0 && c.display !== 'none' && c.visibility !== 'hidden',
+        `ADR-023 (1): #${id} must be visible (non-zero box, display!='none', visibility!='hidden'): ${JSON.stringify(c)}`);
+    }
+    // #find-no-match is PRESENT but starts HIDDEN (display:none via [hidden]);
+    // it becomes visible only on a no-match query (asserted in (4)).
+    assert(controlsDom['find-no-match'].display === 'none',
+      `ADR-023 (1): #find-no-match must start HIDDEN (display:none via the [hidden] attribute), got display '${controlsDom['find-no-match'].display}'`);
+    // The cluster sits bottom-right, fully within the viewport (mirror of the
+    // legend airspace assert): box.right <= innerWidth, box.bottom <= innerHeight,
+    // and RIGHT of viewport center (the legend owns the top-left, controls the
+    // bottom-right - they must not fight for the same corner).
+    const cbox = controlsDom['controls'];
+    assert(cbox.right <= controlsDom.__viewport.innerWidth + 0.5 && cbox.bottom <= controlsDom.__viewport.innerHeight + 0.5,
+      `ADR-023 (1): #controls must stay fully within the viewport (right ${cbox.right} <= ${controlsDom.__viewport.innerWidth}, bottom ${cbox.bottom} <= ${controlsDom.__viewport.innerHeight})`);
+    assert(cbox.left > controlsDom.__viewport.innerWidth / 2,
+      `ADR-023 (1): #controls must sit RIGHT of viewport center (bottom-right cluster, never over the legend's top-left): box.left ${cbox.left} <= innerWidth/2 ${controlsDom.__viewport.innerWidth / 2}`);
+    // The interactive-overlay invariant: #controls is pointer-events:auto (the
+    // FIRST interactive bundle overlay) while #legend stays pointer-events:none
+    // (taps fall through to the canvas). This is THE ADR-023 D1 keystone.
+    assert(cbox.pointerEvents === 'auto',
+      `ADR-023 (1): #controls must be pointer-events:auto (the first interactive bundle overlay - clicks land on the controls, not the canvas), got '${cbox.pointerEvents}'`);
+    assert(controlsDom.__legendPE === 'none',
+      `ADR-023 (1): #legend must STAY pointer-events:none alongside the new interactive #controls, got '${controlsDom.__legendPE}'`);
+    phase('ADR-023 (1) control cluster renders (visible, bottom-right, pointer-events:auto; legend stays none)');
+
+    // Helper: live 'focused' tally over allMessages (Fit/Zoom/Find must NOT move
+    // it - that confirmation is the .NET focus protocol's alone, ADR-023 D3).
+    const focusedCount = () => allMessages.filter((m) => m.type === 'focused').length;
+
+    // (2) Fit: pre-zoom so Fit visibly changes the viewport, then click #fit-btn.
+    // The camera must change (zoom differs from the zoomed-in state) AND neither
+    // __gwAnimateCalls (Fit is a synchronous cy.fit, not cy.animate) nor the
+    // 'focused' tally may move (Fit is local + bridge-silent, ADR-023 D2).
+    await page.evaluate(() => {
+      // Zoom in hard from the current fit so Fit has somewhere to return FROM.
+      window.__cy.zoom(window.__cy.zoom() * 3);
+      window.__gwAnimateCalls = 0;
+      window.__gwAnimateLastDuration = null;
+    });
+    const preFit = await page.evaluate(() => ({ zoom: window.__cy.zoom() }));
+    const focusedBeforeFit = focusedCount();
+    await page.click('#fit-btn');
+    const postFit = await page.evaluate(() => ({
+      zoom: window.__cy.zoom(),
+      animateCalls: window.__gwAnimateCalls,
+    }));
+    assert(Math.abs(postFit.zoom - preFit.zoom) > 1e-6,
+      `ADR-023 (2): clicking #fit-btn must CHANGE the camera (cy.zoom ${preFit.zoom} -> ${postFit.zoom} unchanged - Fit did nothing?)`);
+    assert(postFit.animateCalls === 0,
+      `ADR-023 (2): Fit must be a LOCAL synchronous cy.fit, NOT an eased cy.animate (ADR-017 motion counter must stay 0): __gwAnimateCalls ${postFit.animateCalls} != 0`);
+    assert(focusedCount() === focusedBeforeFit,
+      `ADR-023 (2): Fit must be bridge-SILENT - no 'focused' message may be emitted (that channel is the .NET focus protocol's): 'focused' tally ${focusedBeforeFit} -> ${focusedCount()}`);
+    phase(`ADR-023 (2) Fit changes the camera, motion counter + 'focused' untouched`);
+
+    // (3) Zoom +/-: #zoom-in-btn RAISES cy.zoom(), #zoom-out-btn LOWERS it; both
+    // clamp within [minZoom, maxZoom]; no bridge traffic. controlZoom is a
+    // synchronous cy.zoom (not cy.animate), so __gwAnimateCalls stays 0 too.
+    await page.evaluate(() => { window.__gwAnimateCalls = 0; });
+    const zoomBounds = await page.evaluate(() => ({
+      min: window.__cy.minZoom(), max: window.__cy.maxZoom(), z0: window.__cy.zoom(),
+    }));
+    const focusedBeforeZoom = focusedCount();
+    await page.click('#zoom-in-btn');
+    const afterIn = await page.evaluate(() => ({ z: window.__cy.zoom() }));
+    assert(afterIn.z > zoomBounds.z0,
+      `ADR-023 (3): #zoom-in-btn must RAISE cy.zoom (${zoomBounds.z0} -> ${afterIn.z})`);
+    await page.click('#zoom-out-btn');
+    await page.click('#zoom-out-btn');
+    const afterOut = await page.evaluate(() => ({ z: window.__cy.zoom() }));
+    assert(afterOut.z < afterIn.z,
+      `ADR-023 (3): #zoom-out-btn must LOWER cy.zoom (${afterIn.z} -> ${afterOut.z})`);
+    // Clamp tripwire that ACTUALLY bites: the demo cy uses cytoscape's default
+    // (effectively unbounded) min/max zoom (~1e-50 / 1e50), so spamming buttons
+    // would never reach the clamp. Install TIGHT bounds around the current zoom,
+    // spam each direction past them, and assert controlZoom's Math.max/min held
+    // the result inside [min, max]. Bounds are restored afterward so the rest of
+    // the run sees the production config. (cy.maxZoom(n)/cy.minZoom(n) setters.)
+    const clamp = await page.evaluate(() => {
+      const cy = window.__cy;
+      const savedMin = cy.minZoom();
+      const savedMax = cy.maxZoom();
+      const z = cy.zoom();
+      const tightMax = z * 1.5;
+      const tightMin = z / 1.5;
+      cy.maxZoom(tightMax);
+      cy.minZoom(tightMin);
+      // Spam in past tightMax (1.2^10 ~ 6.2x >> 1.5x), then out past tightMin.
+      for (let i = 0; i < 10; i++) { document.getElementById('zoom-in-btn').click(); }
+      const hi = cy.zoom();
+      for (let i = 0; i < 20; i++) { document.getElementById('zoom-out-btn').click(); }
+      const lo = cy.zoom();
+      cy.minZoom(savedMin);
+      cy.maxZoom(savedMax);
+      return { tightMax, tightMin, hi, lo };
+    });
+    assert(clamp.hi <= clamp.tightMax + 1e-6,
+      `ADR-023 (3): zoom-in must CLAMP at cy.maxZoom (${clamp.tightMax}): after 10 in-clicks cy.zoom ${clamp.hi} exceeded it (Math.min clamp missing?)`);
+    assert(clamp.lo >= clamp.tightMin - 1e-6,
+      `ADR-023 (3): zoom-out must CLAMP at cy.minZoom (${clamp.tightMin}): after 20 out-clicks cy.zoom ${clamp.lo} fell below it (Math.max clamp missing?)`);
+    const zoomMotion = await page.evaluate(() => window.__gwAnimateCalls);
+    assert(zoomMotion === 0,
+      `ADR-023 (3): Zoom buttons must use a synchronous cy.zoom, never cy.animate: __gwAnimateCalls ${zoomMotion} != 0`);
+    assert(focusedCount() === focusedBeforeZoom,
+      `ADR-023 (3): Zoom must be bridge-SILENT - no 'focused' may be emitted: 'focused' tally ${focusedBeforeZoom} -> ${focusedCount()}`);
+    // Restore the fit so the camera state is clean for the find frame below.
+    await page.evaluate(() => { window.__cy.fit(window.__cy.elements(), 80); });
+    phase(`ADR-023 (3) Zoom +/- raises/lowers + clamps within [${zoomBounds.min}, ${zoomBounds.max}], bridge-silent`);
+
+    // (4) Find. Subjects derived from the rendered fixture (never hard-coded), so
+    // they survive demo-baseline drift: a node whose exact Name (data('label'))
+    // lookup is unambiguous, and a full comma-containing DN. The bundle's
+    // findNode prefers an exact label/id match (all 196 demo labels are unique),
+    // so each subject resolves to ITSELF. Find sends exactly ONE nodeClick with
+    // that node's id, selects it (applySelection - same neighborhood dim as a
+    // tap), and emits ZERO 'focused'. We drive Enter on #find-input (the bundle's
+    // submit gesture) and consume the single nodeClick off the FIFO each time.
+    const findByNameNode = fixture.nodes.find((x) => !x.root && x.label && x.label.length >= 3);
+    assert(findByNameNode !== undefined,
+      'ADR-023 (4): fixture must contain a non-root node with a usable Name for find-by-name');
+    // A DIFFERENT node for the DN test (distinct from the name subject) so the
+    // comma-DN value lookup is genuinely independent of the name path - and a
+    // comma-containing DN so it proves the comma-safe value compare (ADR-004 D5).
+    const findByDnNode = fixture.nodes.find((x) =>
+      x.id.includes(',') && !x.root && x.id !== findByNameNode.id);
+    assert(findByDnNode !== undefined,
+      'ADR-023 (4): fixture must contain a comma-containing DN (distinct from the name subject) for find-by-DN');
+
+    // Drive Find via the #find-input value + a real Enter keydown (the shipped
+    // submit gesture). fill() sets the value; press('Enter') dispatches the
+    // document/input keydown the bundle listens for. The adjacency map (built
+    // for the selection phase above) gives the expected neighborhood dim.
+    async function driveFind(query, label) {
+      const focusedBefore = focusedCount();
+      await page.fill('#find-input', query);
+      await page.press('#find-input', 'Enter');
+      return { focusedBefore, label };
+    }
+
+    // --- Find by NAME --------------------------------------------------------
+    const fbn = await driveFind(findByNameNode.label, 'name');
+    const fbnClick = await awaitMessage('nodeClick', `find-by-name Enter on '${findByNameNode.label}'`);
+    assert(fbnClick.id === findByNameNode.id,
+      `ADR-023 (4) find-by-name: ONE nodeClick must carry the matched node's id '${findByNameNode.id}', got '${fbnClick.id}'`);
+    const fbnState = await page.evaluate((a) => {
+      const cy = window.__cy;
+      const n = cy.getElementById(a.id);
+      return {
+        found: n.length === 1,
+        selected: n.selected(),
+        selectedCount: cy.nodes(':selected').length,
+        selfDim: n.hasClass('gw-dim'),
+        noMatchHidden: document.getElementById('find-no-match').hidden,
+      };
+    }, { id: findByNameNode.id });
+    assert(fbnState.found && fbnState.selected && fbnState.selectedCount === 1 && !fbnState.selfDim,
+      `ADR-023 (4) find-by-name: matched node '${findByNameNode.id}' must become :selected (exactly one selected, self un-dimmed via applySelection): ${JSON.stringify(fbnState)}`);
+    assert(fbnState.noMatchHidden === true,
+      `ADR-023 (4) find-by-name: a successful match must keep #find-no-match HIDDEN (hidden attribute true), got hidden=${fbnState.noMatchHidden}`);
+    assert(focusedCount() === fbn.focusedBefore,
+      `ADR-023 (4) find-by-name: Find must NEVER emit 'focused' (it frames LOCALLY, never focusOn): 'focused' tally ${fbn.focusedBefore} -> ${focusedCount()}`);
+    // Exactly ONE nodeClick was produced (the FIFO is now empty for that type).
+    const fbnExtraClicks = (pendingByType.get('nodeClick') || []).length;
+    assert(fbnExtraClicks === 0,
+      `ADR-023 (4) find-by-name: Find must send EXACTLY ONE nodeClick, found ${fbnExtraClicks} extra queued`);
+    phase(`ADR-023 (4) find by Name selects '${findByNameNode.id}' (one nodeClick, zero focused)`);
+
+    // --- Find by DN (full comma-containing DN proves the comma-safe lookup) ---
+    const fbd = await driveFind(findByDnNode.id, 'dn');
+    const fbdClick = await awaitMessage('nodeClick', `find-by-DN Enter on '${findByDnNode.id}'`);
+    assert(fbdClick.id === findByDnNode.id,
+      `ADR-023 (4) find-by-DN: ONE nodeClick must carry the matched DN '${findByDnNode.id}' byte-identically (value compare, not selector concatenation - ADR-004 D5), got '${fbdClick.id}'`);
+    const fbdState = await page.evaluate((a) => {
+      const cy = window.__cy;
+      const n = cy.getElementById(a.id);
+      return { selected: n.selected(), selectedCount: cy.nodes(':selected').length };
+    }, { id: findByDnNode.id });
+    assert(fbdState.selected && fbdState.selectedCount === 1,
+      `ADR-023 (4) find-by-DN: matched DN '${findByDnNode.id}' must become the sole :selected node: ${JSON.stringify(fbdState)}`);
+    assert(focusedCount() === fbd.focusedBefore,
+      `ADR-023 (4) find-by-DN: Find by DN must also emit ZERO 'focused': tally ${fbd.focusedBefore} -> ${focusedCount()}`);
+    const fbdExtraClicks = (pendingByType.get('nodeClick') || []).length;
+    assert(fbdExtraClicks === 0,
+      `ADR-023 (4) find-by-DN: Find must send EXACTLY ONE nodeClick, found ${fbdExtraClicks} extra queued`);
+    phase(`ADR-023 (4) find by full comma-DN selects '${findByDnNode.id}' (comma-safe, one nodeClick, zero focused)`);
+
+    // --- No-match: a junk query shows #find-no-match (NOT hidden) and produces
+    // ZERO new bridge traffic (no nodeClick, no focused, nothing). Snapshot the
+    // TOTAL message count before/after to prove total bridge silence.
+    const JUNK_QUERY = 'zzz__no_such_node__qqq__adr023';
+    assert(!fixture.nodes.some((x) =>
+      (x.label || '').toLowerCase().includes(JUNK_QUERY.toLowerCase()) || x.id.toLowerCase().includes(JUNK_QUERY.toLowerCase())),
+      `ADR-023 (4) no-match: the junk query '${JUNK_QUERY}' must not be a substring of any fixture Name/DN (else it would match)`);
+    const msgCountBeforeJunk = allMessages.length;
+    await page.fill('#find-input', JUNK_QUERY);
+    await page.press('#find-input', 'Enter');
+    const junkState = await page.evaluate(() => {
+      const el = document.getElementById('find-no-match');
+      return {
+        hidden: el.hidden,
+        display: getComputedStyle(el).display,
+        selectedCount: window.__cy.nodes(':selected').length,
+      };
+    });
+    assert(junkState.hidden === false && junkState.display !== 'none',
+      `ADR-023 (4) no-match: a junk query must SHOW #find-no-match (hidden attribute false, display!='none'): ${JSON.stringify(junkState)}`);
+    assert(allMessages.length === msgCountBeforeJunk,
+      `ADR-023 (4) no-match: a no-match must produce ZERO bridge traffic (no nodeClick/focused/anything): message count ${msgCountBeforeJunk} -> ${allMessages.length}`);
+    phase('ADR-023 (4) no-match shows #find-no-match, zero bridge traffic');
+
+    // Clear the find input + selection so the labels phase + downstream
+    // dbltap/focus phases start clean. Esc clears+blurs the input (and re-hides
+    // the no-match affordance); a background tap clears the selection/dim.
+    await page.press('#find-input', 'Escape');
+    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    const findCleared = await page.evaluate(() => ({
+      inputValue: document.getElementById('find-input').value,
+      noMatchHidden: document.getElementById('find-no-match').hidden,
+      selectedCount: window.__cy.nodes(':selected').length,
+      anyDim: window.__cy.nodes('.gw-dim').length,
+    }));
+    assert(findCleared.inputValue === '' && findCleared.noMatchHidden === true,
+      `ADR-023 (4): Esc in #find-input must CLEAR the value and re-hide #find-no-match: value '${findCleared.inputValue}', noMatchHidden ${findCleared.noMatchHidden}`);
+    assert(findCleared.selectedCount === 0 && findCleared.anyDim === 0,
+      `ADR-023 (4): post-find state must be clean (no selection/dim) for downstream phases: selected ${findCleared.selectedCount}, dim ${findCleared.anyDim}`);
+    phase('ADR-023 (4) find input + selection cleared (clean state)');
+
+    // (5) Labels toggle: click #labels-btn -> aria-pressed="true", label
+    // "Labels: all", every cy.node carries gw-labels-all, and its effective
+    // min-zoomed-font-size is 0 (the rule drops the ADR-018 fit-zoom gate). Then
+    // exercise persistence across a graphUpdate: re-feed the SAME fixture (all
+    // ids survive => no fade, no camera move) and assert the nodes STILL carry
+    // gw-labels-all (re-applied via applyLabelMode() inside sendLoaded). Toggle
+    // back -> class removed, aria-pressed="false", label "Labels: auto".
+    const beforeToggle = await page.evaluate(() => {
+      const btn = document.getElementById('labels-btn');
+      return { ariaPressed: btn.getAttribute('aria-pressed'), text: btn.textContent.trim() };
+    });
+    assert(beforeToggle.ariaPressed === 'false' && /labels:\s*auto/i.test(beforeToggle.text),
+      `ADR-023 (5): #labels-btn must start in the 'auto' state (aria-pressed=false, "Labels: auto"): ${JSON.stringify(beforeToggle)}`);
+    await page.click('#labels-btn');
+    const labelsOn = await page.evaluate(() => {
+      const btn = document.getElementById('labels-btn');
+      const nodes = window.__cy.nodes();
+      let allHaveClass = true;
+      let mzfsMax = 0;
+      nodes.forEach((n) => {
+        if (!n.hasClass('gw-labels-all')) { allHaveClass = false; }
+        const m = Number(n.style('min-zoomed-font-size'));
+        if (m > mzfsMax) { mzfsMax = m; }
+      });
+      return {
+        ariaPressed: btn.getAttribute('aria-pressed'),
+        text: btn.textContent.trim(),
+        allHaveClass,
+        nodeCount: nodes.length,
+        mzfsMax,
+      };
+    });
+    assert(labelsOn.ariaPressed === 'true' && /labels:\s*all/i.test(labelsOn.text),
+      `ADR-023 (5): after one click #labels-btn must be the 'all' state (aria-pressed=true, "Labels: all"): ${JSON.stringify(labelsOn)}`);
+    assert(labelsOn.allHaveClass && labelsOn.nodeCount === fixture.nodes.length,
+      `ADR-023 (5): Labels:all must add gw-labels-all to EVERY cy node (${labelsOn.nodeCount} nodes, allHaveClass=${labelsOn.allHaveClass})`);
+    assert(Math.abs(labelsOn.mzfsMax) < 1e-6,
+      `ADR-023 (5): with gw-labels-all every node's effective min-zoomed-font-size must be 0 (label gate dropped), got max ${labelsOn.mzfsMax}`);
+    phase('ADR-023 (5) Labels:all toggles class + drops min-zoomed-font-size to 0');
+
+    // Persistence across graphUpdate: re-feed the identical fixture set + commit
+    // with graphUpdate. All ids survive (no new nodes => no F1 enter fade), the
+    // viewport is untouched (ADR-005 D1), and applyLabelMode() re-asserts the
+    // 'all' mode inside sendLoaded so the re-added nodes STILL carry the class.
+    await page.evaluate(() => { window.__gwAnimateCalls = 0; window.__gwEnterAnims = []; });
+    for (const chunk of toChunks(fixture.nodes, fixture.edges)) {
+      await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+    }
+    await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+    await awaitMessage('loaded', 'ADR-023 (5): graphUpdate -> labelMode persistence check');
+    const labelsAfterUpdate = await page.evaluate(() => {
+      const btn = document.getElementById('labels-btn');
+      const nodes = window.__cy.nodes();
+      let allHaveClass = true;
+      nodes.forEach((n) => { if (!n.hasClass('gw-labels-all')) { allHaveClass = false; } });
+      return {
+        ariaPressed: btn.getAttribute('aria-pressed'),
+        allHaveClass,
+        nodeCount: nodes.length,
+        animateCalls: window.__gwAnimateCalls,
+        enterCount: (window.__gwEnterAnims || []).length,
+      };
+    });
+    assert(labelsAfterUpdate.allHaveClass && labelsAfterUpdate.nodeCount === fixture.nodes.length,
+      `ADR-023 (5): Labels:all must SURVIVE a graphUpdate - the re-added nodes must STILL carry gw-labels-all (re-applied via applyLabelMode in sendLoaded): allHaveClass=${labelsAfterUpdate.allHaveClass}, nodes=${labelsAfterUpdate.nodeCount}`);
+    assert(labelsAfterUpdate.ariaPressed === 'true',
+      `ADR-023 (5): #labels-btn aria-pressed must remain 'true' across the graphUpdate (labelMode is module-level state), got '${labelsAfterUpdate.ariaPressed}'`);
+    assert(labelsAfterUpdate.animateCalls === 0 && labelsAfterUpdate.enterCount === 0,
+      `ADR-023 (5): the identical-set graphUpdate must add NO new nodes (all survivors) - no camera move, no enter fade: __gwAnimateCalls ${labelsAfterUpdate.animateCalls}, __gwEnterAnims ${labelsAfterUpdate.enterCount}`);
+    phase('ADR-023 (5) Labels:all survives graphUpdate (re-applied in sendLoaded)');
+
+    // Toggle back -> 'auto': class removed from every node, aria-pressed=false,
+    // label "Labels: auto". Restores the default label gate for downstream phases.
+    await page.click('#labels-btn');
+    const labelsOff = await page.evaluate(() => {
+      const btn = document.getElementById('labels-btn');
+      const anyHaveClass = window.__cy.nodes('.gw-labels-all').length;
+      return {
+        ariaPressed: btn.getAttribute('aria-pressed'),
+        text: btn.textContent.trim(),
+        anyHaveClass,
+      };
+    });
+    assert(labelsOff.ariaPressed === 'false' && /labels:\s*auto/i.test(labelsOff.text),
+      `ADR-023 (5): a second click must return #labels-btn to 'auto' (aria-pressed=false, "Labels: auto"): ${JSON.stringify(labelsOff)}`);
+    assert(labelsOff.anyHaveClass === 0,
+      `ADR-023 (5): toggling back to 'auto' must REMOVE gw-labels-all from every node, ${labelsOff.anyHaveClass} still carry it`);
+    phase('ADR-023 (5) Labels toggle back to auto removes the class');
+
+    // (6) Keyboard (web-layer, document keydown - ADR-023 D5). Playwright injects
+    // real key events at the browser level, so the document listener fires.
+    //   - Ctrl+F focuses #find-input (and preventDefault stops the browser find).
+    //   - Ctrl+0 fits (camera changes, no 'focused').
+    //   - a plain '-' while NOT focused in find zooms out; a '-' TYPED while
+    //     #find-input is focused must NOT change zoom (the suppression branch).
+    // Ctrl+F: focus the find input.
+    await page.evaluate(() => { document.getElementById('find-input').blur(); });
+    await page.keyboard.press('Control+f');
+    const ctrlF = await page.evaluate(() => ({
+      active: document.activeElement && document.activeElement.id,
+    }));
+    assert(ctrlF.active === 'find-input',
+      `ADR-023 (6): Ctrl+F must make #find-input the document.activeElement, got '${ctrlF.active}'`);
+    phase('ADR-023 (6) Ctrl+F focuses the find input');
+
+    // '-' WHILE find is focused must be suppressed (it is normal typing): zoom
+    // unchanged. (Ctrl+F left the input focused.)
+    const zoomBeforeTypedMinus = await page.evaluate(() => window.__cy.zoom());
+    await page.keyboard.press('-');
+    const zoomAfterTypedMinus = await page.evaluate(() => ({
+      zoom: window.__cy.zoom(),
+      active: document.activeElement && document.activeElement.id,
+    }));
+    assert(zoomAfterTypedMinus.active === 'find-input',
+      `ADR-023 (6): typing '-' in #find-input must keep it focused (typing, not a zoom gesture), active '${zoomAfterTypedMinus.active}'`);
+    assert(Math.abs(zoomAfterTypedMinus.zoom - zoomBeforeTypedMinus) < 1e-9,
+      `ADR-023 (6): a '-' typed WHILE #find-input is focused must NOT zoom (suppressed while typing): cy.zoom ${zoomBeforeTypedMinus} -> ${zoomAfterTypedMinus.zoom}`);
+    // Clear the stray '-' the input now holds and blur so the next plain-key
+    // assert runs with focus OFF the find box.
+    await page.evaluate(() => {
+      const i = document.getElementById('find-input');
+      i.value = '';
+      i.blur();
+    });
+    phase("ADR-023 (6) '-' typed in find is suppressed (no zoom)");
+
+    // Plain '-' while NOT focused in find: zooms out (the document keydown acts).
+    const zoomBeforePlainMinus = await page.evaluate(() => window.__cy.zoom());
+    await page.keyboard.press('-');
+    const zoomAfterPlainMinus = await page.evaluate(() => window.__cy.zoom());
+    assert(zoomAfterPlainMinus < zoomBeforePlainMinus - 1e-9,
+      `ADR-023 (6): a plain '-' while NOT in the find box must zoom OUT: cy.zoom ${zoomBeforePlainMinus} -> ${zoomAfterPlainMinus}`);
+    phase("ADR-023 (6) plain '-' (find unfocused) zooms out");
+
+    // Ctrl+0 fits: pre-zoom, then Ctrl+0 must return to the fit (camera changes)
+    // with no 'focused' emitted (Ctrl+0 -> controlFit, local + bridge-silent).
+    await page.evaluate(() => { window.__cy.zoom(window.__cy.zoom() * 2.5); });
+    const preCtrl0 = await page.evaluate(() => window.__cy.zoom());
+    const focusedBeforeCtrl0 = focusedCount();
+    await page.keyboard.press('Control+0');
+    const postCtrl0 = await page.evaluate(() => window.__cy.zoom());
+    assert(Math.abs(postCtrl0 - preCtrl0) > 1e-6,
+      `ADR-023 (6): Ctrl+0 must FIT (change the camera): cy.zoom ${preCtrl0} -> ${postCtrl0} unchanged`);
+    assert(focusedCount() === focusedBeforeCtrl0,
+      `ADR-023 (6): Ctrl+0 Fit must be bridge-silent (no 'focused'): tally ${focusedBeforeCtrl0} -> ${focusedCount()}`);
+    phase('ADR-023 (6) Ctrl+0 fits (camera changes, no focused)');
+
+    // Restore the canonical fit + a fully clean state for the downstream
+    // dbltap/focus phases (selection cleared, camera at fit, no labels-all).
+    await page.evaluate(() => {
+      window.__cy.emit('tap', { target: window.__cy });
+      window.__cy.fit(window.__cy.elements(), 80);
+    });
+    const adr023Clean = await page.evaluate(() => ({
+      selectedCount: window.__cy.nodes(':selected').length,
+      anyDim: window.__cy.nodes('.gw-dim').length,
+      anyLabelsAll: window.__cy.nodes('.gw-labels-all').length,
+    }));
+    assert(adr023Clean.selectedCount === 0 && adr023Clean.anyDim === 0 && adr023Clean.anyLabelsAll === 0,
+      `ADR-023: the control block must leave a CLEAN state for downstream phases: selected ${adr023Clean.selectedCount}, dim ${adr023Clean.anyDim}, labels-all ${adr023Clean.anyLabelsAll}`);
+    // Screenshot the control cluster frame for the ui-verifier (docs/ui-checklist §A).
+    await page.screenshot({ path: join(screenshotDir, 'graph-controls.png') });
+    phase('ADR-023 control cluster verified + clean state restored (graph-controls.png)');
+    // =========================================================================
+
     // --- expand protocol (dbltap -> nodeExpand, AP 2.3's wire) ----------------
     // Braces matter: emit() returns the cytoscape collection - returning it makes
     // Playwright serialize a huge cyclic object graph (renderer caches included),
@@ -2227,8 +2671,9 @@ async function main() {
       + `selection + neighborhood dim + hover + selective labels verified (#89), `
       + `reverse select command (tap-identical/empty-clear/unknown-clear/instant) verified (#96), `
       + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
+      + `control cluster + find (name/DN/no-match) + zoom/fit + labels toggle + keyboard verified (ADR-023), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
-      + `6 screenshots -> ${screenshotDir}`);
+      + `7 screenshots -> ${screenshotDir}`);
   } finally {
     expectedShutdown = true;
     await browser.close();
