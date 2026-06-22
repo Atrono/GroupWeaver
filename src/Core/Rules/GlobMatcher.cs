@@ -31,6 +31,16 @@ public static class GlobMatcher
     /// Core untrusted-input <see cref="Regex"/> ctor routes through (RuleEngine, RulesetLoader).</summary>
     internal static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(2);
 
+    /// <summary>Shared cap, in characters, on untrusted-regex pattern length — rejected
+    /// BEFORE <c>new Regex(...)</c> because <see cref="RegexOptions.NonBacktracking"/> builds
+    /// a DFA at CONSTRUCTION time whose cost scales with pattern size, and
+    /// <see cref="RegexMatchTimeout"/> bounds MATCHING only, not the ctor (the 0.2 audit
+    /// measured an untrusted ~263 KB pattern freezing construction for 7.5 s, 689 KB → 58 s).
+    /// One source of truth so the two construction sites cannot drift: both
+    /// <c>RulesetLoader</c> (load-time validation) and <c>NamingPreview</c> (App live preview)
+    /// consume it.</summary>
+    public const int MaxPatternLength = 1000;
+
     private static readonly ConcurrentDictionary<string, Regex> Cache = new(StringComparer.Ordinal);
 
     /// <summary>Live count of memoized globs; never exceeds <see cref="CacheCapacity"/>.</summary>
