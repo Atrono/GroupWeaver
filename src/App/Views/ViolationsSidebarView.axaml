@@ -139,6 +139,17 @@
     <ListBox Grid.Row="2" Margin="0,8,0,0"
              Background="Transparent"
              ItemsSource="{Binding Violations}">
+      <!-- Soft bottom fade (#92): a render-time OpacityMask so a finding clipped at
+           the scroll fold reads as scrollable, not broken. Render-only composite -
+           it does NOT alter row measurement/realization or the Row 1 chip strip
+           (outside the mask), so the ShellScreenshotTests geometry pins hold. -->
+      <ListBox.OpacityMask>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+          <GradientStop Color="#FFFFFFFF" Offset="0.0" />
+          <GradientStop Color="#FFFFFFFF" Offset="0.92" />
+          <GradientStop Color="#00FFFFFF" Offset="1.0" />
+        </LinearGradientBrush>
+      </ListBox.OpacityMask>
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:ViolationRowModel">
           <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
@@ -182,11 +193,23 @@
 
     <!-- "Unexpanded areas are unchecked" hint (PLANNING.md AP 3.4): visible whenever
          UncheckedDns is non-empty - a load-state honesty notice, never ignore-filtered
-         (ADR-009), shown even in the all-clear state. -->
-    <TextBlock Grid.Row="3" Margin="0,8,0,0"
-               Text="Unexpanded areas are unchecked — expand groups to audit them."
-               IsVisible="{Binding HasUncheckedAreas}"
-               Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+         (ADR-009), shown even in the all-clear state. Wrapped in a tinted info block
+         (#92 chrome#10) on the #91 card tokens so it reads as a distinct affordance,
+         not body copy; the info glyph is plain text (no sized Border) to stay clear of
+         the 18x18/20x20 geometry pins. -->
+    <Border Grid.Row="3" Margin="0,8,0,0"
+            Background="{StaticResource CardBackgroundBrush}"
+            BorderBrush="{StaticResource CardBorderBrush}"
+            BorderThickness="1" CornerRadius="6" Padding="8,6"
+            IsVisible="{Binding HasUncheckedAreas}">
+      <Grid ColumnDefinitions="Auto,*">
+        <TextBlock Grid.Column="0" Text="&#x2139;" Classes="secondary"
+                   VerticalAlignment="Top" Margin="0,0,8,0" />
+        <TextBlock Grid.Column="1"
+                   Text="Unexpanded areas are unchecked — expand groups to audit them."
+                   Classes="secondary" TextWrapping="Wrap" />
+      </Grid>
+    </Border>
 
   </Grid>
 

@@ -11,7 +11,7 @@
        GraphHost (ADR-001 airspace guardrail 5). Values wrap and are selectable;
        the panel is the full-value surface (D4) - no truncation, ever. -->
   <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="12" Spacing="8">
+    <StackPanel Margin="12" Spacing="10">
 
       <!-- Header: kind badge from THE one converter palette (parity with the root
            picker and the graph node colors) + the object name, prominent. -->
@@ -65,6 +65,13 @@
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
+
+      <!-- Terminus hairline (#92): a faint top-border rule closing the content stack
+           so the under-fill below a short panel reads as deliberate empty space, not
+           a clipped/broken region. Render-only chrome on the #91 card-border token;
+           touches no binding or the attribute-row realization above. -->
+      <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource CardBorderBrush}"
+              Margin="0,12,0,0" Height="1" />
 
     </StackPanel>
   </ScrollViewer>
