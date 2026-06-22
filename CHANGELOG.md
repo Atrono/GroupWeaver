@@ -4,6 +4,44 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-06-22
+
+UI polish pass over the v0.2.0 feature set — presentation only. No new features,
+no behaviour change, and still read-only by construction: nothing in this release
+writes to Active Directory. An audit against declared standards (WCAG 2.2 AA,
+Nielsen heuristics, a `frontend-design` identity lens) drove every change.
+
+### Added
+- **Graph motion** — focus / jump-to-node now *eases* the camera (no synchronous
+  cut) and genuinely-new nodes *fade in* on lazy expand; an in-canvas **busy ring**
+  marks the node being expanded for the directory round-trip. Honors
+  `prefers-reduced-motion` (ADR-017, ADR-019).
+- **Graph interaction feedback** — tapping a node selects it (white border) and
+  dims non-neighbors; hover brightens; the root and Error-severity nodes stay
+  labeled at fit zoom. A sidebar jump now drives the same on-canvas selection
+  (ADR-018, ADR-020).
+- **Encoding-key legend** — the static legend is recast as a crafted key with the
+  real node shapes as swatches and **live per-kind counts**.
+- **Declared visual identity** — a single-source `BrandTokens` palette and a
+  declared type scale (`src/App/Styles`): a wordmark treatment, all distinguished
+  names in a tabular-monospace face, a primary/secondary action hierarchy on the
+  connect and settings screens, and consistent card/spacing rhythm (ADR-021).
+
+### Fixed
+- **WCAG 2.2 AA contrast** — Warning/Info severity badge glyphs were white-on-fill
+  (2.06:1 / 2.73:1) and now use per-hue dark ink; the DomainLocal / Universal /
+  Computer node fills (sub-3:1 against the page background) gain a contrast-lift
+  border so the node boundary reads (1.4.11). Every semantic cue keeps its
+  redundant non-color channel (1.4.1).
+- **Findings list** no longer reads as a clipped render bug — a soft scroll fade
+  plus a distinct, carded "unexpanded areas are unchecked" notice; the detail
+  panel closes with a terminus rule so a short panel no longer leaves a dead gutter.
+- **Plan editor input hardening** — the plan editor now rejects the same unsafe
+  characters at author time (adding / renaming a node) that the PowerShell export
+  already rejected (control characters, line/paragraph separators, and Unicode
+  quotation marks), so an unsafe name is caught as you type rather than only at
+  export. The export boundary itself is unchanged.
+
 ## [0.2.0] - 2026-06-15
 
 Second feature release. Adds **plan authoring**, **gap analysis** (diff a proposed
