@@ -1516,7 +1516,9 @@ async function main() {
 
     // --- background-tap clears selection + dim (also cleanup for downstream) ---
     // evt.target === cy => the core-level background tap handler clears everything.
-    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    // Braces: do NOT implicitly return cy.emit()'s cyclic collection (CDP
+    // serialization wedge - see the find-clear note in the ADR-023 block).
+    await page.evaluate(() => { window.__cy.emit('tap', { target: window.__cy }); });
     const cleared = await page.evaluate((a) => {
       const cy = window.__cy;
       return {
@@ -1670,7 +1672,9 @@ async function main() {
       `hover must WIN over dim by source order (gw-hover after gw-dim, ADR-018 D1): effective background-blacken on a hovered+dimmed node must be ${SELECTION.hoverBlacken} (hover), got ${hoverOverDim.blacken} (if +0.6, the gw-hover rule is BEFORE gw-dim in source order)`);
     // Drop the hover, then clear the selection so the label phase starts clean.
     await page.evaluate((id) => { window.__cy.getElementById(id).emit('mouseout'); }, nonNeighborDn);
-    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    // Braces: do NOT implicitly return cy.emit()'s cyclic collection (CDP
+    // serialization wedge - see the find-clear note in the ADR-023 block).
+    await page.evaluate(() => { window.__cy.emit('tap', { target: window.__cy }); });
     phase('hovered-AND-dimmed source order (gw-hover wins over gw-dim)');
 
     // --- #88 motion counters UNTOUCHED across the whole select/hover/clear block
@@ -1731,7 +1735,9 @@ async function main() {
     await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), selectDn);
     await awaitMessage('nodeClick', `clickTest (re-select for screenshot) on '${selectDn}'`);
     await page.screenshot({ path: join(screenshotDir, 'graph-selection.png') });
-    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    // Braces: do NOT implicitly return cy.emit()'s cyclic collection (CDP
+    // serialization wedge - see the find-clear note in the ADR-023 block).
+    await page.evaluate(() => { window.__cy.emit('tap', { target: window.__cy }); });
     const finalClear = await page.evaluate(() => ({
       selectedCount: window.__cy.nodes(':selected').length,
       anyDim: window.__cy.nodes('.gw-dim').length,
@@ -1835,7 +1841,11 @@ async function main() {
     });
     const preFit = await page.evaluate(() => ({ zoom: window.__cy.zoom() }));
     const focusedBeforeFit = focusedCount();
-    await page.click('#fit-btn');
+    // Bound every #controls click with MESSAGE_TIMEOUT_MS (defensive, CI run
+    // 27977999334): a future reflow stall fails fast with a clear message
+    // instead of silently eating the 300s watchdog. The standalone Playwright
+    // lib's default action timeout is 0 (unbounded), so this is the only bound.
+    await page.click('#fit-btn', { timeout: MESSAGE_TIMEOUT_MS });
     const postFit = await page.evaluate(() => ({
       zoom: window.__cy.zoom(),
       animateCalls: window.__gwAnimateCalls,
@@ -1856,12 +1866,12 @@ async function main() {
       min: window.__cy.minZoom(), max: window.__cy.maxZoom(), z0: window.__cy.zoom(),
     }));
     const focusedBeforeZoom = focusedCount();
-    await page.click('#zoom-in-btn');
+    await page.click('#zoom-in-btn', { timeout: MESSAGE_TIMEOUT_MS });
     const afterIn = await page.evaluate(() => ({ z: window.__cy.zoom() }));
     assert(afterIn.z > zoomBounds.z0,
       `ADR-023 (3): #zoom-in-btn must RAISE cy.zoom (${zoomBounds.z0} -> ${afterIn.z})`);
-    await page.click('#zoom-out-btn');
-    await page.click('#zoom-out-btn');
+    await page.click('#zoom-out-btn', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.click('#zoom-out-btn', { timeout: MESSAGE_TIMEOUT_MS });
     const afterOut = await page.evaluate(() => ({ z: window.__cy.zoom() }));
     assert(afterOut.z < afterIn.z,
       `ADR-023 (3): #zoom-out-btn must LOWER cy.zoom (${afterIn.z} -> ${afterOut.z})`);
@@ -1922,13 +1932,30 @@ async function main() {
       'ADR-023 (4): fixture must contain a comma-containing DN (distinct from the name subject) for find-by-DN');
 
     // Drive Find via the #find-input value + a real Enter keydown (the shipped
-    // submit gesture). fill() sets the value; press('Enter') dispatches the
-    // document/input keydown the bundle listens for. The adjacency map (built
-    // for the selection phase above) gives the expected neighborhood dim.
+    // submit gesture). We focus the input and drive it with DOCUMENT-level
+    // page.keyboard.* (the same hang-free mechanism the ADR-023 (6) keyboard
+    // block uses at ~lines 2120/2131/2151/2162), NOT selector-targeted
+    // page.fill/page.press. Reason (CI run 27977999334): page.fill/page.press
+    // re-run actionability auto-wait (which is UNBOUNDED in the standalone
+    // Playwright lib) against #find-input every call; once a prior no-match
+    // un-hides #find-no-match the #controls flex-column reflows and the
+    // cytoscape canvas keeps repainting, so on the slow 2-core CI runner
+    // Playwright never observes a "stable" frame and the wait blocks until the
+    // watchdog fires. keyboard.type dispatches keys without selector
+    // actionability. We set focus once, clear any prior value, then type the
+    // query and press Enter. The adjacency map (built for the selection phase
+    // above) gives the expected neighborhood dim.
     async function driveFind(query, label) {
       const focusedBefore = focusedCount();
-      await page.fill('#find-input', query);
-      await page.press('#find-input', 'Enter');
+      await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+      // Clear any residual value deterministically (no selector re-actionability).
+      await page.evaluate(() => {
+        const i = document.getElementById('find-input');
+        i.value = '';
+        i.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.keyboard.type(query);
+      await page.keyboard.press('Enter');
       return { focusedBefore, label };
     }
 
@@ -1987,8 +2014,16 @@ async function main() {
       (x.label || '').toLowerCase().includes(JUNK_QUERY.toLowerCase()) || x.id.toLowerCase().includes(JUNK_QUERY.toLowerCase())),
       `ADR-023 (4) no-match: the junk query '${JUNK_QUERY}' must not be a substring of any fixture Name/DN (else it would match)`);
     const msgCountBeforeJunk = allMessages.length;
-    await page.fill('#find-input', JUNK_QUERY);
-    await page.press('#find-input', 'Enter');
+    // Same hang-free document-keyboard driving as driveFind (no selector
+    // actionability against the reflowing #controls box - CI run 27977999334).
+    await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.evaluate(() => {
+      const i = document.getElementById('find-input');
+      i.value = '';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.keyboard.type(JUNK_QUERY);
+    await page.keyboard.press('Enter');
     const junkState = await page.evaluate(() => {
       const el = document.getElementById('find-no-match');
       return {
@@ -2006,8 +2041,33 @@ async function main() {
     // Clear the find input + selection so the labels phase + downstream
     // dbltap/focus phases start clean. Esc clears+blurs the input (and re-hides
     // the no-match affordance); a background tap clears the selection/dim.
-    await page.press('#find-input', 'Escape');
-    await page.evaluate(() => window.__cy.emit('tap', { target: window.__cy }));
+    //
+    // HARDENING (CI run 27977999334): the preceding no-match un-hid
+    // #find-no-match, growing the #controls flex column. Driving the input via
+    // selector-targeted page.press('#find-input', 'Escape') re-runs Playwright's
+    // actionability auto-wait against the just-moved input - unbounded in the
+    // standalone Playwright lib. We instead focus + document-level keyboard.press
+    // (the same mechanism the ADR-023 (6) block uses below), which dispatches the
+    // Escape keydown the bundle listens for WITHOUT any selector-actionability
+    // wait. NOTE: this is the secondary hardening - the watchdog-eating hang was
+    // actually the NEXT statement (see the load-bearing brace below).
+    await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.keyboard.press('Escape');
+    // Braces are LOAD-BEARING (the actual #117/run-27977999334 hang, found by
+    // bisecting DIAG phase logs): `() => cy.emit('tap', ...)` IMPLICITLY returns
+    // the value of emit() - the cytoscape CORE collection, a huge cyclic object.
+    // Playwright's page.evaluate then tries to returnByValue-serialize that graph
+    // over CDP. Right here that runs while the just-shown #find-no-match has
+    // grown the #controls flex column and the canvas is mid-repaint; on a
+    // contended 2-core runner the serialization wedges the renderer thread and
+    // the CDP round-trip never returns - the 300s watchdog fires (last completed
+    // phase: "no-match shows #find-no-match"). The brace makes the arrow return
+    // undefined, so nothing is serialized. This is the IDENTICAL trap already
+    // documented + fixed for the dbltap emit below (~line 2280; runs
+    // 27409858814 / 27419366522). The page.focus + keyboard.press above are also
+    // hardened (no selector actionability against the reflowing box), but the
+    // serialization wedge was the silent hang.
+    await page.evaluate(() => { window.__cy.emit('tap', { target: window.__cy }); });
     const findCleared = await page.evaluate(() => ({
       inputValue: document.getElementById('find-input').value,
       noMatchHidden: document.getElementById('find-no-match').hidden,
@@ -2033,7 +2093,7 @@ async function main() {
     });
     assert(beforeToggle.ariaPressed === 'false' && /labels:\s*auto/i.test(beforeToggle.text),
       `ADR-023 (5): #labels-btn must start in the 'auto' state (aria-pressed=false, "Labels: auto"): ${JSON.stringify(beforeToggle)}`);
-    await page.click('#labels-btn');
+    await page.click('#labels-btn', { timeout: MESSAGE_TIMEOUT_MS });
     const labelsOn = await page.evaluate(() => {
       const btn = document.getElementById('labels-btn');
       const nodes = window.__cy.nodes();
@@ -2093,7 +2153,7 @@ async function main() {
 
     // Toggle back -> 'auto': class removed from every node, aria-pressed=false,
     // label "Labels: auto". Restores the default label gate for downstream phases.
-    await page.click('#labels-btn');
+    await page.click('#labels-btn', { timeout: MESSAGE_TIMEOUT_MS });
     const labelsOff = await page.evaluate(() => {
       const btn = document.getElementById('labels-btn');
       const anyHaveClass = window.__cy.nodes('.gw-labels-all').length;
@@ -2127,6 +2187,22 @@ async function main() {
 
     // '-' WHILE find is focused must be suppressed (it is normal typing): zoom
     // unchanged. (Ctrl+F left the input focused.)
+    //
+    // SETTLE BARRIER (found by capturing cy.animated() at the sample point): an
+    // earlier eased viewport tween - the find-by-name/DN controlFind fit
+    // (cy.animate({fit}, 280ms), ADR-023 D3) - can still be DRAINING here. With
+    // the old page.fill/page.press find-driving its actionability *stability*
+    // wait happened to absorb that tween; the hang-free keyboard driving above
+    // does not, so on a slow runner the run reaches this assert with
+    // cy.animated()===true and cy.zoom() drifting frame-to-frame. The '-' is
+    // correctly SUPPRESSED (the active-element assert below proves focus never
+    // left #find-input, so the bundle's typing-guard short-circuits controlZoom),
+    // but the drifting tween moves zoom between the before/after reads and trips
+    // the 1e-9 tolerance. Draining the camera to rest first removes the timing
+    // confound WITHOUT touching what is asserted: on a settled camera, the only
+    // thing that can move zoom is the keypress - exactly the suppression under
+    // test. Bounded so a stuck tween fails fast, never the 300s watchdog.
+    await page.waitForFunction(() => !window.__cy.animated(), null, { timeout: MESSAGE_TIMEOUT_MS });
     const zoomBeforeTypedMinus = await page.evaluate(() => window.__cy.zoom());
     await page.keyboard.press('-');
     const zoomAfterTypedMinus = await page.evaluate(() => ({
