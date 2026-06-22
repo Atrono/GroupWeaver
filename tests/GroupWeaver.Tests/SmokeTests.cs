@@ -12,17 +12,17 @@ public class SmokeTests
     [Fact]
     public void CoreAssembly_InformationalVersion_StartsWithPinnedVersion()
     {
-        // Directory.Build.props pins <Version>0.2.0</Version> (bumped from 0.1.0
-        // for the v0.2.0 release); the App banner (src/App/Program.cs) prints the
-        // informational version derived from it. The SDK appends "+<commit>" via
-        // SourceLink, hence StartsWith.
+        // Directory.Build.props pins <Version>0.2.1</Version> (bumped from 0.2.0
+        // for the v0.2.1 polish-pass release); the App banner (src/App/Program.cs)
+        // prints the informational version derived from it. The SDK appends
+        // "+<commit>" via SourceLink, hence StartsWith.
         var core = Assembly.Load("GroupWeaver.Core");
         var informationalVersion = core
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion;
 
         Assert.NotNull(informationalVersion);
-        Assert.StartsWith("0.2.0", informationalVersion);
+        Assert.StartsWith("0.2.1", informationalVersion);
     }
 
     [Fact]
