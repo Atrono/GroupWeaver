@@ -53,6 +53,18 @@ public sealed partial class MainWindow : Window
                 // child control's own Escape handling (popups, combo boxes) is left untouched.
                 e.Handled = ExitFullScreenAndFocus();
                 break;
+            case Key.F:
+                // ADR-022 addendum: single 'F' toggles focus mode, but ONLY on the workspace step —
+                // there is no native text input there to hijack (the web Find box lives inside the
+                // WebView's own HWND). Off the workspace it falls through unhandled. Single-key (not
+                // a chord) so the demo recorder can post it via WM_KEYDOWN.
+                if (DataContext is ShellViewModel shell && shell.CurrentStep is WorkspaceViewModel)
+                {
+                    shell.ToggleFocusModeCommand.Execute(null);
+                    e.Handled = true;
+                }
+
+                break;
         }
 
         base.OnKeyDown(e);

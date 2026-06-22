@@ -62,6 +62,8 @@ public const uint WM_LBUTTONDOWN = 0x0201;
 public const uint WM_LBUTTONUP = 0x0202;
 public const uint WM_MOUSEWHEEL = 0x020A;
 public const uint WM_CHAR = 0x0102;
+public const uint WM_KEYDOWN = 0x0100;
+public const uint WM_KEYUP = 0x0101;
 
 public static IntPtr MakeLParam(int x, int y) {
     return (IntPtr)(((y & 0xFFFF) << 16) | (x & 0xFFFF));
@@ -293,6 +295,20 @@ function Send-CanvasWheel([int]$ticks, [int]$captureX = -1, [int]$captureY = -1)
         [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_MOUSEWHEEL, $wp, $lp)
         Start-Sleep -Milliseconds 25
     }
+}
+
+# Native Avalonia keyboard shortcut: post WM_KEYDOWN+WM_KEYUP for a virtual-key code
+# DIRECTLY to the main-window HWND (NOT the Chrome child), so it reaches Avalonia's
+# WndProc -> Window.OnKeyDown regardless of which child holds Win32 focus - PostMessage
+# to a specific HWND bypasses focus routing (the WebView canvas can hold focus after a
+# click, yet a single key still lands). SINGLE keys only: a chord (Ctrl+X) would need the
+# modifier's async key STATE set, which PostMessage cannot establish - so the demo focus
+# toggle is the single 'F' key (ADR-022 addendum), not Ctrl+B. lParam 0 (Avalonia's key
+# translation does not read the repeat-count/scan-code bits here).
+function Send-Key([int]$vk) {
+    [void][GroupWeaver.WebViewCapture]::PostMessage($app.MainWindowHandle, [GroupWeaver.WebViewCapture]::WM_KEYDOWN, [IntPtr]$vk, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 40
+    [void][GroupWeaver.WebViewCapture]::PostMessage($app.MainWindowHandle, [GroupWeaver.WebViewCapture]::WM_KEYUP, [IntPtr]$vk, [IntPtr]::Zero)
 }
 
 # Densest blob of a palette color in a capture region - 'canvas' = the Chromium

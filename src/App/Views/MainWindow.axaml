@@ -75,10 +75,23 @@
     <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#33808080"
             Padding="8,4"
             IsVisible="{Binding !IsFocusMode}">
-      <Button HorizontalAlignment="Right" Padding="10,4"
-              Command="{Binding OpenSettingsCommand}">
-        <TextBlock Text="⚙ Settings" />
-      </Button>
+      <!-- ADR-022 addendum: the Focus toggle (the entry point D2 specified but the first cut
+           omitted) sits to the LEFT of Settings, so Settings stays rightmost. It binds DIRECTLY
+           to ShellViewModel.ToggleFocusModeCommand (focus mode is shell chrome — it hides this
+           very strip) and shows only on the workspace step (IsWorkspaceStep), keeping the
+           Connect/RootPicker strips byte-identical. -->
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button Name="FocusModeButton" Padding="10,4"
+                IsVisible="{Binding IsWorkspaceStep}"
+                Command="{Binding ToggleFocusModeCommand}"
+                ToolTip.Tip="Focus mode — hide panels for presentation (F · Esc to exit)">
+          <TextBlock Text="⛶ Focus" />
+        </Button>
+        <Button HorizontalAlignment="Right" Padding="10,4"
+                Command="{Binding OpenSettingsCommand}">
+          <TextBlock Text="⚙ Settings" />
+        </Button>
+      </StackPanel>
     </Border>
 
     <ContentControl Content="{Binding CurrentStep}" />
