@@ -23,32 +23,35 @@
                      Foreground="White" FontSize="11" FontWeight="SemiBold"
                      HorizontalAlignment="Center" />
         </Border>
-        <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold"
+        <TextBlock Classes="heading" Text="{Binding Name}"
                    VerticalAlignment="Center" TextWrapping="Wrap"
                    IsVisible="{Binding Name, Converter={x:Static ObjectConverters.IsNotNull}}" />
       </StackPanel>
 
-      <TextBlock Text="{Binding SamAccountName}" FontSize="12" Opacity="0.7"
+      <TextBlock Classes="dn" Text="{Binding SamAccountName}"
                  TextWrapping="Wrap"
                  IsVisible="{Binding SamAccountName, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
       <!-- The DN, verbatim (never canonicalized) and text-selectable: the one
            copy-source for the full identity of the object. -->
-      <SelectableTextBlock Text="{Binding Dn}" FontSize="12" Opacity="0.7"
+      <SelectableTextBlock Classes="dn-strong" Text="{Binding Dn}"
                            TextWrapping="Wrap" />
 
       <!-- Load-state honesty (ADR-007 D3), derived from snapshot state alone. -->
-      <TextBlock Text="This object is not loaded yet. Double-click it in the graph or press Refresh to resolve it."
+      <TextBlock Classes="secondary"
+                 Text="This object is not loaded yet. Double-click it in the graph or press Refresh to resolve it."
                  IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsNotLoaded}}"
-                 Opacity="0.7" TextWrapping="Wrap" />
+                 TextWrapping="Wrap" />
 
-      <TextBlock Text="Unresolvable: the directory cannot resolve this DN (for example a foreign security principal), so no attributes are available."
+      <TextBlock Classes="secondary"
+                 Text="Unresolvable: the directory cannot resolve this DN (for example a foreign security principal), so no attributes are available."
                  IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsUnresolvable}}"
-                 Opacity="0.7" TextWrapping="Wrap" />
+                 TextWrapping="Wrap" />
 
-      <TextBlock Text="No whitelisted attributes."
+      <TextBlock Classes="secondary"
+                 Text="No whitelisted attributes."
                  IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsLoadedWithoutAttributes}}"
-                 Opacity="0.7" TextWrapping="Wrap" />
+                 TextWrapping="Wrap" />
 
       <!-- Attribute rows: the projection's Rows VERBATIM (the D2 mirror - the UI
            never re-filters; a provider whitelist bug must become visible). -->
@@ -56,7 +59,7 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:DetailRow">
             <StackPanel Margin="0,0,0,8">
-              <TextBlock Text="{Binding Label}" FontSize="11" Opacity="0.6" />
+              <TextBlock Classes="caption" Text="{Binding Label}" />
               <SelectableTextBlock Text="{Binding Value}" TextWrapping="Wrap" />
             </StackPanel>
           </DataTemplate>

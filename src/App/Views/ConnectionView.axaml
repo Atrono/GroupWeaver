@@ -9,25 +9,28 @@
   <StackPanel Width="420" Spacing="12"
               HorizontalAlignment="Center" VerticalAlignment="Center">
 
-    <TextBlock Text="GroupWeaver"
-               FontSize="34" FontWeight="SemiBold"
-               HorizontalAlignment="Center" />
-    <TextBlock Text="Visualize and audit Active Directory group structure — strictly read-only."
-               Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center"
+    <!-- Wordmark signature (#91): one intentional move — a weight-paired split of the
+         two halves, no color, no decoration. -->
+    <TextBlock Classes="display" HorizontalAlignment="Center"><Run Text="Group" FontWeight="Light" /><Run Text="Weaver" FontWeight="SemiBold" /></TextBlock>
+    <TextBlock Classes="subtitle"
+               Text="Visualize and audit Active Directory group structure — strictly read-only."
+               TextWrapping="Wrap" TextAlignment="Center"
                Margin="0,0,0,16" />
 
     <Button Content="Connect to domain"
             Command="{Binding ConnectCommand}"
             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-    <TextBlock Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
-               FontSize="12" Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+    <TextBlock Classes="secondary"
+               Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
+               TextWrapping="Wrap" TextAlignment="Center" />
 
     <Button Content="Demo mode"
             Command="{Binding ConnectDemoCommand}"
             Margin="0,8,0,0"
             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-    <TextBlock Text="Explores the embedded demo directory — no domain needed."
-               FontSize="12" Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+    <TextBlock Classes="secondary"
+               Text="Explores the embedded demo directory — no domain needed."
+               TextWrapping="Wrap" TextAlignment="Center" />
 
     <ProgressBar IsIndeterminate="True" Margin="0,8,0,0"
                  IsVisible="{Binding IsConnecting}" />

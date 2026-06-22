@@ -1,0 +1,109 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Type scale (#91): the chrome FOUNDATION — declared once here, consumed by the
+       views (and #92/#93) via Classes. Default-Fluent had no scale, no display
+       treatment, no voice; this gives the shell a deliberate hierarchy. LAYOUT/TYPE
+       only — no color (Foreground stays the theme default). DN levels need BOTH
+       TextBlock and SelectableTextBlock selectors because the latter is a distinct
+       type, not a subclass match for the bare TextBlock selector. -->
+
+  <!-- display: wordmark / first-run title. -->
+  <Style Selector="TextBlock.display">
+    <Setter Property="FontSize" Value="34" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="0.5" />
+    <Setter Property="Opacity" Value="1.0" />
+  </Style>
+
+  <!-- title: step titles. -->
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Opacity" Value="1.0" />
+  </Style>
+
+  <!-- subtitle: connect subtitle. -->
+  <Style Selector="TextBlock.subtitle">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="0.7" />
+  </Style>
+
+  <!-- heading: "Findings (n)", detail-panel name. -->
+  <Style Selector="TextBlock.heading">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Opacity" Value="1.0" />
+  </Style>
+
+  <!-- subheading: card sub-headers. -->
+  <Style Selector="TextBlock.subheading">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Opacity" Value="1.0" />
+  </Style>
+
+  <!-- body: explicit body. -->
+  <Style Selector="TextBlock.body">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="1.0" />
+  </Style>
+
+  <!-- eyebrow: ALL-CAPS tracked label (text authored uppercase; Avalonia has no
+       text-transform). -->
+  <Style Selector="TextBlock.eyebrow">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="1.0" />
+    <Setter Property="Opacity" Value="0.6" />
+  </Style>
+
+  <!-- secondary: status bar, hints. -->
+  <Style Selector="TextBlock.secondary">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="0.7" />
+  </Style>
+
+  <!-- caption: row subject names, attr labels. -->
+  <Style Selector="TextBlock.caption">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="0.6" />
+  </Style>
+
+  <!-- dn: tabular-mono directory string (DN / sAMAccountName). -->
+  <Style Selector="TextBlock.dn">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="0.8" />
+    <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+    <Setter Property="FontFeatures" Value="tnum=1" />
+  </Style>
+  <Style Selector="SelectableTextBlock.dn">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="0.8" />
+    <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+    <Setter Property="FontFeatures" Value="tnum=1" />
+  </Style>
+
+  <!-- dn-strong: mono DN as a primary value (detail-panel DN). -->
+  <Style Selector="TextBlock.dn-strong">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="1.0" />
+    <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+    <Setter Property="FontFeatures" Value="tnum=1" />
+  </Style>
+  <Style Selector="SelectableTextBlock.dn-strong">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Opacity" Value="1.0" />
+    <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+    <Setter Property="FontFeatures" Value="tnum=1" />
+  </Style>
+
+</Styles>

@@ -3,8 +3,23 @@
              x:Class="GroupWeaver.App.App"
              RequestedThemeVariant="Dark">
 
+  <Application.Resources>
+    <!-- Design tokens (#91): spacing scale + structural-neutral card chrome + the
+         mono name-stack. In Application.Resources so the type-scale StaticResource
+         references (FontFamilyMono) and the Button.ghost border below resolve. -->
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="/Styles/Tokens.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
+
+    <!-- Type scale (#91): the chrome FOUNDATION, AFTER FluentTheme so its class
+         setters layer over the Fluent defaults. -->
+    <StyleInclude Source="/Styles/Typography.axaml" />
 
     <!-- Hyperlink-styled button (WebView2 banner / GraphHost placeholder, AP 2.1 S7):
          Fluent has no hyperlink control, so a flat button without hover chrome. -->
@@ -18,6 +33,20 @@
     <Style Selector="Button.hyperlink:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="#0A4E8A" />
+    </Style>
+
+    <!-- Secondary "ghost" button (#91 foundation; #93 consumes it): transparent with
+         the structural card border, so a button can read as secondary against a card
+         without a palette fill. -->
+    <Style Selector="Button.ghost">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Button.ghost:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#14FFFFFF" />
     </Style>
   </Application.Styles>
 
