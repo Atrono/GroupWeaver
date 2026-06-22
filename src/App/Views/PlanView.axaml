@@ -23,7 +23,7 @@
           <TextBlock Text="Plan preview is unavailable in this environment."
                      FontSize="20" HorizontalAlignment="Center" />
           <TextBlock Text="{Binding BaseOuDn}"
-                     Opacity="0.7" TextWrapping="Wrap" TextAlignment="Center" />
+                     Classes="dn" TextWrapping="Wrap" TextAlignment="Center" />
         </StackPanel>
 
         <StackPanel IsVisible="{Binding WebView2Missing}" Spacing="8" MaxWidth="520"
@@ -46,7 +46,7 @@
 
           <!-- 1. Header + Export script + Back -->
           <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Grid.Column="0" Text="Plan" FontSize="15" FontWeight="SemiBold"
+            <TextBlock Grid.Column="0" Text="Plan" Classes="heading"
                        VerticalAlignment="Center" />
             <!-- Right-aligned actions: Export the plan as an inert .ps1, then Back. Both live in
                  the editor column - never over GraphHost (ADR-001 airspace guardrail 5). -->
@@ -73,7 +73,7 @@
 
           <!-- 2. Add object -->
           <StackPanel Spacing="6">
-            <TextBlock Text="Add object" FontSize="13" FontWeight="SemiBold" />
+            <TextBlock Text="Add object" Classes="subheading" />
             <!-- Items are bare PlanCreatableKind values; the template renders the friendly,
                  spaced scope label ("Domain-local group", not the raw "DomainLocalGroup"). -->
             <ComboBox HorizontalAlignment="Stretch"
@@ -94,7 +94,7 @@
 
           <!-- 3. Add membership -->
           <StackPanel Spacing="6">
-            <TextBlock Text="Add membership" FontSize="13" FontWeight="SemiBold" />
+            <TextBlock Text="Add membership" Classes="subheading" />
             <ComboBox HorizontalAlignment="Stretch"
                       PlaceholderText="Parent group"
                       ItemsSource="{Binding GroupNodes}"
@@ -134,7 +134,7 @@
               </ComboBox.ItemTemplate>
             </ComboBox>
             <TextBlock Text="The parent must be a group (the child becomes a member of it)."
-                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+                       Classes="caption" TextWrapping="Wrap" />
             <Button Name="AddMemberButton" Content="Add member" HorizontalAlignment="Right"
                     Command="{Binding AddMemberCommand}" />
           </StackPanel>
@@ -147,7 +147,7 @@
           <!-- 5. Objects list + selected-node actions -->
           <StackPanel Spacing="6">
             <TextBlock Text="{Binding Nodes.Count, StringFormat='Objects ({0})'}"
-                       FontSize="13" FontWeight="SemiBold" />
+                       Classes="subheading" />
             <ListBox Background="Transparent" MaxHeight="220"
                      ItemsSource="{Binding Nodes}"
                      SelectedItem="{Binding SelectedNodeRow}">
@@ -175,7 +175,7 @@
 
             <TextBlock Text="No objects yet — add a group or user above."
                        IsVisible="{Binding !Nodes.Count}"
-                       Opacity="0.6" FontSize="12" TextWrapping="Wrap" />
+                       Classes="secondary" TextWrapping="Wrap" />
 
             <!-- Selected-node actions: rename + remove -->
             <StackPanel Spacing="6" IsVisible="{Binding HasSelectedNode}">
@@ -192,7 +192,7 @@
           <!-- 6. Memberships list (per-row Remove binds the ancestor's command) -->
           <StackPanel Spacing="6">
             <TextBlock Text="{Binding Memberships.Count, StringFormat='Memberships ({0})'}"
-                       FontSize="13" FontWeight="SemiBold" />
+                       Classes="subheading" />
             <ItemsControl ItemsSource="{Binding Memberships}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:PlanEdgeRowModel">
@@ -208,7 +208,7 @@
             </ItemsControl>
             <TextBlock Text="No memberships yet — pick a parent group and a member above."
                        IsVisible="{Binding !Memberships.Count}"
-                       Opacity="0.6" FontSize="12" TextWrapping="Wrap" />
+                       Classes="secondary" TextWrapping="Wrap" />
           </StackPanel>
 
           <!-- 7. Findings list (canonical report order, unshuffled - ADR-009): severity glyph
@@ -216,7 +216,7 @@
                dimmed subject name. -->
           <StackPanel Spacing="6">
             <TextBlock Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
-                       FontSize="13" FontWeight="SemiBold" />
+                       Classes="subheading" />
             <ListBox Background="Transparent"
                      ItemsSource="{Binding Violations}">
               <ListBox.ItemsPanel>
@@ -231,7 +231,8 @@
                             VerticalAlignment="Top"
                             Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
                       <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                                 Foreground="White" FontSize="12" FontWeight="SemiBold"
+                                 Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                                 FontSize="12" FontWeight="SemiBold"
                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <StackPanel Grid.Column="1" Margin="8,0,0,0">
@@ -246,7 +247,7 @@
 
             <TextBlock Text="No rule violations in the plan."
                        IsVisible="{Binding !HasViolations}"
-                       Opacity="0.7" TextWrapping="Wrap" />
+                       Classes="secondary" TextWrapping="Wrap" />
           </StackPanel>
 
         </StackPanel>

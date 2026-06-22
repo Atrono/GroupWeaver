@@ -28,6 +28,20 @@ public static class GapKindConverters
     public static readonly IValueConverter ToBrush =
         new FuncValueConverter<GapKind, IBrush>(BrushFor);
 
+    /// <summary>
+    /// Gap kind → the ON-BADGE text brush (ADR-021 / #106, the WCAG 1.4.3 re-tone, mirroring
+    /// <see cref="SeverityConverters.ToTextBrush"/>): ALL diff kinds use ONE pure-black ink
+    /// (<see cref="BrandTokens.OnLightTextStrong"/> #000000). White on the diff fills failed 1.4.3
+    /// (Added 2.88:1, Removed 3.91:1, Unchecked 3.25:1), and the standard #1b1f27 ink is too weak
+    /// for the Removed mid-tone (#E0503A → only 4.23:1); black clears all three (Added 7.28:1,
+    /// Removed 5.38:1, Unchecked 6.47:1). One consistent ink is visually uniform across the badge
+    /// strip — per-hue would mix #1b1f27 and black for no contrast benefit. Mirrors the
+    /// <see cref="ToBrush"/>/<see cref="ToGlyph"/> shape so the badge glyph FILL (ToBrush) and its
+    /// TEXT (this) stay one source of truth.
+    /// </summary>
+    public static readonly IValueConverter ToTextBrush =
+        new FuncValueConverter<GapKind, IBrush>(TextBrushFor);
+
     /// <summary>Gap kind → the redundant, colorblind-safe symbol ("+" / "−" / "?").</summary>
     public static readonly IValueConverter ToGlyph =
         new FuncValueConverter<GapKind, string>(GlyphFor);
@@ -42,6 +56,10 @@ public static class GapKindConverters
         GapKind.NodeRemoved or GapKind.EdgeRemoved => BrandTokens.Removed,
         _ => BrandTokens.Unchecked,
     };
+
+    // The ON-BADGE text ink (ADR-021 / #106): ONE pure-black ink for every diff fill — the standard
+    // #1b1f27 ink only reaches 4.23:1 on the Removed mid-tone #E0503A, black clears all three (≥5.38:1).
+    private static IBrush TextBrushFor(GapKind kind) => BrandTokens.OnLightTextStrong;
 
     private static string GlyphFor(GapKind kind) => kind switch
     {
