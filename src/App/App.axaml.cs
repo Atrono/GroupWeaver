@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
+using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
@@ -38,6 +39,9 @@ public sealed partial class App : Application
             // same locator instance is handed to the shell so a settings Save persists to
             // its UserRulesetPath (AP 3.3 / ADR-011 §1).
             var locator = new RulesetLocator();
+            // ADR-022 D4: the one rail-state store, threaded down the same Shell→RootPicker→
+            // Workspace path as the locator so each workspace seeds + persists its rail state.
+            var uiStateStore = new UiStateStore();
             var shell = new ShellViewModel(
                 static demo => demo ? new DemoProvider() : (IDirectoryProvider)new LdapProvider(),
                 StartupOptions,
@@ -47,7 +51,8 @@ public sealed partial class App : Application
                 // never reach this: they construct VMs directly (null factory or fakes).
                 static () => new CytoscapeGraphRenderer(),
                 locator.LoadEffective(),
-                locator);
+                locator,
+                uiStateStore);
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
 

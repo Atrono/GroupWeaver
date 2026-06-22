@@ -19,6 +19,11 @@
   <SolidColorBrush x:Key="CardBorderBrush" Color="#22FFFFFF" />
   <CornerRadius x:Key="CardCornerRadius">8</CornerRadius>
 
+  <!-- Secondary-neutral foreground: a solid (non-translucent) white at the same
+       neutral family as the card chrome, so small chrome glyphs (the ADR-022 rail
+       toggle chevron) render crisp without an amber/blue anti-alias fringe. -->
+  <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#B0B5BD" />
+
   <!-- Tabular monospace name-stack for DNs / raw directory strings — no bundled
        asset; mirrors the graph bundle's web/index.html legend font stack. -->
   <FontFamily x:Key="FontFamilyMono">Cascadia Mono, Consolas, Courier New, monospace</FontFamily>

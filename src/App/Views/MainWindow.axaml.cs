@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 
 using Avalonia.Controls;
+using Avalonia.Input;
 
 using GroupWeaver.App.Export;
 using GroupWeaver.App.ViewModels;
@@ -10,6 +11,11 @@ namespace GroupWeaver.App.Views;
 
 public sealed partial class MainWindow : Window
 {
+    /// <summary>The <see cref="WindowState"/> to restore to when full-screen is toggled off
+    /// (ADR-022 D1) — captured the moment full-screen is entered, so restore returns to the exact
+    /// prior state (Normal / Maximized). <c>null</c> while not in full-screen.</summary>
+    private WindowState? _preFullScreenState;
+
     /// <summary>The ONE production export save-picker seam (AP 4.2.4 / ADR-013 §5, fixes #63):
     /// built once in <see cref="OnOpened"/> from this window's <c>TopLevel</c> and pushed into
     /// whatever exportable <c>CurrentStep</c> is (or becomes) current via <see cref="WireExport"/>.
@@ -28,6 +34,68 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+    }
+
+    /// <summary>ADR-022 D1 key chrome (pure view, [I] interactive): F11 toggles full-screen,
+    /// Esc exits full-screen AND focus mode. Handled here rather than as XAML KeyBindings so the
+    /// gestures bind to this window's own methods (the DataContext is the shell). Other keys fall
+    /// through to the base handler.</summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.F11:
+                ToggleFullScreen();
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                // Only swallow Escape when it actually exited full-screen / focus mode, so a
+                // child control's own Escape handling (popups, combo boxes) is left untouched.
+                e.Handled = ExitFullScreenAndFocus();
+                break;
+        }
+
+        base.OnKeyDown(e);
+    }
+
+    /// <summary>F11 toggle (ADR-022 D1): entering full-screen remembers the current
+    /// <see cref="WindowState"/>; leaving restores it. Avalonia drops the OS title bar in
+    /// <see cref="WindowState.FullScreen"/>.</summary>
+    private void ToggleFullScreen()
+    {
+        if (WindowState == WindowState.FullScreen)
+        {
+            WindowState = _preFullScreenState ?? WindowState.Normal;
+            _preFullScreenState = null;
+        }
+        else
+        {
+            _preFullScreenState = WindowState;
+            WindowState = WindowState.FullScreen;
+        }
+    }
+
+    /// <summary>Esc (ADR-022 D1): leaves full-screen (restoring the remembered state) and exits
+    /// focus mode via the shell's <c>ExitFocusModeCommand</c> — each a no-op when already off.
+    /// Returns <c>true</c> iff either actually changed, so the caller swallows Escape only then.</summary>
+    private bool ExitFullScreenAndFocus()
+    {
+        var exited = false;
+
+        if (WindowState == WindowState.FullScreen)
+        {
+            WindowState = _preFullScreenState ?? WindowState.Normal;
+            _preFullScreenState = null;
+            exited = true;
+        }
+
+        if (DataContext is ShellViewModel shell && shell.IsFocusMode)
+        {
+            shell.ExitFocusModeCommand.Execute(null);
+            exited = true;
+        }
+
+        return exited;
     }
 
     /// <summary>

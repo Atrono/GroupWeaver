@@ -51,6 +51,14 @@ public sealed class DetailPanelViewTests
     /// <summary>The pre-AP-2.5 teaser this slice REPLACES.</summary>
     private const string Teaser = "Detail panel arrives in AP 2.5";
 
+    /// <summary>ADR-022 D3 re-baseline: the rail moved <c>*,300</c> ⇒ <c>*, Auto, {rail}</c> with
+    /// a 340px default rail and a 14px <c>Auto</c> seam (GridSplitter + ◂/▸ chevron) BESIDE
+    /// GraphHost. GraphHost (col 0) therefore ends 354px (340 rail + 14 seam) from the right
+    /// edge — that boundary is the airspace line (ADR-001 guardrail 5): all detail content must
+    /// sit at or right of it, never over the graph. Derived from the production layout, not a
+    /// magic number; a panel that ever strayed over GraphHost would render left of it and fail.</summary>
+    private const double RailLeftEdgeFromRight = 340 + 14;
+
     // --- (a) no selection: the placeholder, the teaser is gone -------------------------
 
     [AvaloniaFact]
@@ -166,8 +174,10 @@ public sealed class DetailPanelViewTests
         // column — nothing may ever stray over GraphHost's native-HWND territory.
         var regionTop = region.TranslatePoint(new Point(0, 0), view);
         Assert.NotNull(regionTop);
+        // ADR-022 D3: the rail is now 340px + a 14px Auto seam, so the detail column sits
+        // right of GraphHost's (Width-354) right edge — never over the graph (ADR-001 #5).
         Assert.True(
-            regionTop.Value.X >= view.Bounds.Width - 320,
+            regionTop.Value.X >= view.Bounds.Width - RailLeftEdgeFromRight,
             $"the DetailPanelRegion belongs in the right detail column (was at X={regionTop.Value.X})");
 
         foreach (var text in region.GetVisualDescendants()
@@ -176,7 +186,7 @@ public sealed class DetailPanelViewTests
             var topLeft = text.TranslatePoint(new Point(0, 0), view);
             Assert.NotNull(topLeft);
             Assert.True(
-                topLeft.Value.X >= view.Bounds.Width - 320,
+                topLeft.Value.X >= view.Bounds.Width - RailLeftEdgeFromRight,
                 $"'{text.Text}' strayed left of the detail column (X={topLeft.Value.X})");
             Assert.True(
                 topLeft.Value.X + text.Bounds.Width <= view.Bounds.Width + 0.5,

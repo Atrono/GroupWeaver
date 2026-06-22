@@ -1,11 +1,14 @@
 using System.Collections.ObjectModel;
 using System.Text;
 
+using Avalonia.Controls;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
+using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
 using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Graph;
@@ -71,6 +74,41 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private DetailPanelModel? _detailPanel;
 
+    /// <summary>The ADR-022 D3 rail width in pixels, clamped to [300, 520] in
+    /// <see cref="OnRailWidthChanged"/> so the graph is never squeezed below a usable width and the
+    /// rail never drops below its content minimum. Default 340; seeded from <see cref="UiStateStore"/>
+    /// at construction and persisted on change (D4). The rail grid column binds the derived
+    /// <see cref="RailColumnWidth"/> (two-way: the GridSplitter writes a px width back through it).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RailColumnWidth))]
+    private double _railWidth = 340;
+
+    /// <summary>The ADR-022 D3 rail-collapsed flag: when true the rail column collapses to 0
+    /// (<see cref="RailColumnWidth"/> → <c>GridLength(0)</c>) and the splitter hides, leaving only
+    /// the seam + ▸ expand chevron beside GraphHost (ADR-001 airspace intact). Toggled by
+    /// <see cref="ToggleRail"/> / <c>Ctrl+B</c>, driven by focus mode via
+    /// <see cref="SetRailCollapsed"/>; seeded from <see cref="UiStateStore"/> and persisted (D4).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RailColumnWidth))]
+    private bool _isRailCollapsed;
+
+    /// <summary>The rail grid column width as a <see cref="GridLength"/> (ADR-022 D3): collapsed ⇒
+    /// <c>GridLength(0)</c>, otherwise <c>RailWidth</c> px. Two-way: the GridSplitter writes a
+    /// resized px <see cref="GridLength"/> here, which flows into <see cref="RailWidth"/> (re-clamped
+    /// + persisted). A collapsed write is ignored — collapse is driven by <see cref="IsRailCollapsed"/>,
+    /// not by the splitter (which is hidden then anyway).</summary>
+    public GridLength RailColumnWidth
+    {
+        get => IsRailCollapsed ? new GridLength(0) : new GridLength(RailWidth, GridUnitType.Pixel);
+        set
+        {
+            if (!IsRailCollapsed && value.IsAbsolute)
+            {
+                RailWidth = value.Value;
+            }
+        }
+    }
+
     /// <summary>The AP 3.4 rule report (ADR-010 §3) the violations sidebar binds.
     /// <c>RuleEngine.Evaluate</c> runs against the threaded ruleset at the two graph-build
     /// sites — LoadAsync and the ExpandAsync fetch branch — BEFORE the renderer call, and
@@ -106,6 +144,23 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// stays disarmed (<see cref="CanDesignPlan"/>), keeping every pre-4.2.2 test on the default.</summary>
     private Action? _onDesignPlan;
 
+    /// <summary>The ADR-022 D2 "Focus" callback: the shell installs it via
+    /// <see cref="UseFocusToggleCallback"/> at <c>OnRootChosen</c> (mirroring
+    /// <see cref="UseDesignPlanCallback"/>), so the header button can toggle shell-level focus
+    /// mode. <c>null</c> until installed — the command then stays disarmed
+    /// (<see cref="CanToggleFocus"/>), so a headless/renderer-less workspace never half-toggles.</summary>
+    private Action? _onToggleFocus;
+
+    /// <summary>The ADR-022 D4 rail-state store; seeds <see cref="RailWidth"/>/
+    /// <see cref="IsRailCollapsed"/> at construction and is written on each change. Best-effort —
+    /// load/save never throw. Defaulted so every pre-ADR-022 call site (and test) still compiles.</summary>
+    private readonly UiStateStore _uiStateStore;
+
+    /// <summary>Suppresses the seed-time persist: while the ctor applies the loaded
+    /// <see cref="UiState"/>, the generated <c>OnRailWidthChanged</c>/<c>OnIsRailCollapsedChanged</c>
+    /// hooks must not write the just-read values back. Cleared once construction settles.</summary>
+    private readonly bool _seeding;
+
     public WorkspaceViewModel(
         IDirectoryProvider provider,
         AdObject root,
@@ -113,13 +168,24 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         bool webView2Missing = false,
         Func<IGraphRenderer>? graphRendererFactory = null,
         EffectiveRuleset? ruleset = null,
-        IExportFileDialogs? exportDialogs = null)
+        IExportFileDialogs? exportDialogs = null,
+        UiStateStore? uiStateStore = null)
     {
         Provider = provider;
         Root = root;
         Connection = connection;
         WebView2Missing = webView2Missing;
         _exportDialogs = exportDialogs;
+
+        // ADR-022 D4: seed the rail state from the persisted store (never-throw Load → defaults
+        // on any failure). _seeding gates the generated change hooks so applying the loaded
+        // values does not immediately write them straight back.
+        _uiStateStore = uiStateStore ?? new UiStateStore();
+        _seeding = true;
+        var uiState = _uiStateStore.Load();
+        RailWidth = uiState.RailWidth;
+        IsRailCollapsed = uiState.RailCollapsed;
+        _seeding = false;
 
         // null => the embedded default (the pre-AP-3.4 contract); a located user/default
         // EffectiveRuleset otherwise. Errors carried, surfaced by AP 3.3. // AP 3.3
@@ -178,6 +244,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <see cref="ViolationRowModel.SubjectName"/> resolved snapshot-only. Bound by
     /// <see cref="Views.ViolationsSidebarView"/>.</summary>
     public ObservableCollection<ViolationRowModel> Violations { get; } = [];
+
+    /// <summary>The ADR-022 D5 per-kind tally of the DRAWN graph (the same node set
+    /// <see cref="GraphSummary"/> totals), in <see cref="AdObjectKind"/> declaration order, omitting
+    /// zero-count kinds. Bound by the scope-summary card the empty rail shows when nothing is
+    /// selected. Repopulated in place (Clear/Add) at each graph build, so the bound count stays a
+    /// snapshot of the live drawn graph; <see cref="GraphSummary"/> remains the object/edge totals.</summary>
+    public ObservableCollection<KindTallyRow> ScopeKindTally { get; } = [];
 
     /// <summary>Drives the sidebar all-clear state: <c>true</c> when the report has at
     /// least one finding. Recomputed on <see cref="Report"/> change.</summary>
@@ -313,7 +386,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
                 await GraphRenderer.ShowGraphAsync(Graph, Report, below, cancellationToken);
             }
 
-            GraphSummary = $"{Graph.Nodes.Count} objects, {Graph.Edges.Count} edges";
+            UpdateGraphSummary(Graph);
         }
         catch (DirectoryUnavailableException ex)
         {
@@ -414,6 +487,65 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         _onDesignPlan = onDesignPlan;
         DesignPlanCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>The ADR-022 D2 "Focus" header button: toggles shell-level focus mode through the
+    /// installed callback. Armed iff the callback is installed (the shell installs it at
+    /// <c>OnRootChosen</c>); a stale-armed Execute with no callback is a silent no-op.</summary>
+    [RelayCommand(CanExecute = nameof(CanToggleFocus))]
+    private void ToggleFocus() => _onToggleFocus?.Invoke();
+
+    private bool CanToggleFocus() => _onToggleFocus is not null;
+
+    /// <summary>Installs the shell's focus-mode toggle callback (ADR-022 D2) and re-arms
+    /// <see cref="ToggleFocusCommand"/>. Called by the shell when this workspace becomes the
+    /// current step; mirrors <see cref="UseDesignPlanCallback"/>.</summary>
+    public void UseFocusToggleCallback(Action toggle)
+    {
+        _onToggleFocus = toggle;
+        ToggleFocusCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Toggles the rail collapsed state (ADR-022 D3 — <c>Ctrl+B</c> / the seam chevron).
+    /// The generated <see cref="OnIsRailCollapsedChanged"/> hook persists the new value (D4).</summary>
+    [RelayCommand]
+    private void ToggleRail() => IsRailCollapsed = !IsRailCollapsed;
+
+    /// <summary>Drives the rail collapsed state from shell-level focus mode (ADR-022 D2): focus
+    /// on ⇒ collapse, focus off ⇒ expand. Routed through the same <see cref="IsRailCollapsed"/>
+    /// setter, so the change persists (D4) like a manual toggle.</summary>
+    public void SetRailCollapsed(bool collapsed) => IsRailCollapsed = collapsed;
+
+    /// <summary>ADR-022 D3 clamp: the rail width is held within [300, 520] so the graph keeps a
+    /// usable width and the rail never drops below its content minimum. Persists on change (D4).</summary>
+    partial void OnRailWidthChanged(double value)
+    {
+        var clamped = Math.Clamp(value, 300, 520);
+        if (clamped != value)
+        {
+            // Re-entrant write through the same setter; the clamped value re-fires this hook
+            // (clamped == value the second time), so it persists exactly once at the clamped value.
+            RailWidth = clamped;
+            return;
+        }
+
+        PersistUiState();
+    }
+
+    /// <summary>ADR-022 D4: persist the rail-collapsed change (write-on-change, best-effort).</summary>
+    partial void OnIsRailCollapsedChanged(bool value) => PersistUiState();
+
+    /// <summary>Writes the current rail state to the persisted store (ADR-022 D4). Best-effort —
+    /// <see cref="UiStateStore.Save"/> never throws. Suppressed during ctor seeding so applying
+    /// the just-loaded values does not write them straight back.</summary>
+    private void PersistUiState()
+    {
+        if (_seeding)
+        {
+            return;
+        }
+
+        _uiStateStore.Save(new UiState(RailWidth, IsRailCollapsed));
     }
 
     /// <summary>Installs the real export save-picker seam (AP 4.1 / ADR-013 §5): the
@@ -665,6 +797,29 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         return map;
     }
 
+    /// <summary>Sets <see cref="GraphSummary"/> (object/edge totals) and repopulates
+    /// <see cref="ScopeKindTally"/> in place from <paramref name="graph"/> (ADR-022 D5) — the
+    /// single write site for both, called from each graph-build path. The tally is grouped by
+    /// node <see cref="GraphNode.Kind"/>, ordered by the <see cref="AdObjectKind"/> declaration,
+    /// and omits zero-count kinds.</summary>
+    private void UpdateGraphSummary(GraphModel graph)
+    {
+        GraphSummary = $"{graph.Nodes.Count} objects, {graph.Edges.Count} edges";
+
+        var counts = graph.Nodes
+            .GroupBy(n => n.Kind)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        ScopeKindTally.Clear();
+        foreach (var kind in Enum.GetValues<AdObjectKind>())
+        {
+            if (counts.TryGetValue(kind, out var count) && count > 0)
+            {
+                ScopeKindTally.Add(new KindTallyRow(kind, count));
+            }
+        }
+    }
+
     private async Task ExpandAsync(string dn, bool forceFetch, CancellationToken cancellationToken)
     {
         var snapshot = Snapshot!;
@@ -753,7 +908,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             // Replace-in-place (ADR-005 D1/D2): exactly ONE UpdateGraphAsync — never a
             // second ShowGraphAsync (destroy + fit would lose the viewport).
             await renderer.UpdateGraphAsync(Graph, Report, below, cancellationToken);
-            GraphSummary = $"{Graph.Nodes.Count} objects, {Graph.Edges.Count} edges";
+            UpdateGraphSummary(Graph);
             await renderer.FocusAsync([dn, .. memberDns], cancellationToken);
         }
         catch (DirectoryUnavailableException ex)
