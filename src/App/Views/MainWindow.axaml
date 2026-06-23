@@ -94,7 +94,19 @@
       </StackPanel>
     </Border>
 
-    <ContentControl Content="{Binding CurrentStep}" />
+    <!-- #122 (ADR-025): the step content sits over an always-attached, hidden, zero-size
+         "parking lot" Panel SIBLING in the same fill region. The GraphSurfaceCoordinator
+         (built in MainWindow.OnOpened) parks a step's live graph surface HERE, still ROOTED,
+         BEFORE the DataTemplate swap detaches the leaving view — so the WebView2 page +
+         cytoscape viewport survive a Back round-trip (the ParkSpike GO finding: survival is
+         continuous rootedness, not BeginReparenting). A Panel (multi-child) because Workspace
+         and the current Plan can be parked at once. IsVisible=false + zero-size keeps the
+         native HWND from painting over anything (ADR-001 airspace guardrail 5). -->
+    <Panel>
+      <ContentControl Content="{Binding CurrentStep}" />
+      <Panel x:Name="ParkingLot" IsVisible="False" Width="0" Height="0"
+             HorizontalAlignment="Left" VerticalAlignment="Top" />
+    </Panel>
 
   </DockPanel>
 
