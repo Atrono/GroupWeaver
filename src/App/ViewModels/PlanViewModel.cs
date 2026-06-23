@@ -681,8 +681,11 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         or AdObjectKind.UniversalGroup
         or AdObjectKind.External;
 
-    /// <summary>Cancels any in-flight revalidate render; idempotent. The shell disposes
-    /// this step at teardown (never on the Ist↔Plan switch — the step you leave survives).</summary>
+    /// <summary>Cancels any in-flight revalidate render, then disposes the renderer (#122 — tears
+    /// down its WebView, retiring the ADR-024 never-disposed leak); idempotent. The CTS is cancelled
+    /// FIRST so the renderer's own-cancellation guards see an already-cancelled command token. The
+    /// shell disposes this step at teardown — and now also on the abandon paths (Back to Workspace
+    /// abandons the Plan), so the bound live WebViews stay ≤ Workspace + current Plan (#122 Slice 5).</summary>
     public void Dispose()
     {
         if (IsDisposed)
@@ -693,5 +696,6 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         IsDisposed = true;
         _cts.Cancel();
         _cts.Dispose();
+        GraphRenderer?.Dispose();
     }
 }

@@ -13,8 +13,11 @@ namespace GroupWeaver.App.Graph;
 /// <see cref="View"/> into the GraphHost region, pushes models through
 /// <see cref="ShowGraphAsync"/>, and listens to the three events.
 /// Contract pinned by <c>tests/GroupWeaver.App.Tests/WorkspaceLoadTests.cs</c>.
+/// <para><see cref="IDisposable"/> (#122): each step VM disposes its renderer when the
+/// step is abandoned (the shell's reclaim paths) — tearing down the single
+/// <c>NativeWebView</c> it owns, retiring the ADR-024 never-disposed-renderer leak.</para>
 /// </summary>
-public interface IGraphRenderer
+public interface IGraphRenderer : IDisposable
 {
     /// <summary>The control to mount into the workspace's <c>GraphHost</c> region;
     /// <c>null</c> when the renderer has no visual surface (headless/tests).</summary>

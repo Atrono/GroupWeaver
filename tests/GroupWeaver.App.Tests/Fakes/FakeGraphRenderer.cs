@@ -294,4 +294,11 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// <summary>Simulates a renderer failure report (ready timeout, JS error, …).</summary>
     public void RaiseRendererError(string source, string message) =>
         RendererError?.Invoke(this, new GraphErrorEventArgs(source, message));
+
+    /// <summary>Satisfies the #122 <see cref="IGraphRenderer"/> : <see cref="IDisposable"/>
+    /// contract. Minimal here (no WebView to tear down); richer dispose-tracking assertions are
+    /// the test-engineer's to add.</summary>
+    public void Dispose()
+    {
+    }
 }

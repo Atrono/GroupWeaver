@@ -936,7 +936,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Cancels an in-flight scope load or expand fetch; idempotent.</summary>
+    /// <summary>Cancels an in-flight scope load or expand fetch, then disposes the renderer
+    /// (#122 — tears down its WebView, retiring the ADR-024 never-disposed leak); idempotent.
+    /// The CTS is cancelled FIRST so the renderer's own-cancellation guards see an already-
+    /// cancelled command token.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -947,5 +950,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
+        GraphRenderer?.Dispose();
     }
 }

@@ -219,9 +219,12 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Cancels any in-flight refresh render; idempotent. The shell disposes this step at
-    /// teardown. NEVER disposes nor mutates the borrowed Ist snapshot or plan (ADR-015 D3 /
-    /// ADR-005 append-only) — the shell owns their lifetime.</summary>
+    /// <summary>Cancels any in-flight refresh render, then disposes the renderer (#122 — tears down
+    /// its WebView, retiring the ADR-024 never-disposed leak); idempotent. The CTS is cancelled FIRST
+    /// so the renderer's own-cancellation guards see an already-cancelled command token. The shell
+    /// disposes this step at teardown — and now also when Gap's Back abandons it (#122 Slice 5).
+    /// NEVER disposes nor mutates the borrowed Ist snapshot or plan (ADR-015 D3 / ADR-005
+    /// append-only) — the shell owns their lifetime.</summary>
     public void Dispose()
     {
         if (IsDisposed)
@@ -232,5 +235,6 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
         IsDisposed = true;
         _cts.Cancel();
         _cts.Dispose();
+        GraphRenderer?.Dispose();
     }
 }
