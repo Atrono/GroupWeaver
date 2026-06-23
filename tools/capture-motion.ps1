@@ -313,9 +313,10 @@ try {
     $zx = if ($zoomTarget) { $zoomTarget.X } else { -1 }
     $zy = if ($zoomTarget) { $zoomTarget.Y } else { -1 }
     Record-Gesture 'b-wheel-zoom' {
-        # ~40 detents over the window: cytoscape normalizes each to ~x1.008, so this
-        # is a visible, smooth dive into the cluster (pointer-anchored zoom).
-        Send-CanvasWheel 40 $zx $zy
+        # ~8 detents over the window: since wheelSensitivity reverted to the cytoscape
+        # default of 1 (was 0.2), each detent zooms ~5x more, so 8 (was 40) gives a
+        # visible, smooth dive into the cluster (pointer-anchored zoom).
+        Send-CanvasWheel 8 $zx $zy
     }.GetNewClosure()
     Start-Sleep -Milliseconds 400
 

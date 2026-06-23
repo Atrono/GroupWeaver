@@ -274,10 +274,12 @@ function Send-CanvasDrag([int]$fromX, [int]$fromY, [int]$toX, [int]$toY) {
 # WM_MOUSEWHEEL carries SCREEN coordinates (unlike the button messages). Optional
 # capture coordinates aim the wheel (cytoscape zooms toward the pointer); default
 # is the canvas center. One message per detent, MANY detents: cytoscape detects a
-# discrete wheel after 4 events and normalizes EVERY detent to ~x1.0055 zoom
-# (3/250 * wheelSensitivity 0.2 in the exponent) no matter how large the delta -
-# inflating wParam is pointless, only the detent COUNT moves the needle
-# (measured: ~x1.008 per detent, so ~90 detents per x2 of legible zoom).
+# discrete wheel after 4 events and normalizes EVERY detent to a FIXED zoom step
+# (3/250 * wheelSensitivity in the exponent, factor 10^h) no matter how large the
+# delta - inflating wParam is pointless, only the detent COUNT moves the needle.
+# wheelSensitivity is now the cytoscape default 1 (the 0.2 override was deleted in
+# graph.js): ~x1.028 per detent (~25 detents per x2 of legible zoom). At the old
+# 0.2 it was ~x1.0055 per detent (~90 detents per x2).
 function Send-CanvasWheel([int]$ticks, [int]$captureX = -1, [int]$captureY = -1) {
     $childRect = Get-WindowRectOf $chromiumHwnd
     if ($captureX -ge 0) {

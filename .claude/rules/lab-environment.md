@@ -46,12 +46,16 @@
   — POSIX env-var form, and `-File` propagates the script's `exit n` natively
   (the old `-Command "& …"; exit ($LASTEXITCODE ?? 1)` wrapper is obsolete).
   Claude Code only blocks on exit code 2.
-- **Cytoscape wheel-zoom driving (found during M2 GIF):** after 4 wheel events
-  cytoscape switches to discrete-wheel mode and normalizes EVERY detent to
-  ~×1.0055 zoom (`h = 3/250 × wheelSensitivity 0.2`) — the `wParam` delta
-  magnitude is ignored. Inflating deltas does nothing; post ONE `WM_MOUSEWHEEL`
-  per detent (~25 ms apart) and scale by detent COUNT. Pointer-anchored zoom:
-  aim the message coordinates at the target cluster.
+- **Cytoscape wheel-zoom driving (found during M2 GIF; recalibrated session 29
+  when `wheelSensitivity` was reverted to the default):** after 4 wheel events
+  cytoscape switches to discrete-wheel mode and normalizes EVERY detent to a
+  FIXED zoom step (`h = 3/250 × wheelSensitivity`, factor `10^h`) — the `wParam`
+  delta magnitude is ignored. Inflating deltas does nothing; post ONE
+  `WM_MOUSEWHEEL` per detent (~25 ms apart) and scale by detent COUNT. At the old
+  `wheelSensitivity 0.2` that was ~×1.0055/detent (~90 detents per ×2); since the
+  override was DELETED (default `1`, graph.js) it is ~×1.028/detent (~25 detents
+  per ×2) — so `record-demo-gif.ps1`'s burst dropped 30→6 detents to keep the GIF
+  framing. Pointer-anchored zoom: aim the message coordinates at the target cluster.
 - **GraphSpike gotchas (bind Phase 2):** exe needs `app.manifest` with
   `<supportedOS>` for NativeControlHost; perf harnesses must drive DOM-level
   gestures (programmatic `cy.zoom()/cy.pan()` bypasses cytoscape's viewport
