@@ -84,6 +84,20 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isFocusMode;
 
+    /// <summary>ADR-026 D4: the app-chrome theme is Light when true (Dark otherwise). Seeded in the
+    /// ctor from the persisted <see cref="UiState.Theme"/> and flipped by <see cref="ToggleTheme"/>;
+    /// the top strip's theme button binds its glyph to <see cref="ThemeGlyph"/>. Shell-level because
+    /// the toggle is shell chrome reachable on every step (unlike Focus, which is workspace-only).</summary>
+    [ObservableProperty]
+    private bool _isLightTheme;
+
+    /// <summary>ADR-026 D4: the theme-toggle button's glyph — a sun in light mode (tap to go dark),
+    /// a moon in dark mode (tap to go light); change-notified off <see cref="IsLightTheme"/>.</summary>
+    public string ThemeGlyph => IsLightTheme ? "☀" : "☾";
+
+    /// <summary>Keeps <see cref="ThemeGlyph"/> in sync whenever <see cref="IsLightTheme"/> flips.</summary>
+    partial void OnIsLightThemeChanged(bool value) => OnPropertyChanged(nameof(ThemeGlyph));
+
     public ShellViewModel(
         Func<bool, IDirectoryProvider> providerFactory,
         StartupOptions startupOptions,
@@ -99,6 +113,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // ADR-022 D4: defaulted like the locator — the composition root passes the one store,
         // pre-ADR-022 tests omit it and get the real %APPDATA% layout.
         _uiStateStore = uiStateStore ?? new UiStateStore();
+        // ADR-026 D4: seed the app-chrome theme from the persisted state and apply the resolved
+        // ThemeVariant on startup (a no-op when the app is not yet running, e.g. some headless
+        // theories — the bound IsLightTheme still reflects the persisted choice).
+        _isLightTheme = string.Equals(_uiStateStore.Load().Theme, "Light", StringComparison.OrdinalIgnoreCase);
+        ApplyThemeVariant();
         // Defaulted (AP 3.3 / ADR-011 §1): App.axaml.cs passes the one composition-root
         // locator; pre-S8 tests omit it and get the real %APPDATA% layout. Settings
         // Save persists to its UserRulesetPath; the headless tests inject a temp-dir seam.
@@ -243,6 +262,33 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         if (CurrentStep is WorkspaceViewModel workspace)
         {
             workspace.SetRailCollapsed(false);
+        }
+    }
+
+    /// <summary>ADR-026 D4: flips the app-chrome theme live and persists it. Toggles
+    /// <see cref="IsLightTheme"/>, applies the resolved <c>ThemeVariant</c> to the running app
+    /// (so every native screen re-themes via the DynamicResource brushes), and writes
+    /// <see cref="UiState.Theme"/> through the shared store (read-modify-write so the rail state
+    /// the workspace owns is preserved). Reachable on every step (the top strip's theme button).</summary>
+    [RelayCommand]
+    private void ToggleTheme()
+    {
+        IsLightTheme = !IsLightTheme;
+        ApplyThemeVariant();
+        // Preserve the ADR-022 rail fields the workspace owns: read-modify-write the shared store.
+        _uiStateStore.Save(_uiStateStore.Load() with { Theme = IsLightTheme ? "Light" : "Dark" });
+    }
+
+    /// <summary>Applies <see cref="IsLightTheme"/> to <c>Application.Current.RequestedThemeVariant</c>
+    /// (Light ⇒ <see cref="Avalonia.Styling.ThemeVariant.Light"/>, else Dark). A no-op when no app is
+    /// running (some headless theories) — the bound <see cref="IsLightTheme"/> still reflects state.</summary>
+    private void ApplyThemeVariant()
+    {
+        if (Application.Current is { } app)
+        {
+            app.RequestedThemeVariant = IsLightTheme
+                ? Avalonia.Styling.ThemeVariant.Light
+                : Avalonia.Styling.ThemeVariant.Dark;
         }
     }
 

@@ -83,7 +83,7 @@
                on the near-black seam — no subpixel colour fringe a triangle font glyph shows
                at small size. ◂ collapse when open / ▸ expand when collapsed (ToGeometry). -->
           <PathIcon Width="9" Height="9"
-                    Foreground="{StaticResource SecondaryForegroundBrush}"
+                    Foreground="{DynamicResource SecondaryForegroundBrush}"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
                     Data="{Binding IsRailCollapsed, Converter={x:Static views:RailChevronConverter.ToGeometry}}" />
         </Button>
@@ -163,8 +163,8 @@
                 <Border Name="ScopeSummaryCard"
                         IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
                         Margin="12"
-                        Background="{StaticResource CardBackgroundBrush}"
-                        BorderBrush="{StaticResource CardBorderBrush}"
+                        Background="{DynamicResource CardBackgroundBrush}"
+                        BorderBrush="{DynamicResource CardBorderBrush}"
                         BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}"
                         Padding="12" VerticalAlignment="Top">
                   <StackPanel Spacing="10">

@@ -198,8 +198,8 @@
          not body copy; the info glyph is plain text (no sized Border) to stay clear of
          the 18x18/20x20 geometry pins. -->
     <Border Grid.Row="3" Margin="0,8,0,0"
-            Background="{StaticResource CardBackgroundBrush}"
-            BorderBrush="{StaticResource CardBorderBrush}"
+            Background="{DynamicResource CardBackgroundBrush}"
+            BorderBrush="{DynamicResource CardBorderBrush}"
             BorderThickness="1" CornerRadius="6" Padding="8,6"
             IsVisible="{Binding HasUncheckedAreas}">
       <Grid ColumnDefinitions="Auto,*">

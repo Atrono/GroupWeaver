@@ -23,8 +23,8 @@
     <Ellipse Width="840" Height="840" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
              HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
 
-    <Border Background="{StaticResource CardBackgroundBrush}"
-            BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
+    <Border Background="{DynamicResource CardBackgroundBrush}"
+            BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
             CornerRadius="{StaticResource CardCornerRadius}"
             Padding="24" Width="420"
             HorizontalAlignment="Center" VerticalAlignment="Center">

@@ -88,6 +88,43 @@ public sealed class UiStateStoreTests
         Assert.Equal(UiState.Default, loaded);
     }
 
+    // --- ADR-026 D4: Theme round-trips and is back/forward compatible -------------------
+
+    [Fact]
+    public void Save_ThenLoad_RoundTripsTheTheme()
+    {
+        using var dir = new TempDir();
+        var store = new UiStateStore(dir.Path);
+
+        // Theme is a non-positional init property — prove it actually serializes and reads back
+        // (a default-only round-trip would pass even if Save dropped the field).
+        store.Save(UiState.Default with { Theme = "Light" });
+
+        var loaded = new UiStateStore(dir.Path).Load();
+
+        Assert.Equal("Light", loaded.Theme);
+        Assert.Equal(UiState.Default with { Theme = "Light" }, loaded);
+    }
+
+    [Fact]
+    public void Load_OldJsonWithoutThemeField_DefaultsToDark()
+    {
+        using var dir = new TempDir();
+        var store = new UiStateStore(dir.Path);
+
+        // A pre-ADR-026 ui-state.json: only the two rail fields, no `theme` property. The
+        // never-throw Load must deserialize it (it is valid JSON) and the missing Theme must
+        // fall back to the dark-first default — the JSON stays back-compatible.
+        Directory.CreateDirectory(Path.GetDirectoryName(store.StatePath)!);
+        File.WriteAllText(store.StatePath, """{ "RailWidth": 400, "RailCollapsed": true }""");
+
+        var loaded = store.Load();
+
+        Assert.Equal(400, loaded.RailWidth);
+        Assert.True(loaded.RailCollapsed);
+        Assert.Equal("Dark", loaded.Theme); // missing ⇒ the ADR-026 dark-first default
+    }
+
     // --- atomic-ish save: no leftover temp file, the final file exists ------------------
 
     [Fact]

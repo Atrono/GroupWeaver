@@ -40,13 +40,16 @@
          without a palette fill. -->
     <Style Selector="Button.ghost">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Padding" Value="10,6" />
       <Setter Property="CornerRadius" Value="4" />
     </Style>
+    <!-- ADR-026 D3 (WP1a): the pointer-over wash flips with the variant — Dark #14FFFFFF /
+         Light #0D000000 — via the theme-resolved GhostHoverBrush (DynamicResource so it
+         re-resolves on a live ThemeVariant change). -->
     <Style Selector="Button.ghost:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#14FFFFFF" />
+      <Setter Property="Background" Value="{DynamicResource GhostHoverBrush}" />
     </Style>
   </Application.Styles>
 

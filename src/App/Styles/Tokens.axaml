@@ -2,9 +2,45 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
   <!-- Design tokens (#91): the chrome FOUNDATION the type scale + #92/#93 consume.
-       Structural-neutral only — transparent white over the dark void (the existing
+       Structural-neutral only — translucent ink over the page surface (the existing
        #…808080 separator language), NEVER a palette color (palette tone lives in
-       the graph bundle / converters, not here). -->
+       the graph bundle / converters, not here).
+
+       ADR-026 D1/D3 (WP1a): the surface/line/secondary-text/page roles are now
+       theme-resolved via ThemeDictionaries (FluentTheme flips its own control
+       defaults per variant in parallel). Dark values are byte-identical to the
+       shipped palette so every ADR-021 WCAG ratio holds; the light values are
+       Frame 4's re-derived translucent-BLACK-over-light counterparts. The graph
+       CANVAS stays dark in WP1a (WP1b re-tones it). -->
+
+  <ResourceDictionary.ThemeDictionaries>
+
+    <!-- Dark (shipped values, UNCHANGED) -->
+    <ResourceDictionary x:Key="Dark">
+      <!-- Page/window background — the dark void (BrandTokens.PageBackgroundHex). -->
+      <SolidColorBrush x:Key="PageBackgroundBrush" Color="#1b1f27" />
+      <!-- Card chrome: translucent white over the dark void. -->
+      <SolidColorBrush x:Key="CardBackgroundBrush" Color="#14FFFFFF" />
+      <SolidColorBrush x:Key="CardBorderBrush" Color="#22FFFFFF" />
+      <!-- Secondary-neutral foreground: solid white at the card-chrome family. -->
+      <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#B0B5BD" />
+      <!-- Ghost-button pointer-over wash (App.axaml). -->
+      <SolidColorBrush x:Key="GhostHoverBrush" Color="#14FFFFFF" />
+    </ResourceDictionary>
+
+    <!-- Light (ADR-026 D3, Frame 4: re-derived, translucent BLACK over the light page) -->
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="PageBackgroundBrush" Color="#ECEEF1" />
+      <SolidColorBrush x:Key="CardBackgroundBrush" Color="#0A000000" />
+      <SolidColorBrush x:Key="CardBorderBrush" Color="#1A000000" />
+      <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#5A636E" />
+      <SolidColorBrush x:Key="GhostHoverBrush" Color="#0D000000" />
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+
+  <!-- Theme-invariant tokens (spacing rhythm, corner radius, mono font stack) at the
+       dictionary root — these do not change by variant. -->
 
   <!-- Spacing rhythm (a single 4px scale). -->
   <x:Double x:Key="SpaceXs">4</x:Double>
@@ -13,16 +49,7 @@
   <x:Double x:Key="SpaceLg">16</x:Double>
   <x:Double x:Key="SpaceXl">24</x:Double>
 
-  <!-- Card chrome: transparent white over the dark void (mirrors the separator
-       language), so it tints with the background rather than introducing a tone. -->
-  <SolidColorBrush x:Key="CardBackgroundBrush" Color="#14FFFFFF" />
-  <SolidColorBrush x:Key="CardBorderBrush" Color="#22FFFFFF" />
   <CornerRadius x:Key="CardCornerRadius">8</CornerRadius>
-
-  <!-- Secondary-neutral foreground: a solid (non-translucent) white at the same
-       neutral family as the card chrome, so small chrome glyphs (the ADR-022 rail
-       toggle chevron) render crisp without an amber/blue anti-alias fringe. -->
-  <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#B0B5BD" />
 
   <!-- Tabular monospace name-stack for DNs / raw directory strings — no bundled
        asset; mirrors the graph bundle's web/index.html legend font stack. -->
