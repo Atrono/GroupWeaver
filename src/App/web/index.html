@@ -4,66 +4,113 @@
   <meta charset="utf-8" />
   <title>GroupWeaver Graph</title>
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1b1f27; }
+    /* ADR-026 WP1b: the chrome (body/#cy bg, #legend + #controls surfaces, text, swatch
+       fills) is driven by CSS custom properties. The :root DEFAULTS below are the DARK
+       values, byte-identical to the pre-WP1b literals, so the bundle renders identically
+       before any theme command and the ui-verifier dark screenshots stay unchanged.
+       the bundle script's `theme` handler overrides these via documentElement.style.setProperty
+       from its CHROME table (the single source of truth, hand-mirrored per ADR-021). The
+       kind swatch SVG fills are theme-INVARIANT and stay hardcoded in the markup; the
+       severity/diff swatch fills bind to --gw-sev-*/--gw-diff-* so the legend stays
+       truthful in light mode (mirrors the themed canvas hues). */
+    :root {
+      --gw-canvas-bg: #1b1f27;
+      --gw-chrome-bg: rgba(22, 26, 33, 0.92);
+      --gw-chrome-border: rgba(255, 255, 255, 0.06);
+      --gw-chrome-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      --gw-chrome-title: #8A93A3;
+      --gw-chrome-label: #E8ECF2;
+      --gw-chrome-count: #C8CFDB;
+      --gw-chrome-count-zero: #5A6171;
+      --gw-chrome-edge-text: #A6AEBC;
+      --gw-input-bg: rgba(0, 0, 0, 0.25);
+      --gw-input-border: rgba(255, 255, 255, 0.12);
+      --gw-btn-bg: rgba(255, 255, 255, 0.06);
+      --gw-btn-border: rgba(255, 255, 255, 0.12);
+      --gw-btn-hover-bg: rgba(255, 255, 255, 0.12);
+      --gw-focus-ring: #4FA3E3;
+      --gw-no-match: #F7A30B;
+      --gw-edge-member: #8E9BB4;
+      --gw-edge-contains: #6B788F;
+      --gw-sev-error: #D13438;
+      --gw-sev-warning: #F7A30B;
+      --gw-sev-info: #4FA3E3;
+      --gw-sev-info-ink: #1b1f27;
+      --gw-diff-added: #2FAE4E;
+      --gw-diff-removed: #E0503A;
+      --gw-diff-unchecked: #8A8F98;
+    }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--gw-canvas-bg); }
     #cy { width: 100%; height: 100%; }
     #legend {
       position: fixed; top: 12px; left: 12px; z-index: 10;
       pointer-events: none;
-      background: rgba(22, 26, 33, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--gw-chrome-bg);
+      border: 1px solid var(--gw-chrome-border);
       border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--gw-chrome-shadow);
       padding: 14px 16px; width: 232px;
       max-height: calc(100vh - 24px); overflow-y: auto;
       font-family: "Segoe UI", sans-serif;
     }
     #legend .legend-section-title {
       font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
-      text-transform: uppercase; color: #8A93A3; margin-bottom: 6px;
+      text-transform: uppercase; color: var(--gw-chrome-title); margin-bottom: 6px;
     }
     #legend .legend-section + .legend-section { margin-top: 14px; }
     #legend .legend-kinds {
       display: grid; grid-template-columns: 16px 1fr auto;
       column-gap: 10px; row-gap: 3px; align-items: center;
     }
-    #legend .kind-label { font-size: 12px; line-height: 1.4; font-weight: 400; color: #E8ECF2; }
+    #legend .kind-label { font-size: 12px; line-height: 1.4; font-weight: 400; color: var(--gw-chrome-label); }
     #legend svg { display: block; }
     #legend .count {
       font-size: 12px; font-family: "Cascadia Mono", "Consolas", monospace;
       font-variant-numeric: tabular-nums; font-weight: 500;
-      color: #C8CFDB; text-align: right;
+      color: var(--gw-chrome-count); text-align: right;
     }
-    #legend .count.zero { color: #5A6171; }
+    #legend .count.zero { color: var(--gw-chrome-count-zero); }
     #legend .legend-strip { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; }
     #legend .legend-strip span {
       display: inline-flex; align-items: center; gap: 5px;
-      font-size: 12px; color: #E8ECF2;
+      font-size: 12px; color: var(--gw-chrome-label);
     }
+    /* Severity/diff swatch fills mirror the themed canvas hues (ADR-026 D5). */
+    #legend [data-sev="error"] svg rect { fill: var(--gw-sev-error); }
+    #legend [data-sev="warning"] svg polygon { fill: var(--gw-sev-warning); }
+    #legend [data-sev="info"] svg circle { fill: var(--gw-sev-info); }
+    #legend [data-sev="info"] svg rect { fill: var(--gw-sev-info-ink); }
+    #legend [data-diff="added"] svg circle { stroke: var(--gw-diff-added); }
+    #legend [data-diff="added"] svg line { stroke: var(--gw-diff-added); }
+    #legend [data-diff="removed"] svg circle { fill: var(--gw-diff-removed); stroke: var(--gw-diff-removed); }
+    #legend [data-diff="removed"] svg line { stroke: var(--gw-diff-removed); }
+    #legend [data-diff="unchecked"] svg circle { stroke: var(--gw-diff-unchecked); }
+    #legend [data-diff="unchecked"] svg line { stroke: var(--gw-diff-unchecked); }
     #legend .legend-edges {
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid var(--gw-chrome-border);
       margin-top: 14px; padding-top: 8px;
       display: flex; flex-direction: column; gap: 3px;
     }
     #legend .legend-edges div {
       display: flex; align-items: center; gap: 6px;
-      font-size: 11px; color: #A6AEBC;
+      font-size: 11px; color: var(--gw-chrome-edge-text);
     }
     #legend .edge-sample {
       display: inline-block; width: 24px;
-      vertical-align: middle; border-top: 2px solid #8E9BB4;
+      vertical-align: middle; border-top: 2px solid var(--gw-edge-member);
     }
-    #legend .edge-sample.contains { border-top: 2px dashed #6B788F; }
-    #legend .edge-arrow { color: #8E9BB4; margin: 0 -2px 0 -6px; line-height: 1; }
+    #legend .edge-sample.contains { border-top: 2px dashed var(--gw-edge-contains); }
+    #legend .edge-arrow { color: var(--gw-edge-member); margin: 0 -2px 0 -6px; line-height: 1; }
     /* ADR-023: the first INTERACTIVE bundle overlay (legend is pointer-events:none).
        Same neutral chrome as #legend; quiet/utilitarian. pointer-events scoped to
        this box so graph pan/tap below stays unaffected. */
     #controls {
       position: fixed; right: 12px; bottom: 12px; z-index: 10;
       pointer-events: auto;
-      background: rgba(22, 26, 33, 0.92);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--gw-chrome-bg);
+      border: 1px solid var(--gw-chrome-border);
       border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--gw-chrome-shadow);
       padding: 8px 10px;
       font-family: "Segoe UI", sans-serif;
       display: flex; flex-direction: column; gap: 6px;
@@ -72,31 +119,31 @@
     #controls .controls-row { display: flex; gap: 6px; align-items: center; }
     #controls input[type="text"] {
       flex: 1 1 auto; min-width: 0;
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--gw-input-bg);
+      border: 1px solid var(--gw-input-border);
       border-radius: 5px;
       padding: 4px 7px;
       font-family: "Segoe UI", sans-serif; font-size: 12px;
-      color: #E8ECF2;
+      color: var(--gw-chrome-label);
     }
-    #controls input[type="text"]::placeholder { color: #8A93A3; }
+    #controls input[type="text"]::placeholder { color: var(--gw-chrome-title); }
     #controls button {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--gw-btn-bg);
+      border: 1px solid var(--gw-btn-border);
       border-radius: 5px;
       padding: 4px 8px;
       font-family: "Segoe UI", sans-serif; font-size: 12px;
-      color: #E8ECF2;
+      color: var(--gw-chrome-label);
       cursor: pointer; line-height: 1.2;
     }
-    #controls button:hover { background: rgba(255, 255, 255, 0.12); }
+    #controls button:hover { background: var(--gw-btn-hover-bg); }
     #controls button:focus-visible,
     #controls input[type="text"]:focus-visible {
-      outline: 2px solid #4FA3E3; outline-offset: 1px;
+      outline: 2px solid var(--gw-focus-ring); outline-offset: 1px;
     }
     #controls .zoom-btn { font-family: "Cascadia Mono", "Consolas", monospace; min-width: 26px; }
     #controls .no-match {
-      font-size: 11px; color: #F7A30B; padding: 0 1px;
+      font-size: 11px; color: var(--gw-no-match); padding: 0 1px;
     }
     #controls .no-match[hidden] { display: none; }
   </style>

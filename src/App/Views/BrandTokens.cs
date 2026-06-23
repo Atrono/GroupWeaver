@@ -201,6 +201,68 @@ public static class BrandTokens
     /// fills themselves stay unchanged.</summary>
     public const string NodeLiftRingHex = "#8A93A3";
 
+    // --- Graph-canvas LIGHT theme (ADR-026 WP1b). These are the DOCUMENTED C# MIRROR of the light
+    // values graph.js owns in its THEME.light / CHROME.light tables (the wire carries only the
+    // variant string — no token values cross the bridge). They are NOT consumed by any Avalonia
+    // converter (the canvas runs in the file:// WebView); they exist so the source of truth for the
+    // light-canvas hues lives beside the dark palette, and the reviewer enforces lock-step parity
+    // with graph.js / index.html / verify.mjs (the LIGHT block) / WebBundleTests, exactly like the
+    // dark palette. WCAG ratios below are computed vs the LIGHT canvas #F5F6F8 (ADR-026 D5 table).
+    // Kind FILLS stay theme-INVARIANT (all >= 4.2:1 on the light canvas), so there is NO light kind
+    // palette — only the page-relative roles re-tone. ------------------------------------------
+
+    /// <summary>LIGHT graph canvas / body background — #F5F6F8 (Frame 4). The DARK canvas is
+    /// <see cref="PageBackgroundHex"/> #1b1f27; this is the WP1b canvas re-tone (distinct from the
+    /// app-chrome <see cref="PageBackgroundLightHex"/> #ECEEF1 surface, WP1a).</summary>
+    public const string GraphCanvasLightHex = "#F5F6F8";
+
+    /// <summary>LIGHT node label ink — #1C2127 (14.98:1 on the light canvas, >= 4.5:1 text); the
+    /// dark counterpart is #E8ECF2. Outline flips to the canvas color #F5F6F8.</summary>
+    public const string GraphLabelInkLightHex = "#1C2127";
+
+    /// <summary>LIGHT membership edge (primary directed signal) — #5A6473 (5.54:1, >= 3:1
+    /// non-text); dark is #8E9BB4. Kept LIGHTER than the containment edge, preserving the F6
+    /// lightness channel.</summary>
+    public const string GraphEdgeMemberLightHex = "#5A6473";
+
+    /// <summary>LIGHT containment edge (subordinate, dashed) — #3A424E (9.39:1); dark is #6B788F.</summary>
+    public const string GraphEdgeContainsLightHex = "#3A424E";
+
+    /// <summary>LIGHT root node border — #1C2127 (14.98:1); dark is #E8ECF2.</summary>
+    public const string GraphRootBorderLightHex = "#1C2127";
+
+    /// <summary>LIGHT External dashed border — #6B7480 (4.38:1); dark is #B0B6BF.</summary>
+    public const string GraphExternalBorderLightHex = "#6B7480";
+
+    /// <summary>LIGHT node:selected border — #1C2127 (14.98:1); dark stays white #FFFFFF (which
+    /// would vanish on the light canvas).</summary>
+    public const string GraphSelectionBorderLightHex = "#1C2127";
+
+    /// <summary>LIGHT severity halo hues (deepened from Frame 4 so the soft transparent overlay reads
+    /// at/above its dark counterpart's blended ratio; redundant with the sidebar E/W/i letter + node
+    /// shape): error #D63A4A (@0.70 = 2.84:1), warning #BD7C00 (@0.75 = 2.34:1), info #2F6FE0
+    /// (@0.70 = 2.68:1). Dark: #D13438/#F7A30B/#4FA3E3 @0.45/0.45/0.40 (blended 1.57/2.65/2.07).</summary>
+    public const string GraphSeverityErrorLightHex = "#D63A4A";
+
+    /// <summary>LIGHT warning severity halo hue — amber #BD7C00 (see <see cref="GraphSeverityErrorLightHex"/>).</summary>
+    public const string GraphSeverityWarningLightHex = "#BD7C00";
+
+    /// <summary>LIGHT info severity halo hue — blue #2F6FE0 (see <see cref="GraphSeverityErrorLightHex"/>).
+    /// Also the LIGHT busy-ring color (@0.55 = 2.12:1, dark #4FA3E3 @0.35).</summary>
+    public const string GraphSeverityInfoLightHex = "#2F6FE0";
+
+    /// <summary>LIGHT diff hues (node underlay + edge line; ADR-015 mirror): added green #1F9D57,
+    /// removed red #D63A4A (= the severity error hue), unchecked gray #5A6473. Underlay opacities
+    /// raised to 0.70/0.70/0.50 (dark 0.5/0.5/0.35) so the soft underlay reads on light; the
+    /// near-opaque diff EDGE lines clear ~3:1 (added 3.05, removed 3.51). Dark: #2FAE4E/#E0503A/#8A8F98.</summary>
+    public const string GraphDiffAddedLightHex = "#1F9D57";
+
+    /// <summary>LIGHT diff Removed hue — #D63A4A (see <see cref="GraphDiffAddedLightHex"/>).</summary>
+    public const string GraphDiffRemovedLightHex = "#D63A4A";
+
+    /// <summary>LIGHT diff Unchecked hue — #5A6473 (see <see cref="GraphDiffAddedLightHex"/>).</summary>
+    public const string GraphDiffUncheckedLightHex = "#5A6473";
+
     /// <summary><see cref="PageBackgroundHex"/> as a brush.</summary>
     public static readonly ImmutableSolidColorBrush PageBackground = new(Color.Parse(PageBackgroundHex));
 

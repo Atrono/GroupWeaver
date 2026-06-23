@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 
+using GroupWeaver.App.Views;
+
 using Xunit;
 
 namespace GroupWeaver.App.Tests.Graph;
@@ -148,10 +150,116 @@ public sealed class WebBundleTests
         // contrast vs the #1b1f27 page bg falls below the 3:1 floor (DL 2.55:1 /
         // UG 2.66:1 / Computer 2.59:1) are LIFTED by a 2px ring — color pinned to
         // BrandTokens.NodeLiftRing (#8A93A3, 5.33:1). The fills are UNCHANGED (the
-        // PaletteHexes containment above still holds). Match the EXACT graph.js
-        // literal so a drift in either the value or the quoting fails here.
-        Assert.Contains("'border-color': '#8A93A3'", text, StringComparison.Ordinal);
-        Assert.Contains("'border-width': 2", text, StringComparison.Ordinal);
+        // PaletteHexes containment above still holds).
+        //
+        // ADR-026 WP1b moved the literal value into the THEME table: the per-kind
+        // rules now read 'border-color': t.nodeLiftRing / 'border-width': t.nodeLiftWidth,
+        // and the #8A93A3 ring hex lives as THEME.dark.nodeLiftRing. The ring is the DARK
+        // 1.4.11 lift (width 2); on the LIGHT canvas the three fills already clear 3:1
+        // (DL 5.98 / UG 5.75 / Computer 5.90) so the ring is dropped (nodeLiftWidth 0).
+        // Pin the value via the THEME-table form (the new single source) plus the per-
+        // kind binding, so a drift in either the value, the quoting, or the binding
+        // fails here. The intent is unchanged: DL/UG/Computer are lifted on dark.
+        Assert.Contains("nodeLiftRing: '#8A93A3'", text, StringComparison.Ordinal);
+        Assert.Contains("'border-color': t.nodeLiftRing", text, StringComparison.Ordinal);
+        Assert.Contains("'border-width': t.nodeLiftWidth", text, StringComparison.Ordinal);
+
+        // The DARK lift width is 2 (the ring shows); the LIGHT lift width is 0 (no ring
+        // needed — fills clear 3:1 on the light canvas). Both pinned so a flip of either
+        // theme's nodeLiftWidth is caught.
+        Assert.Contains("nodeLiftWidth: 2", text, StringComparison.Ordinal);
+        Assert.Contains("nodeLiftWidth: 0", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ADR-026 D5 / WP1b light-canvas parity: the page-relative graph tokens re-tone for the
+    /// light theme, and <see cref="BrandTokens"/> carries the documented C# mirror of the light
+    /// values graph.js owns in its <c>THEME.light</c> table (the wire carries only the variant
+    /// string — no token values cross the bridge). This is the C# end of the hand-mirror parity
+    /// chain for the LIGHT palette, the exact analogue of
+    /// <c>AdObjectKindConvertersTests</c> for the dark fills: each <c>BrandTokens.Graph*LightHex</c>
+    /// constant must appear inside graph.js's <c>THEME.light</c> table, so a drift between the C#
+    /// source of truth and the JS mirror surfaces here. Scoped to the <c>THEME.light { … }</c>
+    /// slice (never the whole file) so a value that exists only in <c>THEME.dark</c> / <c>CHROME</c>
+    /// can never satisfy a light assertion.
+    /// </summary>
+    [Fact]
+    public void Graph_LightThemeTableMatchesBrandTokens()
+    {
+        var lightTable = ThemeLightTable(ReadShippedText("graph.js"));
+
+        // Every BrandTokens.Graph*LightHex role (ADR-026 D5) — the C# source of truth — must be
+        // present in graph.js's THEME.light table. Compared against the actual token constants
+        // (not a re-hardcoded copy) so the parity is transparent: a change to either side fails.
+        string[] lightHexes =
+        [
+            BrandTokens.GraphCanvasLightHex,        // #F5F6F8 canvas / label outline
+            BrandTokens.GraphLabelInkLightHex,      // #1C2127 node label ink
+            BrandTokens.GraphEdgeMemberLightHex,    // #5A6473 membership edge
+            BrandTokens.GraphEdgeContainsLightHex,  // #3A424E containment edge
+            BrandTokens.GraphRootBorderLightHex,    // #1C2127 root border
+            BrandTokens.GraphExternalBorderLightHex, // #6B7480 External dashed border
+            BrandTokens.GraphSelectionBorderLightHex, // #1C2127 node:selected border
+            BrandTokens.GraphSeverityErrorLightHex,   // #D63A4A severity error halo
+            BrandTokens.GraphSeverityWarningLightHex, // #BD7C00 severity warning halo
+            BrandTokens.GraphSeverityInfoLightHex,    // #2F6FE0 severity info halo + busy
+            BrandTokens.GraphDiffAddedLightHex,       // #1F9D57 diff added
+            BrandTokens.GraphDiffRemovedLightHex,     // #D63A4A diff removed
+            BrandTokens.GraphDiffUncheckedLightHex,   // #5A6473 diff unchecked
+        ];
+        foreach (var hex in lightHexes)
+        {
+            Assert.True(
+                lightTable.Contains(hex, StringComparison.OrdinalIgnoreCase),
+                $"graph.js THEME.light is missing light token '{hex}' — the light graph palette "
+                + "must stay in lockstep with BrandTokens.Graph*LightHex (ADR-026 D5 hand-mirror).");
+        }
+
+        // The light canvas drops the DL/UG/Computer 1.4.11 border-lift (fills clear 3:1 on
+        // light): THEME.light.nodeLiftWidth is 0 (ADR-026 D5). The 2px lift is DARK-only.
+        Assert.Contains("nodeLiftWidth: 0", lightTable, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ADR-026 D1 / WP1b: the DARK graph tokens are byte-identical to the shipped palette (every
+    /// ADR-021 WCAG ratio holds). Re-confirm the dark literals are unchanged after the THEME-table
+    /// refactor — both the kind fills (PaletteHexes, theme-invariant) and the page-relative dark
+    /// roles that ADR-026 D5 leaves untouched on the dark side.
+    /// </summary>
+    [Fact]
+    public void Graph_DarkThemeTableLiteralsUnchanged()
+    {
+        var darkTable = ThemeDarkTable(ReadShippedText("graph.js"));
+
+        // The page-relative DARK role tokens (ADR-026 D5 "Dark (unchanged)" column). canvas/
+        // label-ink/label-outline/edges/borders + the node-lift ring (2px, DL/UG/Computer) and
+        // the severity/diff/busy hues, all byte-identical to the pre-WP1b bundle.
+        string[] darkRoleHexes =
+        [
+            "#1b1f27",  // canvasBg / labelOutline (PageBackground)
+            "#E8ECF2",  // labelInk + rootBorder
+            BrandTokens.NodeLiftRingHex, // #8A93A3 dark 1.4.11 lift ring
+            "#B0B6BF",  // externalBorder
+            "#FFFFFF",  // selectionBorder (white, both themes)
+            "#8E9BB4",  // edgeMember
+            "#6B788F",  // edgeContains
+            BrandTokens.ErrorHex,    // #D13438 severity error
+            BrandTokens.WarningHex,  // #F7A30B severity warning
+            BrandTokens.InfoHex,     // #4FA3E3 severity info + busy
+            BrandTokens.AddedHex,    // #2FAE4E diff added
+            BrandTokens.RemovedHex,  // #E0503A diff removed
+            BrandTokens.UncheckedHex, // #8A8F98 diff unchecked
+        ];
+        foreach (var hex in darkRoleHexes)
+        {
+            Assert.True(
+                darkTable.Contains(hex, StringComparison.OrdinalIgnoreCase),
+                $"graph.js THEME.dark is missing dark token '{hex}' — the dark palette must stay "
+                + "byte-identical to the shipped values (ADR-026 D1: dark is provably unchanged).");
+        }
+
+        // The dark lift width is 2 (the ring shows on DL/UG/Computer).
+        Assert.Contains("nodeLiftWidth: 2", darkTable, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -226,6 +334,47 @@ public sealed class WebBundleTests
 
     private static string ReadShippedText(params string[] segments)
         => File.ReadAllText(RequireShipped(segments));
+
+    /// <summary>
+    /// Slice of graph.js's <c>THEME</c> variant table for <paramref name="variant"/>
+    /// (<c>dark</c> or <c>light</c>): from the <c>&lt;variant&gt;: {</c> opener to its matching
+    /// closing brace. Used by the palette-parity asserts so a value is checked SCOPED to the
+    /// intended variant — a hex that lives only in the OTHER variant (or in CHROME) can never
+    /// satisfy the assertion. A structural failure to locate the table fails loudly here.
+    /// </summary>
+    private static string ThemeTable(string graphJs, string variant)
+    {
+        // THEME holds exactly two top-level keys; each opens `<variant>: {`. Locate the opener,
+        // then brace-match to its close so a sibling variant's table is never included.
+        var opener = $"{variant}: {{";
+        var start = graphJs.IndexOf(opener, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"graph.js does not contain a THEME.{variant} table opener '{opener}'.");
+
+        var braceStart = start + opener.Length - 1; // index of the '{'
+        var depth = 0;
+        for (var i = braceStart; i < graphJs.Length; i++)
+        {
+            if (graphJs[i] == '{')
+            {
+                depth++;
+            }
+            else if (graphJs[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return graphJs.Substring(braceStart, i - braceStart + 1);
+                }
+            }
+        }
+
+        Assert.Fail($"graph.js THEME.{variant} table has no matching closing brace.");
+        return string.Empty; // unreachable (Assert.Fail throws)
+    }
+
+    private static string ThemeLightTable(string graphJs) => ThemeTable(graphJs, "light");
+
+    private static string ThemeDarkTable(string graphJs) => ThemeTable(graphJs, "dark");
 
     private static string Sha256Hex(string path)
     {

@@ -14,6 +14,138 @@
   var pendingNodes = [];
   var pendingEdges = [];
 
+  // ADR-026 WP1b: the graph canvas follows the app theme. The wire carries ONLY the
+  // variant string ({type:'theme', variant:'dark'|'light'}); graph.js owns the dark+
+  // light token TABLES itself (a mirror of BrandTokens.cs, per the ADR-021 hand-mirror
+  // parity invariant — NO token values cross the wire). currentVariant defaults to 'dark'
+  // so the FIRST render (before any theme command) is byte-identical to the shipped graph
+  // (verify.mjs's computed-style asserts depend on this). THEME holds every themeable
+  // value; buildStyle(THEME[v]) constructs the cytoscape style array from it. The kind
+  // FILLS are theme-INVARIANT (all read >= 4.2:1 on the light canvas too, ADR-026 D5) and
+  // stay hardcoded in the per-kind rules, identical in both themes — they are NOT in THEME.
+  //
+  // Parity (ADR-021/ADR-026): the DARK values below MUST equal the literals the bundle
+  // shipped with; the LIGHT values mirror BrandTokens' *LightHex graph tokens and are
+  // pinned by tests/graph-bundle/verify.mjs (the test-engineer adds a LIGHT block) and
+  // WebBundleTests. Every WCAG ratio for the light values is documented in ADR-026 D5.
+  var currentVariant = 'dark';
+  var THEME = {
+    dark: {
+      canvasBg: '#1b1f27',          // body / #cy background (index.html mirror)
+      labelInk: '#E8ECF2',          // node label color
+      labelOutline: '#1b1f27',      // node label text-outline-color
+      nodeLiftRing: '#8A93A3',      // 1.4.11 border-lift on DL/UG/Computer (2px)
+      nodeLiftWidth: 2,
+      rootBorder: '#E8ECF2',        // node[?root] white-ish border
+      externalBorder: '#B0B6BF',    // External dashed border
+      selectionBorder: '#FFFFFF',   // node:selected border (white both themes)
+      edgeMember: '#8E9BB4',        // membership: primary directed signal (~5.8:1)
+      edgeContains: '#6B788F',      // containment: subordinate scaffolding (~3.65:1)
+      sevError: '#D13438', sevWarning: '#F7A30B', sevInfo: '#4FA3E3',
+      sevErrorOpacity: 0.45, sevWarningOpacity: 0.45, sevInfoOpacity: 0.40,
+      rollupOpacity: 0.30,
+      busy: '#4FA3E3', busyOpacity: 0.35,
+      diffAdded: '#2FAE4E', diffRemoved: '#E0503A', diffUnchecked: '#8A8F98',
+      diffAddedUnderlayOpacity: 0.5, diffRemovedUnderlayOpacity: 0.5, diffUncheckedUnderlayOpacity: 0.35,
+      diffAddedLineOpacity: 0.95, diffRemovedLineOpacity: 0.85, diffUncheckedLineOpacity: 0.5
+    },
+    // ADR-026 D5 light-canvas hues (all ratios computed vs the light canvas #F5F6F8):
+    //   structural (>= 3:1): edge member #5A6473 5.54:1, contains #3A424E 9.39:1, root
+    //   border #1C2127 14.98:1, External dashed #6B7480 4.38:1, label ink #1C2127 14.98:1
+    //   (>= 4.5:1 text). Kind fills theme-INVARIANT (all >= 4.2:1 on light) so the dark
+    //   1.4.11 border-lift is NOT needed on light → nodeLiftWidth 0. Severity HALOS and diff
+    //   UNDERLAYS are soft transparent emphasis cues (redundant with the sidebar E/W/i letter
+    //   + node shape, like the dark halos which themselves blend < 3:1): deepened hues + raised
+    //   opacities so each reads at or above its DARK counterpart's blended ratio. Diff EDGE
+    //   lines (near-opaque) clear ~3:1 as structural signals.
+    light: {
+      canvasBg: '#F5F6F8',
+      labelInk: '#1C2127',
+      labelOutline: '#F5F6F8',
+      nodeLiftRing: '#5A6473',      // unused on light (width 0) but kept defined for parity
+      nodeLiftWidth: 0,
+      rootBorder: '#1C2127',
+      externalBorder: '#6B7480',
+      selectionBorder: '#1C2127',   // dark ink reads on the light canvas (white would vanish)
+      edgeMember: '#5A6473',
+      edgeContains: '#3A424E',
+      sevError: '#D63A4A', sevWarning: '#BD7C00', sevInfo: '#2F6FE0',
+      sevErrorOpacity: 0.70, sevWarningOpacity: 0.75, sevInfoOpacity: 0.70,
+      rollupOpacity: 0.50,
+      busy: '#2F6FE0', busyOpacity: 0.55,
+      diffAdded: '#1F9D57', diffRemoved: '#D63A4A', diffUnchecked: '#5A6473',
+      diffAddedUnderlayOpacity: 0.70, diffRemovedUnderlayOpacity: 0.70, diffUncheckedUnderlayOpacity: 0.50,
+      diffAddedLineOpacity: 0.95, diffRemovedLineOpacity: 0.85, diffUncheckedLineOpacity: 0.60
+    }
+  };
+
+  // index.html chrome custom properties driven from THEME on a theme command (the legend +
+  // controls + their severity/diff swatch fills mirror the canvas, ADR-026 D5). Kind swatch
+  // fills are theme-invariant and stay hardcoded in the SVG markup. The light values here are
+  // hand-derived from Frame 4 (redesign-2026-06) for the chrome surfaces; the severity/diff
+  // swatch fills reuse the canvas hues above so the legend stays truthful in light mode.
+  var CHROME = {
+    dark: {
+      '--gw-canvas-bg': '#1b1f27',
+      '--gw-chrome-bg': 'rgba(22, 26, 33, 0.92)',
+      '--gw-chrome-border': 'rgba(255, 255, 255, 0.06)',
+      '--gw-chrome-shadow': '0 4px 16px rgba(0, 0, 0, 0.35)',
+      '--gw-chrome-title': '#8A93A3',
+      '--gw-chrome-label': '#E8ECF2',
+      '--gw-chrome-count': '#C8CFDB',
+      '--gw-chrome-count-zero': '#5A6171',
+      '--gw-chrome-edge-text': '#A6AEBC',
+      '--gw-input-bg': 'rgba(0, 0, 0, 0.25)',
+      '--gw-input-border': 'rgba(255, 255, 255, 0.12)',
+      '--gw-btn-bg': 'rgba(255, 255, 255, 0.06)',
+      '--gw-btn-border': 'rgba(255, 255, 255, 0.12)',
+      '--gw-btn-hover-bg': 'rgba(255, 255, 255, 0.12)',
+      '--gw-focus-ring': '#4FA3E3',
+      '--gw-no-match': '#F7A30B',
+      '--gw-edge-member': '#8E9BB4',
+      '--gw-edge-contains': '#6B788F',
+      '--gw-sev-error': '#D13438', '--gw-sev-warning': '#F7A30B', '--gw-sev-info': '#4FA3E3',
+      '--gw-sev-info-ink': '#1b1f27',
+      '--gw-diff-added': '#2FAE4E', '--gw-diff-removed': '#E0503A', '--gw-diff-unchecked': '#8A8F98'
+    },
+    light: {
+      '--gw-canvas-bg': '#F5F6F8',
+      '--gw-chrome-bg': 'rgba(255, 255, 255, 0.92)',
+      '--gw-chrome-border': 'rgba(0, 0, 0, 0.10)',
+      '--gw-chrome-shadow': '0 4px 16px rgba(0, 0, 0, 0.14)',
+      '--gw-chrome-title': '#5A636E',
+      '--gw-chrome-label': '#1C2127',
+      '--gw-chrome-count': '#3A424E',
+      '--gw-chrome-count-zero': '#A0A6AF',
+      '--gw-chrome-edge-text': '#5A636E',
+      '--gw-input-bg': 'rgba(0, 0, 0, 0.04)',
+      '--gw-input-border': 'rgba(0, 0, 0, 0.18)',
+      '--gw-btn-bg': 'rgba(0, 0, 0, 0.05)',
+      '--gw-btn-border': 'rgba(0, 0, 0, 0.18)',
+      '--gw-btn-hover-bg': 'rgba(0, 0, 0, 0.10)',
+      '--gw-focus-ring': '#2F6FE0',
+      '--gw-no-match': '#BD7C00',
+      '--gw-edge-member': '#5A6473',
+      '--gw-edge-contains': '#3A424E',
+      '--gw-sev-error': '#D63A4A', '--gw-sev-warning': '#BD7C00', '--gw-sev-info': '#2F6FE0',
+      '--gw-sev-info-ink': '#F5F6F8',
+      '--gw-diff-added': '#1F9D57', '--gw-diff-removed': '#D63A4A', '--gw-diff-unchecked': '#5A6473'
+    }
+  };
+
+  // Apply the chrome custom properties for a variant to :root (index.html reads them via
+  // var(--gw-*)). Pure DOM write — no cytoscape touch. The legend swatch fills bound to
+  // these vars (severity/diff) re-tone with the canvas; kind swatches stay invariant.
+  function applyChromeVariant(v) {
+    var vars = CHROME[v] || CHROME.dark;
+    var root = document.documentElement;
+    for (var name in vars) {
+      if (Object.prototype.hasOwnProperty.call(vars, name)) {
+        root.style.setProperty(name, vars[name]);
+      }
+    }
+  }
+
   // F7: gate hideEdgesOnViewport on edge count. Below this, a full-redraw pan/zoom
   // stays smooth even under software rendering, so edges stay VISIBLE during
   // gestures (kills the mid-zoom vanish on the ~334-edge demo and typical scopes);
@@ -150,24 +282,13 @@
     applyLabelMode();  // ADR-023 D4: re-assert label mode across a graphUpdate.
   }
 
-  function initGraph() {
-    if (cy !== null) { cy.destroy(); cy = null; }
-    var elements = takePendingElements();
-
-    var edgeCount = 0;
-    for (var ei = 0; ei < elements.length; ei++) {
-      if (elements[ei].group === 'edges') { edgeCount++; }
-    }
-
-    cy = cytoscape({
-      container: document.getElementById('cy'),
-      elements: elements,
-      layout: { name: 'preset' },        // positions precomputed in .NET (ADR-004 D1/D3)
-      pixelRatio: 1,
-      hideEdgesOnViewport: edgeCount > EDGE_HIDE_THRESHOLD,  // F7
-      textureOnViewport: true,
-      motionBlur: false,
-      style: [
+  // ADR-026 WP1b: build the full cytoscape style array from a theme token table `t`
+  // (THEME[currentVariant]). The kind FILLS are theme-invariant (hardcoded per-kind
+  // rules); everything page-relative (canvas/label/edge/severity/diff/border) reads
+  // from `t`. The DARK table reproduces the shipped literals EXACTLY, so the first
+  // render (currentVariant='dark') is byte-identical to the pre-WP1b bundle.
+  function buildStyle(t) {
+    return [
         {
           selector: 'node',
           style: {
@@ -176,20 +297,21 @@
             'text-margin-y': 4,
             'font-size': 10,
             'min-zoomed-font-size': 10,  // labels only appear once zoomed in (ADR-004)
-            color: '#E8ECF2',
+            color: t.labelInk,
             'text-outline-width': 2,
-            'text-outline-color': '#1b1f27'
+            'text-outline-color': t.labelOutline
           }
         },
-        // Palette MUST stay in lockstep with src/App/Views/BrandTokens.cs (THE source of
-        // truth, ADR-021) / AdObjectKindConverters.cs (pinned by
-        // WebBundleTests.Graph_PaletteMatchesAdObjectKindConverters). The 2px #8A93A3
-        // border-width/-color on DomainLocalGroup/UniversalGroup/Computer is the WCAG
-        // 1.4.11 graphical-object-contrast LIFT (#90/ADR-021): those three FILLS measured
-        // 2.55/2.66/2.59 vs the #1b1f27 page bg (< the 3:1 floor); the ring (5.33:1) lifts
-        // them while the fill HEX stays unchanged, so the kind-badge white-on-fill text and
-        // the PaletteHexes parity both hold. The node[?root] white border (#E8ECF2 w3,
-        // appended later) still wins on root; the External dashed #B0B6BF border is distinct.
+        // Kind FILLS are theme-INVARIANT (ADR-026 D5: all >= 4.2:1 on the light canvas too) and
+        // stay HARDCODED here, identical in both themes, in lockstep with src/App/Views/BrandTokens.cs
+        // (THE source of truth, ADR-021) / AdObjectKindConverters.cs (pinned by
+        // WebBundleTests.Graph_PaletteMatchesAdObjectKindConverters). The DL/UG/Computer border-lift
+        // (t.nodeLiftRing / t.nodeLiftWidth) is the WCAG 1.4.11 graphical-object-contrast LIFT
+        // (#90/ADR-021): those three FILLS measure 2.55/2.66/2.59 vs the DARK #1b1f27 page bg
+        // (< the 3:1 floor); the dark ring #8A93A3 (5.33:1) lifts them while the fill HEX stays
+        // unchanged. On the LIGHT canvas they already clear 3:1 (5.98/5.75/5.90) so nodeLiftWidth=0
+        // (no ring needed). The node[?root] border (t.rootBorder, w3, appended later) still wins on
+        // root; the External dashed border (t.externalBorder) is distinct.
         {
           selector: "node[kind='User']",
           style: { shape: 'ellipse', width: 14, height: 14, 'background-color': '#038387' }
@@ -202,14 +324,14 @@
           selector: "node[kind='DomainLocalGroup']",
           style: {
             shape: 'diamond', width: 22, height: 22, 'background-color': '#A14000',
-            'border-width': 2, 'border-color': '#8A93A3'
+            'border-width': t.nodeLiftWidth, 'border-color': t.nodeLiftRing
           }
         },
         {
           selector: "node[kind='UniversalGroup']",
           style: {
             shape: 'pentagon', width: 22, height: 22, 'background-color': '#744DA9',
-            'border-width': 2, 'border-color': '#8A93A3'
+            'border-width': t.nodeLiftWidth, 'border-color': t.nodeLiftRing
           }
         },
         {
@@ -220,21 +342,21 @@
           selector: "node[kind='Computer']",
           style: {
             shape: 'rectangle', width: 14, height: 14, 'background-color': '#556070',
-            'border-width': 2, 'border-color': '#8A93A3'
+            'border-width': t.nodeLiftWidth, 'border-color': t.nodeLiftRing
           }
         },
         {
           selector: "node[kind='External']",
           style: {
             shape: 'ellipse', width: 14, height: 14, 'background-color': '#757575',
-            'border-width': 2, 'border-style': 'dashed', 'border-color': '#B0B6BF'
+            'border-width': 2, 'border-style': 'dashed', 'border-color': t.externalBorder
           }
         },
         {
           // ADR-018 D4 (F9): force the root label on at fit zoom (mzfs 0) so the
           // overview stays orientable; the base node floor stays 10.
           selector: 'node[?root]',
-          style: { width: 30, height: 30, 'border-width': 3, 'border-color': '#E8ECF2', 'min-zoomed-font-size': 0 }
+          style: { width: 30, height: 30, 'border-width': 3, 'border-color': t.rootBorder, 'min-zoomed-font-size': 0 }
         },
         // Severity (AP 3.4, ADR-010): owns the overlay-* channel ONLY - the halo
         // paints behind the node, touching neither the kind fill/shape nor the
@@ -247,15 +369,15 @@
           // ADR-018 D4 (F9): Error nodes stay labeled at fit zoom (mzfs 0) - the
           // AP 3.4 max-severity-always-on mandate; warning/info keep the base floor.
           selector: "node[sev='error']",
-          style: { 'overlay-color': '#D13438', 'overlay-opacity': 0.45, 'overlay-padding': 7, 'min-zoomed-font-size': 0 }
+          style: { 'overlay-color': t.sevError, 'overlay-opacity': t.sevErrorOpacity, 'overlay-padding': 7, 'min-zoomed-font-size': 0 }
         },
         {
           selector: "node[sev='warning']",
-          style: { 'overlay-color': '#F7A30B', 'overlay-opacity': 0.45, 'overlay-padding': 6 }
+          style: { 'overlay-color': t.sevWarning, 'overlay-opacity': t.sevWarningOpacity, 'overlay-padding': 6 }
         },
         {
           selector: "node[sev='info']",
-          style: { 'overlay-color': '#4FA3E3', 'overlay-opacity': 0.40, 'overlay-padding': 5 }
+          style: { 'overlay-color': t.sevInfo, 'overlay-opacity': t.sevInfoOpacity, 'overlay-padding': 5 }
         },
         // Roll-up ring cue: a loaded group hiding flagged descendants gets a wider,
         // fainter max-severity glow keyed to belowSev. NOT a number on canvas
@@ -263,15 +385,15 @@
         // authoritative in the sidebar (AP 3.4 S4/S5).
         {
           selector: 'node[below]',
-          style: { 'overlay-padding': 10, 'overlay-opacity': 0.30, 'overlay-color': '#D13438' }
+          style: { 'overlay-padding': 10, 'overlay-opacity': t.rollupOpacity, 'overlay-color': t.sevError }
         },
         {
           selector: "node[below][belowSev='warning']",
-          style: { 'overlay-color': '#F7A30B' }
+          style: { 'overlay-color': t.sevWarning }
         },
         {
           selector: "node[below][belowSev='info']",
-          style: { 'overlay-color': '#4FA3E3' }
+          style: { 'overlay-color': t.sevInfo }
         },
         // ADR-019 (#94, F12 split from ADR-017): the in-canvas BUSY ring — a static
         // overlay halo marking a directory round-trip on the node being lazy-expanded.
@@ -282,7 +404,7 @@
         // per-frame tween (software-rendering-floor safe; pulsing deferred).
         {
           selector: 'node[busy][!sev]',
-          style: { 'overlay-color': '#4FA3E3', 'overlay-opacity': 0.35, 'overlay-padding': 8 }
+          style: { 'overlay-color': t.busy, 'overlay-opacity': t.busyOpacity, 'overlay-padding': 8 }
         },
         // Gap diff (AP 66, ADR-015 Slice 5): owns the cytoscape underlay-* channel
         // on NODES (a layer BENEATH the node, disjoint from kind background-color/
@@ -297,28 +419,28 @@
         // background-color untouched, so kind identity survives.
         {
           selector: "node[diff='added']",
-          style: { 'underlay-color': '#2FAE4E', 'underlay-opacity': 0.5, 'underlay-padding': 8 }
+          style: { 'underlay-color': t.diffAdded, 'underlay-opacity': t.diffAddedUnderlayOpacity, 'underlay-padding': 8 }
         },
         {
           selector: "node[diff='removed']",
           style: {
-            'underlay-color': '#E0503A', 'underlay-opacity': 0.5, 'underlay-padding': 8,
+            'underlay-color': t.diffRemoved, 'underlay-opacity': t.diffRemovedUnderlayOpacity, 'underlay-padding': 8,
             'background-opacity': 0.45
           }
         },
         {
           selector: "node[diff='unchecked']",
-          style: { 'underlay-color': '#8A8F98', 'underlay-opacity': 0.35, 'underlay-padding': 6 }
+          style: { 'underlay-color': t.diffUnchecked, 'underlay-opacity': t.diffUncheckedUnderlayOpacity, 'underlay-padding': 6 }
         },
         {
           selector: "edge[rel='member']",
           style: {
             'curve-style': 'bezier',     // bezier keeps the seeded A<->B cycle legible (ADR-004 D2)
             width: 1.6,
-            'line-color': '#8E9BB4',     // the primary directed signal (~5.8:1 on #1b1f27)
+            'line-color': t.edgeMember,  // the primary directed signal (~5.8:1 dark / ~5.5:1 light)
             opacity: 1,
             'target-arrow-shape': 'triangle',
-            'target-arrow-color': '#8E9BB4'
+            'target-arrow-color': t.edgeMember
           }
         },
         {
@@ -335,7 +457,7 @@
             'curve-style': 'bezier',
             width: 1,
             'line-style': 'dashed',
-            'line-color': '#6B788F',
+            'line-color': t.edgeContains,
             opacity: 1
           }
         },
@@ -346,20 +468,20 @@
         // Palette PINNED + parity-tripwired in verify.mjs (DIFF / DIFF_LINE).
         {
           selector: "edge[diff='added']",
-          style: { 'line-color': '#2FAE4E', 'target-arrow-color': '#2FAE4E', opacity: 0.95 }
+          style: { 'line-color': t.diffAdded, 'target-arrow-color': t.diffAdded, opacity: t.diffAddedLineOpacity }
         },
         {
           selector: "edge[diff='removed']",
           style: {
-            'line-color': '#E0503A', 'target-arrow-color': '#E0503A',
-            'line-style': 'dashed', opacity: 0.85
+            'line-color': t.diffRemoved, 'target-arrow-color': t.diffRemoved,
+            'line-style': 'dashed', opacity: t.diffRemovedLineOpacity
           }
         },
         {
           selector: "edge[diff='unchecked']",
           style: {
-            'line-color': '#8A8F98', 'target-arrow-color': '#8A8F98',
-            'line-style': 'dotted', opacity: 0.5
+            'line-color': t.diffUnchecked, 'target-arrow-color': t.diffUnchecked,
+            'line-style': 'dotted', opacity: t.diffUncheckedLineOpacity
           }
         },
         // Interaction feedback (ADR-018 / #89): APPENDED LAST, in this source order
@@ -382,7 +504,7 @@
         },
         {
           selector: 'node:selected',
-          style: { 'border-color': '#FFFFFF', 'border-width': 3, 'border-opacity': 1, 'z-index': 10, 'min-zoomed-font-size': 0 }
+          style: { 'border-color': t.selectionBorder, 'border-width': 3, 'border-opacity': 1, 'z-index': 10, 'min-zoomed-font-size': 0 }
         },
         {
           selector: 'edge.gw-dim',
@@ -395,7 +517,27 @@
           selector: 'node.gw-labels-all',
           style: { 'min-zoomed-font-size': 0 }
         }
-      ]
+    ];
+  }
+
+  function initGraph() {
+    if (cy !== null) { cy.destroy(); cy = null; }
+    var elements = takePendingElements();
+
+    var edgeCount = 0;
+    for (var ei = 0; ei < elements.length; ei++) {
+      if (elements[ei].group === 'edges') { edgeCount++; }
+    }
+
+    cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements: elements,
+      layout: { name: 'preset' },        // positions precomputed in .NET (ADR-004 D1/D3)
+      pixelRatio: 1,
+      hideEdgesOnViewport: edgeCount > EDGE_HIDE_THRESHOLD,  // F7
+      textureOnViewport: true,
+      motionBlur: false,
+      style: buildStyle(THEME[currentVariant])
     });
 
     // Same code path a human click takes: cy tap handler -> bridge -> .NET. The
@@ -581,6 +723,16 @@
           }
           exportPng(cmd);
           break;
+        case 'theme':
+          // ADR-026 WP1b: switch the canvas/chrome theme. Wire carries ONLY the variant
+          // string. Unknown/missing variant => dark (the safe default, byte-identical to
+          // pre-WP1b). Re-style the LIVE cytoscape instance in place (no destroy, no fit,
+          // viewport preserved) if one exists, and set the index.html chrome CSS vars.
+          // No bridge reply (fire-and-forget) — the C# side does not await a confirmation.
+          currentVariant = (cmd.variant === 'light') ? 'light' : 'dark';
+          applyChromeVariant(currentVariant);
+          if (cy !== null) { cy.style(buildStyle(THEME[currentVariant])); }
+          break;
         case 'ping':
           window.bridge.send({ type: 'pong', seq: cmd.seq });
           break;
@@ -708,6 +860,11 @@
   }
 
   wireControls();
+
+  // ADR-026 WP1b: index.html ships DARK chrome var defaults on :root (so the bundle is
+  // byte-identical pre-theme-command), but assert them from the JS table too so the
+  // single source of truth is CHROME[currentVariant]. Default currentVariant = 'dark'.
+  applyChromeVariant(currentVariant);
 
   window.bridge.send({ type: 'ready', userAgent: navigator.userAgent });
 })();

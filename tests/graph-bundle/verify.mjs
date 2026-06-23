@@ -157,6 +157,65 @@ const SELECTION = {
 // root + Error against a PLAIN unflagged, UNSELECTED node, never the selection.
 const LABEL_MZFS = { forced: 0, baseFloor: 10 };
 
+// THE C#/JS LIGHT-theme parity tripwire (ADR-026 D5 / WP1b). The light-canvas
+// analogue of every block above: hand-copied from graph.js' THEME.light /
+// CHROME.light (the JS owner) and BrandTokens.Graph*LightHex (the documented C#
+// source). The wire carries ONLY {type:'theme', variant:'dark'|'light'} - no
+// token values cross the bridge - so a drift between BrandTokens, graph.js'
+// THEME.light, and these constants fails HERE (the lightThemeProbe below pulls
+// the COMPUTED cytoscape styles after a live {variant:'light'} restyle and
+// compares them to these, then proves {variant:'dark'} restores the byte-
+// identical DARK computed styles - the round-trip pin). Every WCAG ratio is in
+// ADR-026 D5; the light halos blend < 3:1 by design (read at/above their dark
+// counterpart, a known WCAG point under separate review - NOT this harness' call).
+const LIGHT_CANVAS = '#F5F6F8';        // canvas / body bg + node label outline
+const LIGHT_LABEL_INK = '#1C2127';     // node label color (14.98:1 on the light canvas)
+const LIGHT_LABEL_OUTLINE = '#F5F6F8'; // node label text-outline-color (= canvas)
+const LIGHT_EDGE = { member: '#5A6473', contains: '#3A424E' }; // F6 lightness channel held
+const LIGHT_NODE_LIFT_WIDTH = 0;       // DL/UG/Computer ring DROPPED on light (fills clear 3:1)
+const LIGHT_ROOT_BORDER = '#1C2127';
+const LIGHT_EXTERNAL_BORDER = '#6B7480';
+const LIGHT_SELECTION_BORDER = '#1C2127'; // dark ink; white would vanish on the light canvas
+// Severity halos (soft transparent overlay): deepened hues + raised opacities,
+// monotonic padding 7/6/5 (the colorblind-redundant geometry channel, UNCHANGED
+// across themes). Roll-up ring keyed off belowSev at the fainter 0.50 opacity.
+const LIGHT_SEVERITY_OVERLAY = {
+  error: { color: '#D63A4A', opacity: 0.70, padding: 7 },
+  warning: { color: '#BD7C00', opacity: 0.75, padding: 6 },
+  info: { color: '#2F6FE0', opacity: 0.70, padding: 5 },
+};
+const LIGHT_ROLLUP_OVERLAY = { opacity: 0.50, padding: 10 };
+const LIGHT_BUSY = { color: '#2F6FE0', opacity: 0.55, padding: 8 };
+// Diff: node underlay (soft, raised opacity + the theme-INVARIANT removed bg-fade
+// 0.45) and the near-opaque directed EDGE line (clears ~3:1) with the colorblind-
+// redundant solid/dashed/dotted line-style channel (UNCHANGED across themes).
+const LIGHT_DIFF_UNDERLAY = {
+  added: { color: '#1F9D57', opacity: 0.70, padding: 8, bgOpacity: null },
+  removed: { color: '#D63A4A', opacity: 0.70, padding: 8, bgOpacity: 0.45 },
+  unchecked: { color: '#5A6473', opacity: 0.50, padding: 6, bgOpacity: null },
+};
+const LIGHT_DIFF_LINE = {
+  added: { color: '#1F9D57', style: 'solid', opacity: 0.95 },
+  removed: { color: '#D63A4A', style: 'dashed', opacity: 0.85 },
+  unchecked: { color: '#5A6473', style: 'dotted', opacity: 0.60 },
+};
+// index.html :root chrome custom properties that FLIP to light on a {variant:'light'}
+// command (graph.js applyChromeVariant writes CHROME.light onto documentElement).
+// Pinned as the light counterpart of the dark :root defaults so a CHROME.light drift
+// (or a theme handler that forgets to set a var) fails here. Only the load-bearing,
+// hue-carrying vars are pinned (the canvas/chrome surfaces + the severity/diff swatch
+// fills that must mirror the themed canvas, ADR-026 D5).
+const LIGHT_CHROME_VARS = {
+  '--gw-canvas-bg': LIGHT_CANVAS,  // the light canvas bg (#F5F6F8) reaches the body via this var
+  '--gw-chrome-bg': 'rgba(255, 255, 255, 0.92)',
+  '--gw-sev-error': '#D63A4A',
+  '--gw-sev-warning': '#BD7C00',
+  '--gw-sev-info': '#2F6FE0',
+  '--gw-diff-added': '#1F9D57',
+  '--gw-diff-removed': '#D63A4A',
+  '--gw-diff-unchecked': '#5A6473',
+};
+
 const MESSAGE_TIMEOUT_MS = 60_000;
 // Node diameter D=44 (ADR-004 D3): model-space floor; the xUnit geometry test
 // pins the stronger ~59.7 bound, this render-side assert pins "no overlap".
@@ -926,6 +985,418 @@ async function reducedMotionProbe(browser, indexHtml, fixture) {
   const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
   assert(probeJsErrors.length === 0,
     `reduced-motion probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
+
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
+// Fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b): the graph canvas follows the
+// app theme over a {type:'theme', variant:'dark'|'light'} wire command (the wire
+// carries ONLY the variant string - no token values cross the bridge; graph.js
+// owns the dark+light THEME / CHROME token tables). Proves the LIVE restyle:
+//   1. load a hand-built dataset exercising EVERY themeable channel (kind fills,
+//      member+contains edges, root, External, the three severities + a roll-up +
+//      a busy node, the three diff statuses on nodes AND edges), graphCommit;
+//   2. dispatch {variant:'light'}, await the restyle, assert the COMPUTED
+//      cytoscape styles equal the LIGHT_* constants AND the :root chrome vars
+//      flipped to light;
+//   3. dispatch {variant:'dark'} and assert the computed styles + chrome vars are
+//      restored BYTE-IDENTICAL to dark (the round-trip pin - a live restyle that
+//      forgot a property would leave a light value stranded here).
+// Its OWN page/context/channel (modeled on diffRenderTripwire / reducedMotionProbe)
+// so its accounting is independent of the main run's zero-jsError audit (and it
+// must itself be jsError-free). Harness morals hold: every wait is a bridge-
+// message promise (MESSAGE_TIMEOUT_MS), only primitives leave page.evaluate
+// (never a cytoscape collection), the bare protocol awaits fall under the global
+// watchdog (see the boundedness inventory above), no sleeps. The 'theme' command
+// is fire-and-forget (no bridge reply), so a {type:'ping'} is dispatched right
+// after it and its 'pong' awaited: bridge.onCommand processes commands
+// synchronously IN ORDER, so cy.style(...) + applyChromeVariant(...) have already
+// run by the time the ping handler replies - a sleep-free restyle barrier.
+// ---------------------------------------------------------------------------
+async function lightThemeProbe(browser, indexHtml, screenshotDir) {
+  const themeMessages = [];
+  const themePending = new Map();
+  const themeWaiters = new Map();
+
+  function onThemeMessage(text) {
+    const msg = JSON.parse(text);
+    themeMessages.push(msg);
+    const waiter = themeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!themePending.has(msg.type)) {
+      themePending.set(msg.type, []);
+    }
+    themePending.get(msg.type).push(msg);
+  }
+
+  function awaitThemeMessage(type, context) {
+    const queued = themePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = themeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = themeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (light-theme: ${context}); theme messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!themeWaiters.has(type)) {
+        themeWaiters.set(type, []);
+      }
+      themeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: light-theme-probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  page.on('pageerror', (err) => onThemeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onThemeMessage);
+
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitThemeMessage('ready', 'light-theme bundle startup after goto');
+
+  // HAND-BUILT dataset exercising every themeable channel (comma-DNs - getElementById
+  // only, ADR-004 D5). Roots/edges/External/severity/rollup/busy/diff all present so a
+  // single restyle is checked across the whole style array. Tiny on purpose (the demo-
+  // fixture floors are the main run's, not this synthetic theme probe's).
+  const ROOT_NODE = 'CN=Root,OU=Theme,DC=groupweaver,DC=invalid';
+  const USER_NODE = 'CN=User Plain,OU=Theme,DC=groupweaver,DC=invalid';
+  const GG_NODE = 'CN=GG Plain,OU=Theme,DC=groupweaver,DC=invalid';
+  const DL_NODE = 'CN=DL Lifted,OU=Theme,DC=groupweaver,DC=invalid';
+  const EXT_NODE = 'CN=External One,OU=Theme,DC=groupweaver,DC=invalid';
+  const ERR_NODE = 'CN=Err Node,OU=Theme,DC=groupweaver,DC=invalid';
+  const WARN_NODE = 'CN=Warn Node,OU=Theme,DC=groupweaver,DC=invalid';
+  const INFO_NODE = 'CN=Info Node,OU=Theme,DC=groupweaver,DC=invalid';
+  const ROLLUP_NODE = 'CN=Rollup Node,OU=Theme,DC=groupweaver,DC=invalid';
+  const DIFF_ADD_NODE = 'CN=Diff Added,OU=Theme,DC=groupweaver,DC=invalid';
+  const DIFF_REM_NODE = 'CN=Diff Removed,OU=Theme,DC=groupweaver,DC=invalid';
+  const DIFF_UNC_NODE = 'CN=Diff Unchecked,OU=Theme,DC=groupweaver,DC=invalid';
+  const nodes = [
+    { id: ROOT_NODE, label: 'Root', kind: 'OrganizationalUnit', x: 0, y: 0, root: true },
+    { id: USER_NODE, label: 'User Plain', kind: 'User', x: 120, y: -120 },
+    { id: GG_NODE, label: 'GG Plain', kind: 'GlobalGroup', x: 120, y: 0 },
+    { id: DL_NODE, label: 'DL Lifted', kind: 'DomainLocalGroup', x: 120, y: 120 },
+    { id: EXT_NODE, label: 'External One', kind: 'External', x: 240, y: -120 },
+    { id: ERR_NODE, label: 'Err Node', kind: 'User', x: 240, y: 0, sev: 'error' },
+    { id: WARN_NODE, label: 'Warn Node', kind: 'User', x: 240, y: 120, sev: 'warning' },
+    { id: INFO_NODE, label: 'Info Node', kind: 'User', x: 360, y: -120, sev: 'info' },
+    { id: ROLLUP_NODE, label: 'Rollup Node', kind: 'GlobalGroup', x: 360, y: 0, below: 3, belowSev: 'error' },
+    { id: DIFF_ADD_NODE, label: 'Diff Added', kind: 'GlobalGroup', x: 360, y: 120, diff: 'added' },
+    { id: DIFF_REM_NODE, label: 'Diff Removed', kind: 'User', x: 480, y: -120, diff: 'removed' },
+    { id: DIFF_UNC_NODE, label: 'Diff Unchecked', kind: 'GlobalGroup', x: 480, y: 120, diff: 'unchecked' },
+  ];
+  const MEMBER_EDGE = 'edge:member';
+  const CONTAINS_EDGE = 'edge:contains';
+  const DIFF_ADD_EDGE = 'edge:diff-added';
+  const DIFF_REM_EDGE = 'edge:diff-removed';
+  const DIFF_UNC_EDGE = 'edge:diff-unchecked';
+  const edges = [
+    { id: MEMBER_EDGE, s: GG_NODE, t: USER_NODE, rel: 'member' },
+    { id: CONTAINS_EDGE, s: ROOT_NODE, t: GG_NODE, rel: 'contains' },
+    { id: DIFF_ADD_EDGE, s: GG_NODE, t: DIFF_ADD_NODE, rel: 'member', diff: 'added' },
+    { id: DIFF_REM_EDGE, s: GG_NODE, t: DIFF_REM_NODE, rel: 'member', diff: 'removed' },
+    { id: DIFF_UNC_EDGE, s: GG_NODE, t: DIFF_UNC_NODE, rel: 'member', diff: 'unchecked' },
+  ];
+
+  // Busy is a TRANSIENT data flag (set by the {type:'busy'} command, [!sev] gated).
+  // Set it on the plain User node AFTER commit so node[busy][!sev] paints its ring.
+  for (const chunk of toChunks(nodes, edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitThemeMessage('loaded', 'light-theme dataset graphCommit -> first render');
+  await page.evaluate((id) => window.bridge.dispatch({ type: 'busy', id, on: true }), USER_NODE);
+
+  // Restyle barrier: dispatch the theme command then a ping; await the pong. Commands
+  // are handled synchronously in order, so the restyle is complete when pong arrives.
+  let pingSeq = 0;
+  const setVariant = async (variant) => {
+    await page.evaluate((v) => window.bridge.dispatch({ type: 'theme', variant: v }), variant);
+    pingSeq += 1;
+    await page.evaluate((seq) => window.bridge.dispatch({ type: 'ping', seq }), pingSeq);
+    const pong = await awaitThemeMessage('pong', `restyle barrier after {variant:'${variant}'}`);
+    assert(pong.seq === pingSeq,
+      `light-theme restyle barrier: pong.seq ${pong.seq} != ${pingSeq} (out-of-order command handling?)`);
+  };
+
+  // One round-trip per element pulling the full themeable computed-style bundle.
+  // Primitives only out of evaluate (CI moral); getElementById keeps comma DNs
+  // byte-identical (ADR-004 D5).
+  const nodeStyleOf = (id) => page.evaluate((nid) => {
+    const el = window.__cy.getElementById(nid);
+    return {
+      found: el.length === 1,
+      labelColor: el.style('color'),
+      labelOutline: el.style('text-outline-color'),
+      borderColor: el.style('border-color'),
+      borderWidth: el.style('border-width'),
+      overlayColor: el.style('overlay-color'),
+      overlayOpacity: el.style('overlay-opacity'),
+      overlayPadding: el.style('overlay-padding'),
+      underlayColor: el.style('underlay-color'),
+      underlayOpacity: el.style('underlay-opacity'),
+      bgColor: el.style('background-color'),
+    };
+  }, id);
+  const edgeStyleOf = (id) => page.evaluate((eid) => {
+    const el = window.__cy.getElementById(eid);
+    return {
+      found: el.length === 1,
+      color: el.style('line-color'),
+      style: el.style('line-style'),
+      opacity: el.style('opacity'),
+      arrowColor: el.style('target-arrow-color'),
+    };
+  }, id);
+  const selectedBorderOf = (id) => page.evaluate((nid) => {
+    const cy = window.__cy;
+    const el = cy.getElementById(nid);
+    el.select();
+    const out = { color: el.style('border-color'), width: el.style('border-width') };
+    el.unselect();
+    return out;
+  }, id);
+  const chromeVarsNow = (names) => page.evaluate((vars) => {
+    const root = document.documentElement;
+    const cs = getComputedStyle(root);
+    const out = {};
+    for (const name of vars) {
+      out[name] = cs.getPropertyValue(name).trim();
+    }
+    return out;
+  }, names);
+  // Normalize a CSS color OR an rgba()/hex chrome-var value for comparison: hex/rgb
+  // collapse to #RRGGBB via toHex; an rgba(...) with alpha is compared structurally
+  // (channels) so '#F5F6F8' and the alpha-bearing chrome surfaces both work.
+  const sameColor = (got, want) => {
+    if (/^rgba?\([^)]*\)$/i.test(want) && /a/i.test(want)) {
+      // alpha-bearing want (e.g. rgba(255,255,255,0.92)): compare channel-wise.
+      const norm = (s) => s.replace(/\s+/g, '').toLowerCase();
+      return norm(got) === norm(want);
+    }
+    return toHex(got) === toHex(want);
+  };
+
+  // ===== LIGHT: dispatch + restyle barrier ==================================
+  await setVariant('light');
+  phase('light-theme: {variant:\'light\'} dispatched + restyle barrier (pong)');
+
+  // -- label ink + outline (read on the plain User node) --
+  const userLight = await nodeStyleOf(USER_NODE);
+  assert(userLight.found, `light-theme: User node '${USER_NODE}' not found`);
+  assert(toHex(userLight.labelColor) === LIGHT_LABEL_INK.toUpperCase(),
+    `light label ink: rendered '${userLight.labelColor}' (${toHex(userLight.labelColor)}) != ${LIGHT_LABEL_INK} (graph.js THEME.light.labelInk drift?)`);
+  assert(toHex(userLight.labelOutline) === LIGHT_LABEL_OUTLINE.toUpperCase(),
+    `light label outline: rendered '${userLight.labelOutline}' (${toHex(userLight.labelOutline)}) != ${LIGHT_LABEL_OUTLINE}`);
+  // Kind fill is theme-INVARIANT: the plain User fill stays #038387 on light too.
+  assert(toHex(userLight.bgColor) === PALETTE.User.toUpperCase(),
+    `light kind fill MUST be theme-invariant: User '${userLight.bgColor}' (${toHex(userLight.bgColor)}) != ${PALETTE.User} (ADR-026 D5: fills not re-toned)`);
+
+  // -- node-lift DROPPED on light: DL ring width 0 (fills clear 3:1 on light) --
+  const dlLight = await nodeStyleOf(DL_NODE);
+  assert(dlLight.found, `light-theme: DL node '${DL_NODE}' not found`);
+  assert(Math.abs(toNumber(dlLight.borderWidth) - LIGHT_NODE_LIFT_WIDTH) < 1e-6,
+    `light node-lift: DL border-width rendered ${dlLight.borderWidth} != ${LIGHT_NODE_LIFT_WIDTH} (the 1.4.11 ring is DROPPED on light, ADR-026 D5 - DL fill clears 3:1)`);
+
+  // -- root border + External dashed border re-tone --
+  const rootLight = await nodeStyleOf(ROOT_NODE);
+  assert(toHex(rootLight.borderColor) === LIGHT_ROOT_BORDER.toUpperCase(),
+    `light root border: rendered '${rootLight.borderColor}' (${toHex(rootLight.borderColor)}) != ${LIGHT_ROOT_BORDER}`);
+  const extLight = await nodeStyleOf(EXT_NODE);
+  assert(toHex(extLight.borderColor) === LIGHT_EXTERNAL_BORDER.toUpperCase(),
+    `light External border: rendered '${extLight.borderColor}' (${toHex(extLight.borderColor)}) != ${LIGHT_EXTERNAL_BORDER}`);
+
+  // -- edges (member + contains): light hues, F6 lightness channel held --
+  const memberLight = await edgeStyleOf(MEMBER_EDGE);
+  assert(toHex(memberLight.color) === LIGHT_EDGE.member.toUpperCase()
+    && toHex(memberLight.arrowColor) === LIGHT_EDGE.member.toUpperCase(),
+    `light member edge: line/arrow rendered '${memberLight.color}'/'${memberLight.arrowColor}' (${toHex(memberLight.color)}/${toHex(memberLight.arrowColor)}) != ${LIGHT_EDGE.member}`);
+  const containsLight = await edgeStyleOf(CONTAINS_EDGE);
+  assert(toHex(containsLight.color) === LIGHT_EDGE.contains.toUpperCase(),
+    `light contains edge: line rendered '${containsLight.color}' (${toHex(containsLight.color)}) != ${LIGHT_EDGE.contains}`);
+
+  // -- severity halos (deepened hue + raised opacity; padding unchanged) --
+  const SEV_NODES = { error: ERR_NODE, warning: WARN_NODE, info: INFO_NODE };
+  for (const [sev, dn] of Object.entries(SEV_NODES)) {
+    const want = LIGHT_SEVERITY_OVERLAY[sev];
+    const got = await nodeStyleOf(dn);
+    assert(got.found, `light-theme: ${sev} node '${dn}' not found`);
+    assert(toHex(got.overlayColor) === want.color.toUpperCase(),
+      `light severity ${sev} overlay-color: rendered '${got.overlayColor}' (${toHex(got.overlayColor)}) != ${want.color}`);
+    assert(Math.abs(toNumber(got.overlayOpacity) - want.opacity) < 1e-6,
+      `light severity ${sev} overlay-opacity: rendered ${got.overlayOpacity} != ${want.opacity}`);
+    assert(Math.abs(toNumber(got.overlayPadding) - want.padding) < 1e-6,
+      `light severity ${sev} overlay-padding (theme-invariant geometry): rendered ${got.overlayPadding} != ${want.padding}`);
+  }
+
+  // -- roll-up ring (wider/fainter, light error hue at 0.50) --
+  const rollupLight = await nodeStyleOf(ROLLUP_NODE);
+  assert(toHex(rollupLight.overlayColor) === LIGHT_SEVERITY_OVERLAY.error.color.toUpperCase(),
+    `light roll-up ring color (belowSev=error): rendered '${rollupLight.overlayColor}' (${toHex(rollupLight.overlayColor)}) != ${LIGHT_SEVERITY_OVERLAY.error.color}`);
+  assert(Math.abs(toNumber(rollupLight.overlayOpacity) - LIGHT_ROLLUP_OVERLAY.opacity) < 1e-6,
+    `light roll-up ring opacity: rendered ${rollupLight.overlayOpacity} != ${LIGHT_ROLLUP_OVERLAY.opacity}`);
+  assert(Math.abs(toNumber(rollupLight.overlayPadding) - LIGHT_ROLLUP_OVERLAY.padding) < 1e-6,
+    `light roll-up ring padding: rendered ${rollupLight.overlayPadding} != ${LIGHT_ROLLUP_OVERLAY.padding}`);
+
+  // -- busy ring (light blue at 0.55, on the plain User node, [!sev]) --
+  const busyLight = await nodeStyleOf(USER_NODE);
+  assert(toHex(busyLight.overlayColor) === LIGHT_BUSY.color.toUpperCase(),
+    `light busy ring color: rendered '${busyLight.overlayColor}' (${toHex(busyLight.overlayColor)}) != ${LIGHT_BUSY.color}`);
+  assert(Math.abs(toNumber(busyLight.overlayOpacity) - LIGHT_BUSY.opacity) < 1e-6,
+    `light busy ring opacity: rendered ${busyLight.overlayOpacity} != ${LIGHT_BUSY.opacity}`);
+  assert(Math.abs(toNumber(busyLight.overlayPadding) - LIGHT_BUSY.padding) < 1e-6,
+    `light busy ring padding: rendered ${busyLight.overlayPadding} != ${LIGHT_BUSY.padding}`);
+
+  // -- diff node underlays (raised opacity; removed keeps the invariant 0.45 bg-fade) --
+  const DIFF_NODES = { added: DIFF_ADD_NODE, removed: DIFF_REM_NODE, unchecked: DIFF_UNC_NODE };
+  for (const [status, dn] of Object.entries(DIFF_NODES)) {
+    const want = LIGHT_DIFF_UNDERLAY[status];
+    const got = await nodeStyleOf(dn);
+    assert(got.found, `light-theme: diff ${status} node '${dn}' not found`);
+    assert(toHex(got.underlayColor) === want.color.toUpperCase(),
+      `light diff ${status} underlay-color: rendered '${got.underlayColor}' (${toHex(got.underlayColor)}) != ${want.color}`);
+    assert(Math.abs(toNumber(got.underlayOpacity) - want.opacity) < 1e-6,
+      `light diff ${status} underlay-opacity: rendered ${got.underlayOpacity} != ${want.opacity}`);
+  }
+
+  // -- diff edge lines (light hues; line-style channel theme-invariant) --
+  const DIFF_EDGES = { added: DIFF_ADD_EDGE, removed: DIFF_REM_EDGE, unchecked: DIFF_UNC_EDGE };
+  for (const [status, eid] of Object.entries(DIFF_EDGES)) {
+    const want = LIGHT_DIFF_LINE[status];
+    const got = await edgeStyleOf(eid);
+    assert(got.found, `light-theme: diff ${status} edge '${eid}' not found`);
+    assert(toHex(got.color) === want.color.toUpperCase(),
+      `light diff ${status} edge line-color: rendered '${got.color}' (${toHex(got.color)}) != ${want.color}`);
+    assert(got.style === want.style,
+      `light diff ${status} edge line-style (theme-invariant colorblind channel): rendered '${got.style}' != '${want.style}'`);
+    assert(Math.abs(toNumber(got.opacity) - want.opacity) < 1e-6,
+      `light diff ${status} edge opacity: rendered ${got.opacity} != ${want.opacity}`);
+  }
+
+  // -- node:selected border re-tone (dark ink on light, NOT white) --
+  const selLight = await selectedBorderOf(GG_NODE);
+  assert(toHex(selLight.color) === LIGHT_SELECTION_BORDER.toUpperCase(),
+    `light node:selected border-color: rendered '${selLight.color}' (${toHex(selLight.color)}) != ${LIGHT_SELECTION_BORDER} (white would vanish on the light canvas)`);
+  assert(Math.abs(toNumber(selLight.width) - SELECTION.selBorderWidth) < 1e-6,
+    `light node:selected border-width: rendered ${selLight.width} != ${SELECTION.selBorderWidth} (width is theme-invariant)`);
+
+  // -- :root chrome custom properties flipped to light --
+  const lightVars = await chromeVarsNow(Object.keys(LIGHT_CHROME_VARS));
+  for (const [name, want] of Object.entries(LIGHT_CHROME_VARS)) {
+    assert(sameColor(lightVars[name], want),
+      `light chrome var ${name}: rendered '${lightVars[name]}' != ${want} (applyChromeVariant(CHROME.light) drift / theme handler missed it?)`);
+  }
+  phase('light-theme: computed canvas styles + :root chrome vars verified vs LIGHT_* (ADR-026 D5)');
+
+  // -- screenshot: the light frame the ui-verifier judges --
+  await page.screenshot({ path: join(screenshotDir, 'graph-light.png') });
+  phase('light-theme screenshot');
+
+  // ===== ROUND-TRIP: back to DARK, computed styles byte-identical ===========
+  // Capture the full dark computed-style bundle for one representative element per
+  // channel, then compare against the same DARK constants the rest of the harness
+  // pins (PALETTE/SEVERITY_OVERLAY/DIFF_*/BASE_EDGE/etc) - proving the live restyle
+  // ROUND-TRIPS (a property the light pass set that dark forgot to reset strands here).
+  await setVariant('dark');
+  phase('light-theme: {variant:\'dark\'} dispatched + restyle barrier (round-trip)');
+
+  const userDark = await nodeStyleOf(USER_NODE);
+  assert(toHex(userDark.labelColor) === '#E8ECF2'
+    && toHex(userDark.labelOutline) === '#1B1F27',
+    `dark round-trip label ink/outline: rendered '${userDark.labelColor}'/'${userDark.labelOutline}' (${toHex(userDark.labelColor)}/${toHex(userDark.labelOutline)}) != #E8ECF2/#1B1F27 (restyle did not restore dark)`);
+  const dlDark = await nodeStyleOf(DL_NODE);
+  assert(toHex(dlDark.borderColor) === KIND_BORDER_COLOR.toUpperCase()
+    && Math.abs(toNumber(dlDark.borderWidth) - KIND_BORDER_WIDTH) < 1e-6,
+    `dark round-trip node-lift: DL ring rendered '${dlDark.borderColor}' (${toHex(dlDark.borderColor)}) / width ${dlDark.borderWidth} != ${KIND_BORDER_COLOR} / ${KIND_BORDER_WIDTH} (the 2px ring must come BACK on dark)`);
+  const memberDark = await edgeStyleOf(MEMBER_EDGE);
+  assert(toHex(memberDark.color) === BASE_EDGE.member.color.toUpperCase(),
+    `dark round-trip member edge: rendered '${memberDark.color}' (${toHex(memberDark.color)}) != ${BASE_EDGE.member.color}`);
+  const containsDark = await edgeStyleOf(CONTAINS_EDGE);
+  assert(toHex(containsDark.color) === BASE_EDGE.contains.color.toUpperCase(),
+    `dark round-trip contains edge: rendered '${containsDark.color}' (${toHex(containsDark.color)}) != ${BASE_EDGE.contains.color}`);
+  for (const [sev, dn] of Object.entries(SEV_NODES)) {
+    const want = SEVERITY_OVERLAY[sev];
+    const got = await nodeStyleOf(dn);
+    assert(toHex(got.overlayColor) === want.color.toUpperCase()
+      && Math.abs(toNumber(got.overlayOpacity) - want.opacity) < 1e-6
+      && Math.abs(toNumber(got.overlayPadding) - want.padding) < 1e-6,
+      `dark round-trip severity ${sev} ('${dn}'): overlay '${got.overlayColor}' (${toHex(got.overlayColor)}) / op ${got.overlayOpacity} / pad ${got.overlayPadding} != ${want.color}/${want.opacity}/${want.padding}`);
+  }
+  const busyDark = await nodeStyleOf(USER_NODE);
+  assert(toHex(busyDark.overlayColor) === BUSY.color.toUpperCase()
+    && Math.abs(toNumber(busyDark.overlayOpacity) - BUSY.opacity) < 1e-6,
+    `dark round-trip busy ring: rendered '${busyDark.overlayColor}' (${toHex(busyDark.overlayColor)}) / op ${busyDark.overlayOpacity} != ${BUSY.color}/${BUSY.opacity}`);
+  for (const [status, dn] of Object.entries(DIFF_NODES)) {
+    const want = DIFF_UNDERLAY[status];
+    const got = await nodeStyleOf(dn);
+    assert(toHex(got.underlayColor) === want.color.toUpperCase()
+      && Math.abs(toNumber(got.underlayOpacity) - want.opacity) < 1e-6,
+      `dark round-trip diff ${status} underlay ('${dn}'): rendered '${got.underlayColor}' (${toHex(got.underlayColor)}) / op ${got.underlayOpacity} != ${want.color}/${want.opacity}`);
+  }
+  for (const [status, eid] of Object.entries(DIFF_EDGES)) {
+    const want = DIFF_LINE[status];
+    const got = await edgeStyleOf(eid);
+    assert(toHex(got.color) === want.color.toUpperCase() && got.style === want.style,
+      `dark round-trip diff ${status} edge ('${eid}'): rendered '${got.color}' (${toHex(got.color)}) / '${got.style}' != ${want.color}/'${want.style}'`);
+  }
+  const selDark = await selectedBorderOf(GG_NODE);
+  assert(toHex(selDark.color) === SELECTION.selBorderColor.toUpperCase()
+    && Math.abs(toNumber(selDark.width) - SELECTION.selBorderWidth) < 1e-6,
+    `dark round-trip node:selected border: rendered '${selDark.color}' (${toHex(selDark.color)}) / width ${selDark.width} != ${SELECTION.selBorderColor} / ${SELECTION.selBorderWidth} (white border must return on dark)`);
+
+  // :root chrome vars restored to the DARK defaults (index.html :root literals).
+  const DARK_CHROME_VARS = {
+    '--gw-canvas-bg': '#1b1f27',
+    '--gw-chrome-bg': 'rgba(22, 26, 33, 0.92)',
+    '--gw-sev-error': SEVERITY.error,
+    '--gw-sev-warning': SEVERITY.warning,
+    '--gw-sev-info': SEVERITY.info,
+    '--gw-diff-added': DIFF.added,
+    '--gw-diff-removed': DIFF.removed,
+    '--gw-diff-unchecked': DIFF.unchecked,
+  };
+  const darkVars = await chromeVarsNow(Object.keys(DARK_CHROME_VARS));
+  for (const [name, want] of Object.entries(DARK_CHROME_VARS)) {
+    assert(sameColor(darkVars[name], want),
+      `dark round-trip chrome var ${name}: rendered '${darkVars[name]}' != ${want} (applyChromeVariant(CHROME.dark) did not restore the dark default)`);
+  }
+  phase('light-theme: DARK round-trip computed styles + :root chrome vars restored byte-identical');
+
+  // This phase is itself jsError-free on its own channel.
+  const themeJsErrors = themeMessages.filter((m) => m.type === 'jsError');
+  assert(themeJsErrors.length === 0,
+    `light-theme probe must be jsError-free on its own channel: ${JSON.stringify(themeJsErrors, null, 2)}`);
 
   await page.close();
 }
@@ -2814,6 +3285,17 @@ async function main() {
     await reducedMotionProbe(browser, indexHtml, fixture);
     phase('reduced-motion probe (fresh page: instant focus fit + full-opacity add, no tweens)');
 
+    // --- fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b) -------------------
+    // After the audit and the other probes, on its OWN page/context/channel. Loads a
+    // hand-built dataset, dispatches {type:'theme',variant:'light'}, awaits the live
+    // restyle (ping/pong barrier - the theme command is fire-and-forget), asserts the
+    // COMPUTED cytoscape styles + :root chrome vars equal the LIGHT_* constants (the C#
+    // BrandTokens.Graph*LightHex mirror), then dispatches {variant:'dark'} and asserts
+    // the computed styles + chrome vars are restored byte-identical to dark (the live
+    // restyle round-trips). Independent of the main run's zero-jsError audit.
+    await lightThemeProbe(browser, indexHtml, screenshotDir);
+    phase('light-theme probe (fresh page: live light restyle vs LIGHT_* + dark round-trip)');
+
     console.log(
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
       + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
@@ -2823,12 +3305,13 @@ async function main() {
       + `${belowNodes.length} roll-up rings, `
       + `diff underlay/line + COEXIST verified, `
       + `F2 eased focus + F1 enter fade + reduced-motion verified, `
+      + `light-theme live restyle + dark round-trip verified (ADR-026 D5), `
       + `selection + neighborhood dim + hover + selective labels verified (#89), `
       + `reverse select command (tap-identical/empty-clear/unknown-clear/instant) verified (#96), `
       + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
       + `control cluster + find (name/DN/no-match) + zoom/fit + labels toggle + keyboard verified (ADR-023), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
-      + `7 screenshots -> ${screenshotDir}`);
+      + `8 screenshots -> ${screenshotDir}`);
   } finally {
     expectedShutdown = true;
     await browser.close();

@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 
@@ -326,6 +327,60 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     }
 
     /// <summary>
+    /// Switches the canvas theme (ADR-026 WP1b): dispatches <c>{type:'theme', variant}</c> to the
+    /// live page, which re-styles the cytoscape instance in place and re-tones the chrome CSS vars.
+    /// Same fire-and-forget seam as <see cref="SelectAsync"/>/<see cref="SetBusyAsync"/> — NO
+    /// single-flight (the live theme toggle must reach a renderer even while a pipeline is in
+    /// flight) and NO confirmation round-trip. Non-blocking ready-guard: a theme racing ahead of
+    /// the bundle simply no-ops, because every subsequent render prepends the current theme
+    /// (DispatchRenderAsync) so the page converges. Never-throw (the discarded-task caller has no
+    /// handler): a degraded bridge surfaces as <see cref="RendererError"/> and returns. The
+    /// <paramref name="isLightTheme"/> bool is resolved to the wire variant string here, NOT read
+    /// from <see cref="Application"/> — the caller (ShellViewModel) owns the authoritative theme state.
+    /// </summary>
+    public async Task SetThemeAsync(bool isLightTheme, CancellationToken cancellationToken = default)
+    {
+        if (_webView is null || !_ready.Task.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        try
+        {
+            await DispatchAsync([ThemeCommand(isLightTheme)], cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // own-Dispose cancellation: nothing to settle (fire-and-forget).
+        }
+        catch (Exception ex)
+        {
+            RaiseError("renderer", $"theme dispatch failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>The <c>theme</c> bridge command (ADR-026 WP1b); carries ONLY the resolved variant
+    /// string ('dark'/'light'). When no explicit variant is passed it is resolved from
+    /// <c>Application.Current.RequestedThemeVariant</c> — the render-pipeline prepend
+    /// (<see cref="DispatchRenderAsync"/>/<see cref="ReNavigateAndReplayAsync"/>) uses this overload
+    /// so a freshly-rendered/re-attached graph matches the current app theme.</summary>
+    private static string ThemeCommand() =>
+        ThemeCommand(IsAppLightTheme());
+
+    private static string ThemeCommand(bool isLightTheme) =>
+        GraphJson.Serialize(new ThemeDto("theme", isLightTheme ? "light" : "dark"));
+
+    /// <summary>Resolves whether the running app is in the light variant. A no-app/headless
+    /// context (no <see cref="Application.Current"/>) defaults to dark (the byte-identical default).</summary>
+    private static bool IsAppLightTheme() =>
+        Application.Current is { } app
+        && app.RequestedThemeVariant == Avalonia.Styling.ThemeVariant.Light;
+
+    /// <summary>The <c>theme</c> bridge command (ADR-026 WP1b); presentation only — the variant
+    /// string is the sole payload (graph.js owns the dark/light token tables, ADR-021 hand-mirror).</summary>
+    private sealed record ThemeDto(string Type, string Variant);
+
+    /// <summary>
     /// Decodes the page's bare-base64 <c>pngExported</c> reply into bytes, FAILING TO
     /// <c>null</c> rather than throwing — the never-throw renderer contract
     /// (<see cref="IGraphRenderer.ExportPngAsync"/>: <c>null</c> on ANY error). The reply
@@ -393,7 +448,13 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         {
             var loaded = _loaded =
                 new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(chunks, cancellationToken);
+            // ADR-026 WP1b: set the canvas theme BEFORE the chunks/commit so the fresh
+            // cytoscape instance is built directly in the current variant (graph.js's theme
+            // handler sets currentVariant unconditionally; initGraph reads THEME[currentVariant]).
+            // A freshly-rendered or re-attached graph therefore matches the live app theme with
+            // no post-render restyle flash. Default (dark) => the prepended command is a no-op
+            // restyle to the byte-identical default.
+            await DispatchAsync([ThemeCommand(), .. chunks], cancellationToken);
             await AwaitConfirmationAsync(loaded.Task, timeoutMessage, cancellationToken);
 
             // Cache as the replay base only on a real confirmation — a soft 60 s timeout
@@ -602,7 +663,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             }
 
             var loaded = _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(chunks, cancellationToken);
+            // ADR-026 WP1b: the recreated-blank page defaults to dark — prepend the current
+            // theme so the replayed graph is rebuilt in the live app variant (same rationale
+            // as DispatchRenderAsync), not a stale dark.
+            await DispatchAsync([ThemeCommand(), .. chunks], cancellationToken);
             await AwaitConfirmationAsync(
                 loaded.Task, "graph replay never completed (60 s)", cancellationToken);
         }
