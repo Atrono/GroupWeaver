@@ -4,6 +4,41 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-06-23
+
+Third feature release — graph **navigation and presentation**. It makes the graph
+view drivable from inside the canvas and adds a distraction-free way to show it,
+on top of the v0.2.0 feature set and the v0.2.1 polish pass. Still read-only by
+construction: nothing in this release writes to Active Directory.
+
+### Added
+- **In-graph controls & find-a-node** — an on-canvas control cluster (Fit, Zoom in /
+  out, all-labels toggle) and a **find any node by name or DN** box that frames the
+  match, plus keyboard shortcuts scoped to the graph (`Ctrl+F` find, `Ctrl+0` fit,
+  `Ctrl+±` zoom). Find mirrors a tap without spoofing the focus protocol (ADR-023).
+- **Focus mode & full-screen** — a distraction-free **focus mode** (`F`) that folds
+  the chrome away to present the graph edge-to-edge, plus `F11` full-screen, an
+  adjustable / collapsible panel rail with per-state persistence, and a scope-summary
+  card when the detail panel is empty (ADR-022).
+
+### Fixed
+- **Back-navigation crash** — pressing Back from a graph-bearing step (Plan → Back to
+  Workspace, Gap → Back to Plan) crashed the app: the shared WebView control was never
+  released from the leaving view, so the next view re-parented a control that still had
+  a parent (`InvalidOperationException` on the measure pass). Leaving views now release
+  the graph surface on detach and the renderer restores the graph on re-entry; every
+  render / focus / export path is hardened never to throw onto the UI (ADR-024). The
+  Back round-trip currently re-fits the graph (viewport not yet preserved — tracked).
+- **Naming-rule preview hardening** — the settings naming-rule live preview now caps a
+  pattern's length before constructing its regex (shared with the ruleset loader), so a
+  pathologically long author-time pattern can't stall preview compilation.
+
+### Security
+- Read-only by construction holds across every change in this release — the graph
+  navigation, focus mode, and crash fix are all view-layer; there is no new AD code path.
+- The naming-preview pattern-length cap closes a regex-construction stall at author time
+  (defense in depth alongside the existing finite match timeout and bounded compile cache).
+
 ## [0.2.1] - 2026-06-22
 
 UI polish pass over the v0.2.0 feature set — presentation only. No new features,
@@ -126,5 +161,7 @@ of AGDLP — resource ACLs) are permanently out of scope.
 - Read-only by construction: there is no code path that writes to Active
   Directory anywhere in the product.
 
+[0.3.0]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.3.0
+[0.2.1]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.2
 [0.1.0]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.1
