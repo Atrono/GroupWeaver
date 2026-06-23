@@ -44,12 +44,13 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private bool _navigated;
     private bool _commandInFlight;
 
-    /// <summary>Cancelled by <see cref="Dispose"/> (#122) so any in-flight command — or the
-    /// lifecycle <see cref="ReNavigateAndReplayAsync"/> probe loop, which runs on
-    /// <see cref="CancellationToken.None"/> — observes own-disposal and unwinds. Each command's
-    /// awaits run on a token linked from the caller's token + this one
-    /// (<see cref="LinkDisposal"/>); the never-throw catches treat this source's cancellation as
-    /// own-cancellation (<see cref="IsOwnCancellation"/>), exactly like the caller's token.</summary>
+    /// <summary>Cancelled by <see cref="Dispose"/> (#122) so the lifecycle
+    /// <see cref="ReNavigateAndReplayAsync"/> probe loop — which otherwise polls on its own
+    /// timer after a re-attach — observes own-disposal and unwinds instead of running to its
+    /// 60 s deadline against a torn-down control. Caller-driven commands keep awaiting on the
+    /// CALLER's token; on dispose they unwind harmlessly because the native control is detached
+    /// and the <see cref="_disposed"/> guard turns any further dispatch/RaiseError into a quiet
+    /// no-op (so a faulted in-flight command can neither crash nor leak the WebView).</summary>
     private readonly CancellationTokenSource _disposeCts = new();
 
     /// <summary>True once <see cref="Dispose"/> ran (#122): the <see cref="View"/> getter then
