@@ -155,7 +155,9 @@ public sealed class SidebarExportButtonsViewTests
         };
 
     /// <summary>Workspace VM rooted at <see cref="RootDn"/> (the S6 ctor shape), null ruleset
-    /// => the embedded default.</summary>
+    /// => the embedded default. Fresh temp-dir UiStateStore (#124 / ADR-022 D4): never touches
+    /// the real %APPDATA% ui-state.json, so a persisted RailCollapsed:true cannot collapse the
+    /// right rail and starve the sidebar realization this file asserts over.</summary>
     private static WorkspaceViewModel Workspace(
         StubDirectoryProvider provider, Func<IGraphRenderer> rendererFactory) =>
         new(
@@ -163,7 +165,9 @@ public sealed class SidebarExportButtonsViewTests
             Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit),
             new DirectoryConnection("stub directory", 5),
             webView2Missing: false,
-            rendererFactory);
+            rendererFactory,
+            uiStateStore: new GroupWeaver.App.Settings.UiStateStore(
+                System.IO.Directory.CreateTempSubdirectory("groupweaver-sidebarexport-uistate-").FullName));
 
     /// <summary>The full workspace view in a sized, shown headless window (bindings live, the
     /// sidebar realized) — the ViolationsSidebarViewTests/DetailPanelViewTests hosting idiom.</summary>

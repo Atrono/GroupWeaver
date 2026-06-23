@@ -727,7 +727,10 @@ public sealed class WorkspaceLoadTests
             LoadScopeResult = Task.FromResult(snapshot ?? new DirectorySnapshot()),
         };
 
-    /// <summary>Workspace VM rooted at <see cref="RootDn"/> with the S6 ctor shape.</summary>
+    /// <summary>Workspace VM rooted at <see cref="RootDn"/> with the S6 ctor shape. Fresh
+    /// temp-dir UiStateStore (#124 / ADR-022 D4): never touches the real %APPDATA%
+    /// ui-state.json, so a persisted RailCollapsed:true cannot collapse the right rail and
+    /// starve the view realization this file asserts over.</summary>
     private static WorkspaceViewModel Workspace(
         StubDirectoryProvider provider,
         Func<IGraphRenderer>? rendererFactory,
@@ -737,7 +740,9 @@ public sealed class WorkspaceLoadTests
             Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit),
             new DirectoryConnection("stub directory", 5),
             webView2Missing,
-            rendererFactory);
+            rendererFactory,
+            uiStateStore: new GroupWeaver.App.Settings.UiStateStore(
+                System.IO.Directory.CreateTempSubdirectory("groupweaver-wsload-uistate-").FullName));
 
     /// <summary>Workspace view in a sized, shown headless window (bindings live).</summary>
     private static (Window Window, WorkspaceView View) ShowWorkspace(WorkspaceViewModel vm)

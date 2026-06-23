@@ -196,6 +196,9 @@ public sealed class TypographyTests
             LoadScopeResult = Task.FromResult(snapshot),
         };
 
+    // Fresh temp-dir UiStateStore (#124 / ADR-022 D4): never touches the real %APPDATA%
+    // ui-state.json, so a persisted RailCollapsed:true cannot collapse the right rail and
+    // starve the detail-panel realization this file asserts over.
     private static WorkspaceViewModel Workspace(
         StubDirectoryProvider provider, Func<IGraphRenderer> rendererFactory) =>
         new(
@@ -203,7 +206,9 @@ public sealed class TypographyTests
             Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit),
             new DirectoryConnection("stub directory", 5),
             webView2Missing: false,
-            rendererFactory);
+            rendererFactory,
+            uiStateStore: new GroupWeaver.App.Settings.UiStateStore(
+                System.IO.Directory.CreateTempSubdirectory("groupweaver-typography-uistate-").FullName));
 
     private static (Window Window, WorkspaceView View) ShowWorkspace(WorkspaceViewModel vm)
     {

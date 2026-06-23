@@ -288,7 +288,10 @@ public sealed class DetailPanelViewTests
             LoadScopeResult = Task.FromResult(snapshot),
         };
 
-    /// <summary>Workspace VM rooted at <see cref="RootDn"/> (AP 2.2 S6 ctor shape).</summary>
+    /// <summary>Workspace VM rooted at <see cref="RootDn"/> (AP 2.2 S6 ctor shape). Fresh
+    /// temp-dir UiStateStore (#124 / ADR-022 D4): never touches the real %APPDATA%
+    /// ui-state.json, so a persisted RailCollapsed:true cannot collapse the right rail and
+    /// starve the detail-panel realization this file asserts over.</summary>
     private static WorkspaceViewModel Workspace(
         StubDirectoryProvider provider, Func<IGraphRenderer> rendererFactory) =>
         new(
@@ -296,7 +299,9 @@ public sealed class DetailPanelViewTests
             Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit),
             new DirectoryConnection("stub directory", 5),
             webView2Missing: false,
-            rendererFactory);
+            rendererFactory,
+            uiStateStore: new GroupWeaver.App.Settings.UiStateStore(
+                System.IO.Directory.CreateTempSubdirectory("groupweaver-detailpanel-uistate-").FullName));
 
     /// <summary>Workspace view in a sized, shown headless window (bindings live).</summary>
     private static (Window Window, WorkspaceView View) ShowWorkspace(WorkspaceViewModel vm)
