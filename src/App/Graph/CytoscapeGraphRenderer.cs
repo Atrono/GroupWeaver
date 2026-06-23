@@ -12,7 +12,10 @@ namespace GroupWeaver.App.Graph;
 /// <see cref="NativeWebView"/> hosting the vendored Cytoscape bundle, served via
 /// file:// from <c>web/index.html</c> next to the exe. The WebView is created
 /// lazily on first <see cref="View"/> access (UI thread — it is a control) and
-/// navigates on its FIRST attach to the visual tree. Outbound: chunked
+/// navigates on its FIRST attach to the visual tree; on a RE-attach (a step swap
+/// destroys and recreates the native child — NativeControlHost) it re-navigates and
+/// replays the last render (<see cref="ReNavigateAndReplayAsync"/>) so the graph
+/// returns instead of a blank page. Outbound: chunked
 /// <c>window.bridge.dispatch(…)</c> through <c>InvokeScript</c> (the
 /// GraphSpike-proven transfer path, ADR-001 guardrail 4); inbound:
 /// <c>WebMessageReceived</c> → <see cref="GraphMessageParser"/>. ALL events are
@@ -25,7 +28,12 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// (ADR-004 D5).</summary>
     private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(60);
 
-    private readonly TaskCompletionSource _ready =
+    // Not readonly: reset to a fresh, uncompleted source when the native control is
+    // destroyed on detach (its old "ready" no longer reflects a live page), so the next
+    // command awaits a REAL new ready instead of a stale-completed one. All access is
+    // UI-thread-marshalled (View creation, the attach/detach handlers, and every
+    // command path resume on the UI thread), so a plain field swap is safe.
+    private TaskCompletionSource _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private TaskCompletionSource? _loaded;
@@ -35,6 +43,12 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private NativeWebView? _webView;
     private bool _navigated;
     private bool _commandInFlight;
+
+    /// <summary>The chunk commands of the most recent successful base render (show/update/
+    /// diff) — replayed after a re-attach, when Avalonia recreates the native control blank
+    /// (<see cref="CreateWebView"/>). Transient camera/selection ops (focus/select/busy) are
+    /// NOT cached: they are not the base graph to restore.</summary>
+    private IReadOnlyList<string>? _lastRenderChunks;
 
     /// <summary>The WebView, created on first access (single instance for the
     /// renderer's lifetime). Must be accessed on the UI thread.</summary>
@@ -71,17 +85,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         EnterSingleFlight(nameof(ShowGraphAsync));
         try
         {
-            if (!await TryAwaitReadyAsync(cancellationToken))
-            {
-                return;
-            }
-
-            // Armed BEFORE the first dispatch: the page may confirm faster than the
-            // last InvokeScript returns.
-            _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(GraphChunker.ToChunkCommands(graph, report, belowMap), cancellationToken);
-            await AwaitConfirmationAsync(
-                _loaded.Task, "graph render never completed (60 s)", cancellationToken);
+            await DispatchRenderAsync(
+                GraphChunker.ToChunkCommands(graph, report, belowMap),
+                "graph render never completed (60 s)",
+                cancellationToken);
         }
         finally
         {
@@ -105,17 +112,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         EnterSingleFlight(nameof(UpdateGraphAsync));
         try
         {
-            if (!await TryAwaitReadyAsync(cancellationToken))
-            {
-                return;
-            }
-
-            // Armed BEFORE the first dispatch: the page may confirm faster than the
-            // last InvokeScript returns.
-            _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(GraphChunker.ToUpdateCommands(graph, report, belowMap), cancellationToken);
-            await AwaitConfirmationAsync(
-                _loaded.Task, "graph update never completed (60 s)", cancellationToken);
+            await DispatchRenderAsync(
+                GraphChunker.ToUpdateCommands(graph, report, belowMap),
+                "graph update never completed (60 s)",
+                cancellationToken);
         }
         finally
         {
@@ -142,24 +142,15 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         EnterSingleFlight(nameof(ShowDiffGraphAsync));
         try
         {
-            if (!await TryAwaitReadyAsync(cancellationToken))
-            {
-                return;
-            }
-
-            // Armed BEFORE the first dispatch: the page may confirm faster than the
-            // last InvokeScript returns.
-            _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(
+            await DispatchRenderAsync(
                 GraphChunker.ToChunkCommands(
                     union,
                     RuleReport.Empty,
                     belowMap: null,
                     nodeDiffMap: diff.NodeStatus,
                     edgeDiffMap: diff.EdgeStatus),
+                "gap graph render never completed (60 s)",
                 cancellationToken);
-            await AwaitConfirmationAsync(
-                _loaded.Task, "gap graph render never completed (60 s)", cancellationToken);
         }
         finally
         {
@@ -183,13 +174,24 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 return;
             }
 
-            // Armed BEFORE the dispatch: the page may confirm faster than
-            // InvokeScript returns.
-            _focused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(
-                [GraphJson.Serialize(new FocusDto("focus", [.. dns]))], cancellationToken);
-            await AwaitConfirmationAsync(
-                _focused.Task, "focus move never completed (60 s)", cancellationToken);
+            try
+            {
+                // Armed BEFORE the dispatch: the page may confirm faster than
+                // InvokeScript returns.
+                _focused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await DispatchAsync(
+                    [GraphJson.Serialize(new FocusDto("focus", [.. dns]))], cancellationToken);
+                await AwaitConfirmationAsync(
+                    _focused.Task, "focus move never completed (60 s)", cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                RaiseError("renderer", $"focus dispatch failed: {ex.Message}");
+            }
         }
         finally
         {
@@ -218,15 +220,27 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 return null;
             }
 
-            // Armed BEFORE the dispatch: the page may confirm faster than
-            // InvokeScript returns.
-            _pngExported = null;
-            _pngReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(
-                [GraphJson.Serialize(new ExportPngDto("exportPng", 2, false, "#1b1f27"))], cancellationToken);
-            await AwaitConfirmationAsync(
-                _pngReady.Task, "png export never completed (60 s)", cancellationToken);
-            return DecodePngOrNull(_pngExported);
+            try
+            {
+                // Armed BEFORE the dispatch: the page may confirm faster than
+                // InvokeScript returns.
+                _pngExported = null;
+                _pngReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await DispatchAsync(
+                    [GraphJson.Serialize(new ExportPngDto("exportPng", 2, false, "#1b1f27"))], cancellationToken);
+                await AwaitConfirmationAsync(
+                    _pngReady.Task, "png export never completed (60 s)", cancellationToken);
+                return DecodePngOrNull(_pngExported);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                RaiseError("renderer", $"png export failed: {ex.Message}");
+                return null;
+            }
         }
         finally
         {
@@ -339,6 +353,51 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         _commandInFlight = true;
     }
 
+    /// <summary>
+    /// Shared base-render path for <see cref="ShowGraphAsync"/>/<see cref="UpdateGraphAsync"/>/
+    /// <see cref="ShowDiffGraphAsync"/>: await ready, arm <c>_loaded</c> BEFORE the first
+    /// dispatch (the page may confirm before the last <c>InvokeScript</c> returns), dispatch the
+    /// chunks, await the <c>loaded</c> confirmation, then cache the chunks as the render to replay
+    /// after a re-attach (<see cref="ReNavigateAndReplayAsync"/>) — cached ONLY on a genuine
+    /// confirmation, never on a soft timeout. NEVER-THROW (ADR-004 D5): any
+    /// non-own-cancellation fault from the dispatch/confirm body becomes a
+    /// <see cref="RendererError"/> and a normal return — an <c>InvokeScript</c> fault must not
+    /// escape onto an awaited/async-void caller and crash the app. Own-Dispose cancellation
+    /// rethrows to preserve the Dispose-cancel behavior. The single-flight guard and its
+    /// <c>finally</c> stay in the caller, OUTSIDE this body (ADR-005 D3, ADR-004 D5 untouched).
+    /// </summary>
+    private async Task DispatchRenderAsync(
+        IReadOnlyList<string> chunks, string timeoutMessage, CancellationToken cancellationToken)
+    {
+        if (!await TryAwaitReadyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        try
+        {
+            var loaded = _loaded =
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await DispatchAsync(chunks, cancellationToken);
+            await AwaitConfirmationAsync(loaded.Task, timeoutMessage, cancellationToken);
+
+            // Cache as the replay base only on a real confirmation — a soft 60 s timeout
+            // (AwaitConfirmationAsync swallows it to a RendererError) leaves it unset/stale.
+            if (loaded.Task.IsCompletedSuccessfully)
+            {
+                _lastRenderChunks = chunks;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            RaiseError("renderer", $"graph render failed: {ex.Message}");
+        }
+    }
+
     /// <summary>Bounded wait for the bundle's <c>ready</c>; on timeout raises
     /// <see cref="RendererError"/> and reports <c>false</c> — callers return normally
     /// (never a hang, never a throw; ADR-004 D5).</summary>
@@ -374,6 +433,13 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private async Task DispatchAsync(
         IReadOnlyList<string> commands, CancellationToken cancellationToken)
     {
+        // Defensive: a ready confirmation always implies a live _webView, but a re-attach
+        // race could in principle null it between checks. Bail quietly rather than NRE.
+        if (_webView is null)
+        {
+            return;
+        }
+
         foreach (var command in commands)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -382,9 +448,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             // because GraphJson's default STJ encoder emits ASCII-only output
             // (non-ASCII — including the JS-literal-breaking U+2028/U+2029 —
             // escaped to \uXXXX), and ASCII-safe JSON is a valid JS expression.
-            // _webView cannot be null here: the ready message only arrives from
-            // the navigated WebView, which only exists once View was accessed.
-            await _webView!.InvokeScript($"window.bridge.dispatch({command})");
+            await _webView.InvokeScript($"window.bridge.dispatch({command})");
         }
     }
 
@@ -406,9 +470,109 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     {
         var webView = new NativeWebView();
         webView.WebMessageReceived += (_, e) => OnWebMessageReceived(e.Body ?? string.Empty);
-        webView.AttachedToVisualTree += (_, _) => NavigateOnce(webView);
+        webView.AttachedToVisualTree += (_, _) => OnAttached(webView);
+
+        // On detach Avalonia destroys the native WebView2 child and recreates it BLANK on
+        // re-attach (NativeControlHost). The old page (and its "ready") is gone, so reset the
+        // ready gate to a fresh, uncompleted source: a later command then awaits the REAL new
+        // ready (raised by the re-navigated page) instead of resuming on a stale-completed one.
+        // All access is UI-thread (this handler, View creation, command resumes), so the plain
+        // field swap is safe.
+        webView.DetachedFromVisualTree += (_, _) =>
+            _ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
         HardenWebView(webView);
         return webView;
+    }
+
+    /// <summary>
+    /// FIRST attach → navigate (the GraphSpike path). RE-attach (already navigated once, the
+    /// native control was destroyed on detach and recreated blank) → re-navigate the bundle
+    /// and, once it is ready again, replay the last base render so the graph comes back instead
+    /// of a blank page. The visual-tree event is synchronous and has no exception handler, so the
+    /// replay is fired as a guarded async method that never throws back into the handler.
+    /// </summary>
+    private void OnAttached(NativeWebView webView)
+    {
+        if (!_navigated)
+        {
+            NavigateOnce(webView);
+            return;
+        }
+
+        _ = ReNavigateAndReplayAsync(webView);
+    }
+
+    /// <summary>
+    /// Re-attach recovery: reload <c>index.html</c> on the recreated-blank native control, wait
+    /// (by probing) until the page accepts script and <c>window.bridge.dispatch</c> exists, then
+    /// replay <see cref="_lastRenderChunks"/> so the previously shown graph is restored. Never-throw
+    /// (the discarded-task caller has no handler): a degraded bridge surfaces as
+    /// <see cref="RendererError"/> and returns. Does NOT take the single-flight guard — it is a
+    /// lifecycle recovery, not a caller command; should a real command race in, the page's
+    /// idempotent re-render reconciles.
+    /// </summary>
+    private async Task ReNavigateAndReplayAsync(NativeWebView webView)
+    {
+        try
+        {
+            var indexUri = new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html"));
+            webView.Navigate(indexUri);
+
+            if (_lastRenderChunks is not { } chunks)
+            {
+                return;
+            }
+
+            // Wait until the RECREATED page actually accepts script and the bridge is wired, by
+            // PROBING the real precondition rather than racing the NavigationCompleted / bridge
+            // `ready` events. Across repeated re-attaches those events get satisfied by stale,
+            // dispatcher-queued signals (and the recreated control's own blank initial nav) from
+            // the prior page, so the replay InvokeScript could still run "before any page was
+            // loaded" (observed on the 2nd re-attach, both with a reset _ready and with a
+            // NavigationCompleted gate). InvokeScript throws exactly that until THIS navigation
+            // lands, and returns '1' only once window.bridge.dispatch exists — so polling it is
+            // immune to every stale-signal race. Each probe is itself time-bounded in case a
+            // not-yet-ready control leaves the call pending rather than faulting.
+            var deadline = DateTime.UtcNow + BridgeTimeout;
+            while (true)
+            {
+                string? probe = null;
+                try
+                {
+                    probe = await webView
+                        .InvokeScript("(typeof window.bridge!=='undefined'&&typeof window.bridge.dispatch==='function')?'1':'0'")
+                        .WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch
+                {
+                    // Page not loaded yet (InvokeScript faults "before any page was loaded") or the
+                    // probe is briefly pending — keep polling until the deadline.
+                }
+
+                if (probe is not null && probe.Contains('1'))
+                {
+                    break;
+                }
+
+                if (DateTime.UtcNow > deadline)
+                {
+                    RaiseError("renderer", "recreated page never accepted script after re-attach (60 s)");
+                    return;
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(150));
+            }
+
+            var loaded = _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await DispatchAsync(chunks, CancellationToken.None);
+            await AwaitConfirmationAsync(
+                loaded.Task, "graph replay never completed (60 s)", CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            RaiseError("renderer", $"graph replay failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -464,8 +628,9 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         }
     }
 
-    /// <summary>Navigates on the FIRST attach only — the page (and its accumulated
-    /// cytoscape state) must survive re-attach, not reload over it.</summary>
+    /// <summary>Navigates on the FIRST attach only (sets <see cref="_navigated"/>). A
+    /// subsequent attach is a RE-attach of a recreated native child and is handled by
+    /// <see cref="OnAttached"/> → <see cref="ReNavigateAndReplayAsync"/>, never here.</summary>
     private void NavigateOnce(NativeWebView webView)
     {
         if (_navigated)
