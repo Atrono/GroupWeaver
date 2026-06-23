@@ -275,9 +275,41 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         IsLightTheme = !IsLightTheme;
         ApplyThemeVariant();
+        // ADR-026 WP1b: re-theme the graph canvas(es) live. The WebView2 bundle does not observe
+        // RequestedThemeVariant — it must be pushed the variant explicitly. Re-theme EVERY tracked
+        // graph-bearing step (not just CurrentStep): a parked surface (Workspace/Plan behind a Plan/
+        // Gap step) survives its page across the round-trip, so it must re-tone now or it would
+        // return in the stale theme (a re-mount does NOT re-render). Fire-and-forget, never-throw.
+        ApplyCanvasTheme();
         // Preserve the ADR-022 rail fields the workspace owns: read-modify-write the shared store.
         _uiStateStore.Save(_uiStateStore.Load() with { Theme = IsLightTheme ? "Light" : "Dark" });
     }
+
+    /// <summary>ADR-026 WP1b: pushes the current <see cref="IsLightTheme"/> variant to every tracked
+    /// graph-bearing step's renderer (Workspace/Plan/Gap). Fire-and-forget (the renderer's
+    /// <see cref="IGraphRenderer.SetThemeAsync"/> is itself never-throw and no-ops before its bundle
+    /// is ready — a not-yet-rendered renderer converges anyway because each render prepends the
+    /// current theme). Covers parked surfaces too, so returning to a Back-target finds it themed.</summary>
+    private void ApplyCanvasTheme()
+    {
+        foreach (var step in _disposableSteps)
+        {
+            if (RendererOf(step) is { } renderer)
+            {
+                _ = renderer.SetThemeAsync(IsLightTheme);
+            }
+        }
+    }
+
+    /// <summary>The graph renderer a tracked step owns, or <c>null</c> for a graph-less step (or a
+    /// step whose renderer was never built — null factory / missing WebView2).</summary>
+    private static IGraphRenderer? RendererOf(IDisposable step) => step switch
+    {
+        WorkspaceViewModel workspace => workspace.GraphRenderer,
+        PlanViewModel plan => plan.GraphRenderer,
+        GapViewModel gap => gap.GraphRenderer,
+        _ => null,
+    };
 
     /// <summary>Applies <see cref="IsLightTheme"/> to <c>Application.Current.RequestedThemeVariant</c>
     /// (Light ⇒ <see cref="Avalonia.Styling.ThemeVariant.Light"/>, else Dark). A no-op when no app is

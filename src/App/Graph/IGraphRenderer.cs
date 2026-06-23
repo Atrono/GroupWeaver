@@ -110,6 +110,19 @@ public interface IGraphRenderer : IDisposable
     Task SelectAsync(string dn, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 
+    /// <summary>Switches the graph canvas theme (ADR-026 WP1b): dispatches the
+    /// <c>{type:'theme', variant:'dark'|'light'}</c> command to the live page, which re-styles
+    /// the cytoscape instance in place (no destroy, no fit, viewport preserved) and re-tones the
+    /// index.html chrome CSS vars. Wire carries ONLY the variant string (graph.js owns the token
+    /// tables). Fire-and-forget — like <see cref="SelectAsync"/>/<see cref="SetBusyAsync"/> it
+    /// takes NO single-flight guard (the live theme toggle must reach a renderer mid-pipeline) and
+    /// awaits NO confirmation; no-ops safely before the bundle is ready, and a freshly-rendered/
+    /// re-attached graph already matches the theme because the renderer sends the variant as part of
+    /// its render pipeline. Default no-op (mirroring <see cref="SetBusyAsync"/>); only the real
+    /// <c>CytoscapeGraphRenderer</c> overrides.</summary>
+    Task SetThemeAsync(bool isLightTheme, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 

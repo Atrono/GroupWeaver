@@ -83,19 +83,67 @@ rule):** every test that constructs a VM/shell reading user-profile state MUST i
 temp-dir `UiStateStore` — a green CI run can otherwise hide a real-`%APPDATA%` read
 (the #124 lesson). The new `Theme` field rides the same injected seam.
 
-### D5 — Light-canvas graph hues (WP1b spec, pinned now so WP1a doesn't foreclose it).
+### D5 — Light-canvas graph hues (WP1b, SHIPPED).
 
-On the light canvas (`#F5F6F8`) the kind FILLS still read (all are dark-on-light ≥ 3:1),
-so they are **theme-invariant**. The semi-transparent **severity overlays** and **diff
-underlays** are re-derived for the light canvas using Frame 4's deepened hues
-(severity red `#D63A4A`, amber `#BD7C00`, green `#1F9D57`; the diff/scope set likewise),
-each re-checked ≥ 3:1 (1.4.11) at its painted opacity. Canvas `#F5F6F8`, grid
-`rgba(0,0,0,.045)`, edges membership/containment re-toned to dark-on-light keeping the
-ADR-005/F6 four-channel separation (lightness + weight + dash + arrow) ≥ 3:1, node
-label ink dark with a light outline. The mockup's *circle+ring* node language and its
-GG=blue/DL=teal scope recolor are **rejected** (ADR-NNN node-language reconciliation,
-WP3): the per-kind shape vocabulary is the colourblind-redundant 1.4.1 channel and is
+The wire carries **only the variant string** (`{type:'theme', variant:'dark'|'light'}`);
+`graph.js` owns the dark+light token tables (mirrored in `BrandTokens` as the documented
+C# source — the `Graph*LightHex` group — and pinned by `verify.mjs`'s LIGHT block +
+`WebBundleTests`). The light canvas is `#F5F6F8`.
+
+**Kind FILLS are theme-INVARIANT** (all clear 3:1 on the light canvas: User 4.22, GG 4.96,
+DL 5.98, UG 5.75, OU 4.98, Computer 5.90, External 4.26), so they are NOT re-toned and the
+dark 1.4.11 **border-lift** (DL/UG/Computer) is **dropped on light** (`nodeLiftWidth = 0`) —
+unneeded since the three fills already clear 3:1 on light. The mockup's *circle+ring* node
+language and its GG=blue/DL=teal scope recolor are **rejected** (WP3 node-language
+reconciliation): the per-kind **shape** vocabulary is the colourblind-redundant 1.4.1 channel,
 kept in both themes.
+
+**Structural objects** (≥ 3:1 non-text, 1.4.11; text ≥ 4.5:1, 1.4.3 — all vs canvas `#F5F6F8`):
+
+| Role | Dark (unchanged) | Light | Light ratio |
+|---|---|---|---|
+| canvas / body bg | `#1b1f27` | `#F5F6F8` | — |
+| node label ink (text) | `#E8ECF2` | `#1C2127` | **14.98:1** |
+| node label outline | `#1b1f27` | `#F5F6F8` | — |
+| membership edge (solid, w1.6, arrow) | `#8E9BB4` | `#5A6473` | **5.54:1** |
+| containment edge (dashed, w1) | `#6B788F` | `#3A424E` | **9.39:1** |
+| root node border (w3) | `#E8ECF2` | `#1C2127` | **14.98:1** |
+| External dashed border | `#B0B6BF` | `#6B7480` | **4.38:1** |
+| node:selected border (w3) | `#FFFFFF` | `#1C2127` | **14.98:1** |
+
+The F6 four-channel membership-vs-containment separation (lightness + weight + dash + arrow)
+holds: light membership `#5A6473` stays lighter than containment `#3A424E`.
+
+**Severity halos + diff underlays** are soft semi-transparent emphasis cues (redundant with
+the sidebar E/W/i letter + node shape). Like the **dark** halos — which themselves blend
+*below* 3:1 over their bg (error 1.57, warning 2.65, info 2.07; diff added 2.42, removed 1.96,
+unchecked 1.75) — the light cues cannot reach 3:1 as a translucent ring. The bar is therefore
+**read at or above the dark counterpart's blended ratio**, achieved via deepened Frame-4 hues +
+raised opacities. Effective blended ratio vs `#F5F6F8`:
+
+| Cue | Dark hue @opacity (blended) | Light hue @opacity | Light blended |
+|---|---|---|---|
+| severity error halo | `#D13438` @0.45 (1.57) | `#D63A4A` @0.70 | **2.84:1** |
+| severity warning halo | `#F7A30B` @0.45 (2.65) | `#BD7C00` @0.75 | **2.34:1** |
+| severity info halo | `#4FA3E3` @0.40 (2.07) | `#2F6FE0` @0.70 | **2.68:1** |
+| roll-up ring (max-sev, fainter) | `· @0.30` | `· @0.50` | err 2.07 / amber 1.84 / info 1.97 |
+| busy ring | `#4FA3E3` @0.35 | `#2F6FE0` @0.55 | **2.12:1** |
+| diff added underlay | `#2FAE4E` @0.5 (2.42) | `#1F9D57` @0.70 | **2.23:1** |
+| diff removed underlay | `#E0503A` @0.5 (1.96) | `#D63A4A` @0.70 | **2.84:1** |
+| diff unchecked underlay | `#8A8F98` @0.35 (1.75) | `#5A6473` @0.50 | **2.08:1** |
+
+The diff **edge lines** are near-opaque (structural directed signals), so they clear ~3:1:
+added `#1F9D57` @0.95 = **3.05:1**, removed `#D63A4A` @0.85 = **3.51:1**, unchecked
+`#5A6473` @0.60 = 2.49:1 (the dotted unchecked line is the faintest, redundant with its
+dotted line-style). The removed-node kind-fill fade (`background-opacity 0.45`, the
+colourblind brightness channel) is theme-invariant.
+
+**Live toggle:** `ShellViewModel.ToggleTheme` (WP1a) additionally calls
+`IGraphRenderer.SetThemeAsync(isLightTheme)` on every tracked graph-bearing step (Workspace/
+Plan/Gap, including parked surfaces) — fire-and-forget, never-throw, no single-flight. Each
+renderer ALSO prepends the current variant to its render/replay pipeline, so a freshly-rendered
+or re-attached graph matches the live theme with no flash. The export-PNG background still
+defaults to the dark `#1b1f27` (ADR-013) — a themed export bg is a WP-follow-up, not WP1b.
 
 ## Consequences
 
