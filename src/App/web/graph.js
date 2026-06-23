@@ -14,6 +14,16 @@
   var pendingNodes = [];
   var pendingEdges = [];
 
+  // F7: gate hideEdgesOnViewport on edge count. Below this, a full-redraw pan/zoom
+  // stays smooth even under software rendering, so edges stay VISIBLE during
+  // gestures (kills the mid-zoom vanish on the ~334-edge demo and typical scopes);
+  // above it, keep cytoscape's hide-on-viewport optimization that the
+  // 5000-node/6499-edge software-rendering spike relies on
+  // (spikes/GraphSpike/RESULTS-software-rendering.md). Re-evaluated per full graph
+  // build (ShowGraph/ReloadScope rebuilds cy); a lazy-expand that crosses the
+  // threshold keeps the init value until the next full build (acceptable for v0.1).
+  var EDGE_HIDE_THRESHOLD = 1500;
+
   // ADR-023 D4: Labels toggle state ('auto' = ADR-018 gate, 'all' = every label
   // at fit zoom). Module-level so applyLabelMode() can re-assert it in sendLoaded
   // after a graphUpdate adds new nodes. Default 'auto'.
@@ -144,12 +154,17 @@
     if (cy !== null) { cy.destroy(); cy = null; }
     var elements = takePendingElements();
 
+    var edgeCount = 0;
+    for (var ei = 0; ei < elements.length; ei++) {
+      if (elements[ei].group === 'edges') { edgeCount++; }
+    }
+
     cy = cytoscape({
       container: document.getElementById('cy'),
       elements: elements,
       layout: { name: 'preset' },        // positions precomputed in .NET (ADR-004 D1/D3)
       pixelRatio: 1,
-      hideEdgesOnViewport: true,
+      hideEdgesOnViewport: edgeCount > EDGE_HIDE_THRESHOLD,  // F7
       textureOnViewport: true,
       motionBlur: false,
       style: [
@@ -299,26 +314,29 @@
           selector: "edge[rel='member']",
           style: {
             'curve-style': 'bezier',     // bezier keeps the seeded A<->B cycle legible (ADR-004 D2)
-            width: 1.5,
-            'line-color': '#7A8699',
-            opacity: 0.85,
+            width: 1.6,
+            'line-color': '#8E9BB4',     // the primary directed signal (~5.8:1 on #1b1f27)
+            opacity: 1,
             'target-arrow-shape': 'triangle',
-            'target-arrow-color': '#7A8699'
+            'target-arrow-color': '#8E9BB4'
           }
         },
         {
-          // Dashed = containment; the dash pattern (not color) separates it from
-          // member edges. Opacity tuned for ~2.45:1 blended contrast on #1b1f27
-          // (ui-checklist A2: legible, verifier-justified vs the 3:1 floor by the
-          // crisp dash pattern; bump to ~0.72 if a hard 3:1 is ever required)
-          // while staying visually subordinate to member edges.
+          // F6: membership vs containment are now separated on FOUR redundant,
+          // hue-free channels - lightness (#8E9BB4 vs #6B788F), weight (1.6 vs 1),
+          // solid vs dashed, and arrow vs none - so the graph reads as two layers
+          // (primary directed membership + subordinate containment scaffolding),
+          // not one monochrome cobweb. Both clear the 3:1 non-text-contrast floor
+          // on #1b1f27 (membership ~5.8:1, containment ~3.65:1), so the old
+          // opacity-based sub-3:1 compromise is gone. Dashed stays the
+          // colorblind-redundant channel.
           selector: "edge[rel='contains']",
           style: {
             'curve-style': 'bezier',
             width: 1,
             'line-style': 'dashed',
-            'line-color': '#7A8699',
-            opacity: 0.6
+            'line-color': '#6B788F',
+            opacity: 1
           }
         },
         // Gap diff EDGE override (AP 66, ADR-015 Slice 5): placed AFTER the
