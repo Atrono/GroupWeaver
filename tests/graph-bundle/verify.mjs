@@ -118,6 +118,20 @@ const DIFF_LINE = {
   removed: { color: '#E0503A', style: 'dashed' },
   unchecked: { color: '#8A8F98', style: 'dotted' },
 };
+// BASE (non-diff) edge styling, F6 edge-legibility change (graph.js
+// edge[rel='member'] / edge[rel='contains']). Membership is the PRIMARY directed
+// signal: lighter (#8E9BB4 ~5.8:1 on #1b1f27), heavier (1.6), solid, triangle
+// arrow. Containment is subordinate scaffolding: darker (#6B788F ~3.65:1),
+// thinner (1), dashed, no arrow. The colorblind-redundant (hue-free) channel is
+// line-style: member=solid vs contains=dashed - asserted here so a regression to
+// a single monochrome edge style fails even for a red-green-blind reader. These
+// pin the NON-diff rel rules; an edge carrying a `diff` field is overridden by
+// the edge[diff=...] rules pinned in DIFF_LINE above, so the edges read here are
+// chosen from the demo fixture precisely because they have NO `diff` field.
+const BASE_EDGE = {
+  member: { color: '#8E9BB4', width: 1.6, style: 'solid', arrowColor: '#8E9BB4' },
+  contains: { color: '#6B788F', width: 1, style: 'dashed' },
+};
 
 // THE interaction-feedback parity tripwire (ADR-018 / #89). The graph-layer
 // analogue of PALETTE/SEVERITY/DIFF: hand-copied from ADR-018 D1 so any drift
@@ -1028,6 +1042,71 @@ async function main() {
     assert(loaded.nodeCount >= 190,
       `anti-vacuous floor: demo graph must have >= 190 nodes, got ${loaded.nodeCount}`);
     phase(`loaded (${loaded.nodeCount} nodes, ${loaded.edgeCount} edges)`);
+
+    // --- BASE edge styling parity C# <-> JS (F6/F7 edge-legibility change) -----
+    // Pin the NON-diff edge[rel='member'] / edge[rel='contains'] computed styles
+    // so the F6 legibility change can't silently regress (verify.mjs previously
+    // pinned ONLY the diff-edge overrides). Pick a representative member edge and
+    // a contains edge from the demo fixture that carry NO `diff` field, so the
+    // base rel rule is exactly what cytoscape resolves (a diffed edge would be
+    // overridden by edge[diff=...], DIFF_LINE above). Read line-color/width/
+    // line-style (+ member's target-arrow-color) via getElementById on the edge's
+    // own id (ADR-004 D5 byte-identical lookup), the same idiom as `lineOf` in the
+    // diff tripwire. The colorblind-redundant (hue-free) channel is line-style:
+    // member=solid vs contains=dashed - assert both so the two layers stay
+    // distinguishable without relying on the lightness/hue difference.
+    const baseMemberEdge = fixture.edges.find((e) => e.rel === 'member' && !e.diff);
+    const baseContainsEdge = fixture.edges.find((e) => e.rel === 'contains' && !e.diff);
+    assert(baseMemberEdge !== undefined,
+      'F6 base-edge: demo fixture must contain a non-diff member edge to pin edge[rel=\'member\'] styling');
+    assert(baseContainsEdge !== undefined,
+      'F6 base-edge: demo fixture must contain a non-diff contains edge to pin edge[rel=\'contains\'] styling');
+    const edgeStyleOf = (eid) => page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      return {
+        found: el.length === 1,
+        color: el.style('line-color'),
+        width: el.style('width'),
+        style: el.style('line-style'),
+        arrowColor: el.style('target-arrow-color'),
+      };
+    }, eid);
+
+    const gotMember = await edgeStyleOf(baseMemberEdge.id);
+    assert(gotMember.found, `F6 base-edge: member edge '${baseMemberEdge.id}' not found on the rendered graph`);
+    assert(toHex(gotMember.color) === BASE_EDGE.member.color.toUpperCase(),
+      `F6 base-edge line-color for member ('${baseMemberEdge.id}'): rendered '${gotMember.color}' (${toHex(gotMember.color)}) != pinned ${BASE_EDGE.member.color} (graph.js edge[rel='member'] regressed?)`);
+    assert(Math.abs(toNumber(gotMember.width) - BASE_EDGE.member.width) < 1e-6,
+      `F6 base-edge width for member ('${baseMemberEdge.id}'): rendered ${gotMember.width} != pinned ${BASE_EDGE.member.width}`);
+    assert(gotMember.style === BASE_EDGE.member.style,
+      `F6 base-edge line-style (colorblind-redundant channel) for member ('${baseMemberEdge.id}'): rendered '${gotMember.style}' != pinned '${BASE_EDGE.member.style}' (member must stay SOLID, the non-color channel vs dashed contains)`);
+    assert(toHex(gotMember.arrowColor) === BASE_EDGE.member.arrowColor.toUpperCase(),
+      `F6 base-edge target-arrow-color for member ('${baseMemberEdge.id}'): rendered '${gotMember.arrowColor}' (${toHex(gotMember.arrowColor)}) != pinned ${BASE_EDGE.member.arrowColor} (arrow must match the directed-membership line color)`);
+
+    const gotContains = await edgeStyleOf(baseContainsEdge.id);
+    assert(gotContains.found, `F6 base-edge: contains edge '${baseContainsEdge.id}' not found on the rendered graph`);
+    assert(toHex(gotContains.color) === BASE_EDGE.contains.color.toUpperCase(),
+      `F6 base-edge line-color for contains ('${baseContainsEdge.id}'): rendered '${gotContains.color}' (${toHex(gotContains.color)}) != pinned ${BASE_EDGE.contains.color} (graph.js edge[rel='contains'] regressed?)`);
+    assert(Math.abs(toNumber(gotContains.width) - BASE_EDGE.contains.width) < 1e-6,
+      `F6 base-edge width for contains ('${baseContainsEdge.id}'): rendered ${gotContains.width} != pinned ${BASE_EDGE.contains.width}`);
+    assert(gotContains.style === BASE_EDGE.contains.style,
+      `F6 base-edge line-style (colorblind-redundant channel) for contains ('${baseContainsEdge.id}'): rendered '${gotContains.style}' != pinned '${BASE_EDGE.contains.style}' (containment must stay DASHED, the non-color channel vs solid member)`);
+    phase('F6 base edge styling (member solid #8E9BB4/1.6 + arrow, contains dashed #6B788F/1)');
+
+    // --- F7: hideEdgesOnViewport gated on edge count --------------------------
+    // graph.js sets hideEdgesOnViewport: edgeCount > EDGE_HIDE_THRESHOLD (1500) at
+    // cy init (was hardcoded true). The demo fixture is ~334 edges, well below the
+    // threshold, so edges must stay VISIBLE during pan/zoom => the resolved option
+    // is false. cytoscape stores the resolved value on its canvas renderer
+    // (cy.renderer().hideEdgesOnViewport - copied from the init options); read it
+    // there. This is the resolved render-time value, not a re-read of our own input.
+    const hideEdges = await page.evaluate(() => {
+      const r = window.__cy.renderer();
+      return (r && typeof r.hideEdgesOnViewport === 'boolean') ? r.hideEdgesOnViewport : null;
+    });
+    assert(hideEdges === false,
+      `F7: demo graph (${loaded.edgeCount} edges, < ${1500} threshold) must resolve hideEdgesOnViewport=false (edges stay visible during gestures); cy.renderer().hideEdgesOnViewport = ${JSON.stringify(hideEdges)} (null => renderer didn't expose it - if it ever stops exposing this, downgrade to a review-enforced comment rather than reading internals)`);
+    phase(`F7 hideEdgesOnViewport=false for ${loaded.edgeCount}-edge demo (< 1500 threshold)`);
 
     // --- encoding-key legend signature (#87, ui-checklist "Encoding-key
     // signature") -------------------------------------------------------------

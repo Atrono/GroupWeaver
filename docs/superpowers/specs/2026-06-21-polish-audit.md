@@ -73,6 +73,10 @@ task-relevant, memorable — the signature is the encoding, not a background flo
   monochrome hairline variants (cobweb at 200 nodes); `hideEdgesOnViewport:true` makes edges
   vanish mid-zoom on small graphs. Differentiate edge value/weight; gate the hide on element
   count (preserve the software floor for large graphs). Effort S–M.
+  **DONE (session 29, PR pending):** membership `#8E9BB4`/1.6/solid+arrow vs containment
+  `#6B788F`/1/dashed — four hue-free channels, both now ≥3:1 on `#1b1f27`;
+  `hideEdgesOnViewport` gated on `edgeCount > 1500` (demo stays visible). Pinned by 12 new
+  verify.mjs asserts; ui-checklist edge items checked.
 - **Interactive legend** (F10): static `pointer-events:none` key, verbose, omits the
   severity + diff channels. Add live per-kind counts, document all four channels, optional
   click-to-filter. Effort M.
