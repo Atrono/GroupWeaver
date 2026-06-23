@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Exe (not WinExe) so the GO/NO-GO summary reaches stdout under `dotnet run`. -->
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- NativeControlHost (WebView child HWND) fails without a supportedOS manifest. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Spike: throwaway de-risking code for issue #122, not part of the product solution. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
+    <!-- Official AvaloniaUI WebView, MIT since 2026-03; pin exactly 11.4.0 (matches production). -->
+    <PackageReference Include="Avalonia.Controls.WebView" Version="11.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="web\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
