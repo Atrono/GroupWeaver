@@ -279,10 +279,13 @@ try {
     # --- beat 5: wheel zoom-in toward the expanded cluster ----------------------
     # Aim at the GlobalGroup-green node ($minX skips the legend swatch) so the zoom
     # visibly dives into the member cluster (pointer-anchored zoom keeps it on screen).
+    # Detent count cut 30 -> 6 per burst after wheelSensitivity reverted to the
+    # cytoscape default of 1 (was 0.2): a real/synthetic detent now zooms ~5x more,
+    # so 6 detents lands the dive where 30 used to. Tune by eye when re-recording.
     $zoomTarget = Find-NodeBlob (Save-Probe) $colorGlobalGroup 'canvas' 30 150
     for ($burst = 0; $burst -lt 3; $burst++) {
-        if ($zoomTarget) { Send-CanvasWheel 30 $zoomTarget.X $zoomTarget.Y }
-        else { Send-CanvasWheel 30 }
+        if ($zoomTarget) { Send-CanvasWheel 6 $zoomTarget.X $zoomTarget.Y }
+        else { Send-CanvasWheel 6 }
         Start-Sleep -Milliseconds 350
         Save-Frame 1
     }

@@ -152,7 +152,6 @@
       hideEdgesOnViewport: true,
       textureOnViewport: true,
       motionBlur: false,
-      wheelSensitivity: 0.2,
       style: [
         {
           selector: 'node',
