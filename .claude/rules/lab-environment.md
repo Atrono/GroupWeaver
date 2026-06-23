@@ -17,7 +17,22 @@
   (Microsoft Basic Display Adapter) until reinstalled manually; `bootstrap.ps1`
   does NOT install it. Perf numbers must always state which rendering mode they
   were measured in; the software-rendered numbers are the target-audience floor
-  (RDP/server/VM) — see `spikes/GraphSpike/RESULTS-software-rendering.md`.
+  (RDP/server/VM) — see `spikes/GraphSpike/RESULTS-software-rendering.md`. This bullet
+  is about PERF / rendering mode ONLY — it is NOT the cause of the local view-test
+  failures below (the driver is currently PRESENT; the box has not been rebuilt).
+- **`build.ps1` shows ~12 FAILING App view-realization tests LOCALLY — green on CI,
+  NOT a regression, NOT the GPU (found session 28, tracked in #124):** the full local
+  suite reports ~12 failures in `GroupWeaver.App.Tests` (`TypographyTests`,
+  `DetailPanelViewTests`, `WorkspaceLoadTests`, `ViolationsSidebarViewTests`,
+  `SidebarExportButtonsViewTests`, …), all `Assert.True`/`Assert.Single` over
+  `IsEffectivelyVisible` / realized visual children (`Collection: []`). They are GREEN
+  on CI (App N/N, `Skipped: 0`, none filtered). Session 26 wrongly blamed an absent GPU
+  driver — but `Get-CimInstance Win32_VideoController` shows the Intel UHD 620 driver
+  (31.0.101.2141) PRESENT/OK, so it is NOT the Basic-Display-Adapter state above; it is a
+  local-only Avalonia.Headless realization quirk (root cause TBD in **#124**). The local
+  count reconciles as the CI-shared tests + the 6 `Category=RequiresAd` App tests that run
+  locally against the live DC (CI excludes those). **Rely on CI as the gate; NEVER "fix"
+  these by editing the tests** — they are correct and pass on the runner.
 - **`bash`/`sh` ARE on the Machine PATH since 2026-06-12** (`C:\Program
   Files\Git\bin`, added by `bootstrap.ps1` step 2b; `usr\bin` deliberately NOT —
   its Unix `find`/`sort` risk shadowing Windows'). Sessions started before the
@@ -79,3 +94,16 @@
   so they stay `?`/boxes in conhost; only **Windows Terminal** (`wt`, falls
   back to Segoe UI Symbol) renders the full set. Takes effect in NEW console
   windows only — a running session keeps the old codepage/font.
+- **Keep PowerShell scripts ASCII-only — PS 5.1 + no-BOM = mojibake → PARSE error
+  (found session 28):** Windows PowerShell 5.1 reads a `-File` script that has NO
+  byte-order mark via the ANSI/OEM codepage (CP1252/CP850 here), so every non-ASCII byte
+  is mis-decoded. The Edit/Write tools save UTF-8 **without** a BOM (and strip any existing
+  one on the next edit), so an em-dash (`—`, U+2014) or arrow (`←`, U+2190) inside a string
+  literal mojibakes (e.g. `—` → `â€"`) and breaks the PS 5.1 **parser** ("Unexpected
+  token") — not just the display. pwsh 7 and `[scriptblock]::Create(...)` parse the same
+  bytes fine, so a **pwsh-only syntax check will NOT catch it**. This bit
+  `tools/smoke-back-nav.ps1` (it relaunches itself under PS 5.1 for the GAC-only
+  `UIAutomationClient`). Fix: keep `.ps1` files — *especially* any that relaunch under PS
+  5.1 — ASCII-only (`->` / `<-` / `-`, never `→`/`←`/`—`). A UTF-8 BOM also fixes it, but
+  the Edit tool strips it next edit, so ASCII is the durable choice. (`.cs`/`.md` are
+  unaffected — Roslyn and the markdown renderer read UTF-8 regardless of BOM.)
