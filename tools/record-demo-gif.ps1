@@ -66,6 +66,16 @@ $captureScript = Join-Path $PSScriptRoot 'capture-window.ps1'
 $frameDir = Join-Path $repoRoot 'artifacts\ui\gif-frames'
 $exe = Join-Path $repoRoot 'src\App\bin\Debug\net8.0-windows\GroupWeaver.App.exe'
 
+# ADR-022 persists the right-rail collapsed state to %APPDATA%\GroupWeaver\ui-state.json
+# (UiStateStore). The recorder drives the detail panel at beat 3 and only hides the rail
+# DELIBERATELY at beat 6, so it REQUIRES the rail expanded at launch - a box left with
+# RailCollapsed:true from an interactive session otherwise fails beat 3 (the detail panel
+# never renders, so the rust DL badge hunt times out). Force the expanded default before
+# launch and restore the operator's state in finally: deterministic media, no dependency
+# on whatever rail state happens to be persisted on the box.
+$uiStatePath = Join-Path $env:APPDATA 'GroupWeaver\ui-state.json'
+$script:uiStateBackup = $null
+
 # Node-hunt colors = the RENDERED dark-theme node colors, NOT the source palette
 # (src/App/Views/AdObjectKindConverters.cs / web/graph.js). In the dark theme a node
 # is a blue-gray fill with a thin kind-COLORED BORDER, so the border renders blended,
@@ -151,6 +161,19 @@ if ($gifDir -and -not (Test-Path $gifDir)) { New-Item -ItemType Directory -Force
 # Launch WITHOUT --demo and UIA-click "Demo mode" OFF CAMERA (no frame captured
 # before the root picker - the idle connect card renders the live operator
 # identity). The script NEVER invokes "Connect to domain" - demo data only.
+# Force the ADR-022 rail expanded (see note above) - back up the operator's state, then
+# write the UiState.Default (rail 340 px, expanded). Restored in finally.
+if (Test-Path $uiStatePath) { $script:uiStateBackup = [System.IO.File]::ReadAllBytes($uiStatePath) }
+New-Item -ItemType Directory -Force (Split-Path -Parent $uiStatePath) | Out-Null
+$expandedState = @'
+{
+  "RailWidth": 340,
+  "RailCollapsed": false
+}
+'@
+[System.IO.File]::WriteAllText($uiStatePath, $expandedState, (New-Object System.Text.UTF8Encoding $false))
+Log 'reset ui-state.json -> rail expanded (operator state restored on exit)'
+
 Log 'Launching GroupWeaver (no args - demo chosen via UIA, off camera)...'
 $app = Start-Process -FilePath $exe -PassThru
 
@@ -310,6 +333,21 @@ finally {
         Log 'Closing the app...'
         [void]$app.CloseMainWindow()
         if (-not $app.WaitForExit(5000)) { $app.Kill() }
+    }
+    # Restore the operator's pre-recording rail state (ADR-022 ui-state.json): write the
+    # backed-up bytes back, or remove the file we created if there was none. Best-effort
+    # (mirrors UiStateStore's never-throw contract): a failed restore must not mask a real
+    # recording error propagating out of the try.
+    try {
+        if ($null -ne $script:uiStateBackup) {
+            [System.IO.File]::WriteAllBytes($uiStatePath, $script:uiStateBackup)
+        }
+        elseif (Test-Path $uiStatePath) {
+            Remove-Item $uiStatePath -Force
+        }
+    }
+    catch {
+        Log "WARN: could not restore ui-state.json ($($_.Exception.Message)) - left at the expanded default"
     }
 }
 
