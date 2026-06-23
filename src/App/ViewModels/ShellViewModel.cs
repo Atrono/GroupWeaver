@@ -45,6 +45,15 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <see cref="WorkspaceViewModel.ApplyRulesetAsync"/>.</summary>
     private EffectiveRuleset? _ruleset;
 
+    /// <summary>The one window-scoped graph-surface coordinator (#122 / ADR-025): built in
+    /// <c>MainWindow.OnOpened</c> over the hidden parking <c>Panel</c> and pushed in via
+    /// <see cref="UseGraphSurfaceCoordinator"/> (mirroring the <see cref="WorkspaceViewModel"/>
+    /// export-dialog seam). The shell uses it to PARK the Back-target step's live graph surface
+    /// BEFORE a forward swap reassigns <see cref="CurrentStep"/>, so the WebView2 page + viewport
+    /// survive the round-trip. <c>null</c> headless / off a window — the shell then leaves the
+    /// step swap exactly as before (the ADR-024 re-render fallback).</summary>
+    private IGraphSurfaceCoordinator? _surfaceCoordinator;
+
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
     private object _currentStep;
@@ -129,6 +138,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>Banner hyperlink: open the runtime's download page in the browser.</summary>
     [RelayCommand]
     private void OpenWebView2DownloadPage() => WebView2Runtime.OpenDownloadPage();
+
+    /// <summary>Installs the window-scoped graph-surface coordinator (#122 / ADR-025), pushed in by
+    /// <c>MainWindow.OnOpened</c> once it owns the parking <c>Panel</c> — mirroring how the export
+    /// seam is wired through the same window. With it the shell parks the Back-target surface before
+    /// a forward swap (<see cref="OnDesignPlan"/>/<see cref="OnGapAnalysis"/>); without it (headless)
+    /// the step swap stays exactly as before. Idempotent — the last writer wins.</summary>
+    public void UseGraphSurfaceCoordinator(IGraphSurfaceCoordinator coordinator) =>
+        _surfaceCoordinator = coordinator;
 
     /// <summary>
     /// The top command strip's "⚙ Settings" affordance (AP 3.3 / ADR-011 §1): builds the
