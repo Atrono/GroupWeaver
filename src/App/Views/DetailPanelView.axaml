@@ -70,7 +70,7 @@
            so the under-fill below a short panel reads as deliberate empty space, not
            a clipped/broken region. Render-only chrome on the #91 card-border token;
            touches no binding or the attribute-row realization above. -->
-      <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource CardBorderBrush}"
+      <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}"
               Margin="0,12,0,0" Height="1" />
 
     </StackPanel>

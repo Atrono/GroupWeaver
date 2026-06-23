@@ -8,7 +8,8 @@
         x:DataType="settings:SettingsViewModel"
         Title="GroupWeaver Settings"
         Width="900" Height="640"
-        MinWidth="720" MinHeight="520">
+        MinWidth="720" MinHeight="520"
+        Background="{DynamicResource PageBackgroundBrush}">
 
   <Window.Resources>
 
@@ -257,8 +258,8 @@
                      a PreviewSample TextBox, and the live-preview chip. #93: the outer card
                      chrome adopts the shared structural-neutral tokens (card border / radius /
                      padding) — inner controls + bindings untouched (soundness pins). -->
-                <Border BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
-                        Background="{StaticResource CardBackgroundBrush}"
+                <Border BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}"
+                        Background="{DynamicResource CardBackgroundBrush}"
                         CornerRadius="{StaticResource CardCornerRadius}"
                         Padding="12" Margin="0,0,0,10">
                   <StackPanel Spacing="8">

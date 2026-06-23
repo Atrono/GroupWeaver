@@ -20,10 +20,14 @@ namespace GroupWeaver.App.Views;
 /// Any change to a value here must move every mirror in lock-step; the reviewer confirms it
 /// (there is no compile-time guarantee).</para>
 ///
-/// <para><b>Dark-only today, light-ready by seam.</b> The role tokens
-/// (<see cref="PageBackgroundHex"/>, <see cref="OnDarkTextHex"/>, <see cref="OnLightTextHex"/>,
-/// <see cref="NodeLiftRingHex"/>) name the page-relative roles a future light theme would
-/// re-bind; there is no <c>ThemeVariant</c> switch now (ADR-021 D4).</para>
+/// <para><b>App-chrome light theme landed (ADR-026 D1, WP1a).</b> The page-relative chrome roles
+/// now carry a LIGHT value beside the dark one (<see cref="PageBackgroundLightHex"/>,
+/// <see cref="CardBackgroundLightHex"/>, <see cref="CardBorderLightHex"/>,
+/// <see cref="SecondaryForegroundLightHex"/>, <see cref="GhostHoverLightHex"/>), resolved by
+/// <c>ThemeVariant</c> in <c>Styles/Tokens.axaml</c>'s <c>ThemeDictionaries</c>. The kind/severity/
+/// diff FILLS stay theme-INVARIANT (all dark enough to read on a light canvas too — ADR-026 D3/D5);
+/// the GRAPH canvas itself stays dark in WP1a (WP1b re-tones it). The dark values are byte-identical
+/// to the shipped palette so every ADR-021 WCAG ratio holds.</para>
 ///
 /// <para>WCAG ratios cited below are computed against <see cref="PageBackgroundHex"/> (#1b1f27).</para>
 /// </summary>
@@ -157,6 +161,25 @@ public static class BrandTokens
     /// <summary>The graph + app page background — #1b1f27. Every WCAG ratio in this file is
     /// computed against this color.</summary>
     public const string PageBackgroundHex = "#1b1f27";
+
+    /// <summary>The LIGHT app-chrome page background — #ECEEF1 (ADR-026 D3, Frame 4). The graph
+    /// CANVAS stays dark in WP1a (WP1b re-tones it); this is the Avalonia window/page surface only.</summary>
+    public const string PageBackgroundLightHex = "#ECEEF1";
+
+    /// <summary>LIGHT card surface tint — #0A000000 (ADR-026 D3, Frame 4): translucent BLACK over
+    /// the light page, mirroring the dark theme's translucent-white-over-dark card language.</summary>
+    public const string CardBackgroundLightHex = "#0A000000";
+
+    /// <summary>LIGHT card / separator border — #1A000000 (ADR-026 D3, Frame 4).</summary>
+    public const string CardBorderLightHex = "#1A000000";
+
+    /// <summary>LIGHT secondary-neutral chrome foreground — #5A636E (ADR-026 D3, Frame 4): the
+    /// light-theme counterpart of the dark theme's #B0B5BD chrome glyph ink.</summary>
+    public const string SecondaryForegroundLightHex = "#5A636E";
+
+    /// <summary>LIGHT ghost-button hover wash — #0D000000 (ADR-026 D3, Frame 4): translucent black,
+    /// the light counterpart of the dark theme's #14FFFFFF pointer-over wash.</summary>
+    public const string GhostHoverLightHex = "#0D000000";
 
     /// <summary>White text used ON a dark fill (kind badges, Error/Added/Removed/Deny/Allow
     /// chips) — #FFFFFF.</summary>

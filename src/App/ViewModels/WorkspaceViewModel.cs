@@ -551,7 +551,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _uiStateStore.Save(new UiState(RailWidth, IsRailCollapsed));
+        // Preserve the ADR-026 theme field that ShellViewModel owns: read-modify-write the
+        // shared store so a rail change never clobbers the persisted theme back to default.
+        _uiStateStore.Save(_uiStateStore.Load() with { RailWidth = RailWidth, RailCollapsed = IsRailCollapsed });
     }
 
     /// <summary>Installs the real export save-picker seam (AP 4.1 / ADR-013 §5): the

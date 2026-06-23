@@ -6,7 +6,8 @@
         x:DataType="vm:ShellViewModel"
         Title="GroupWeaver"
         Width="1280" Height="720"
-        MinWidth="960" MinHeight="600">
+        MinWidth="960" MinHeight="600"
+        Background="{DynamicResource PageBackgroundBrush}">
 
   <!-- ADR-022 D1: full-screen is a pure view concern (no VM state). F11 toggles
        WindowState between the remembered prior state and FullScreen; Esc exits
@@ -81,6 +82,14 @@
            very strip) and shows only on the workspace step (IsWorkspaceStep), keeping the
            Connect/RootPicker strips byte-identical. -->
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <!-- ADR-026 D4: app-chrome theme toggle, LEFT of Focus so Settings stays rightmost.
+             Shown on every step (unlike Focus, which is workspace-only) — the theme is shell
+             chrome. Glyph swaps sun/moon via ShellViewModel.ThemeGlyph. -->
+        <Button Name="ThemeToggleButton" Padding="10,4"
+                Command="{Binding ToggleThemeCommand}"
+                ToolTip.Tip="Toggle light / dark theme">
+          <TextBlock Text="{Binding ThemeGlyph}" />
+        </Button>
         <Button Name="FocusModeButton" Padding="10,4"
                 IsVisible="{Binding IsWorkspaceStep}"
                 Command="{Binding ToggleFocusModeCommand}"
