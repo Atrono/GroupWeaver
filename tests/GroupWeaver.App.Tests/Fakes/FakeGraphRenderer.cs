@@ -26,8 +26,58 @@ namespace GroupWeaver.App.Tests.Fakes;
 /// </summary>
 internal sealed class FakeGraphRenderer : IGraphRenderer
 {
-    /// <summary>Default <c>null</c>; set a plain control (e.g. a Border) to test the mount.</summary>
-    public Control? View { get; set; }
+    /// <summary>Backs the OPT-IN real-surface mode (<see cref="WithRealSurface"/>): one cached
+    /// <see cref="Control"/> instance per renderer, mirroring the production renderer's single
+    /// <see cref="IGraphRenderer.View"/>. <c>null</c> in the default mode (the surface is the
+    /// settable <see cref="View"/>, which itself defaults to <c>null</c>).</summary>
+    private readonly Control? _ownRealSurface;
+
+    /// <summary>Default mode: <see cref="View"/> is a settable property defaulting to <c>null</c>
+    /// (no visual surface — the honest headless answer; the existing screenshot fixtures rely on it).
+    /// </summary>
+    public FakeGraphRenderer()
+    {
+    }
+
+    private FakeGraphRenderer(bool realSurface)
+    {
+        if (realSurface)
+        {
+            // ONE real control per renderer instance, cached for this renderer's whole life — the
+            // production-faithful invariant the back-navigation regression depends on: the SAME
+            // step VM (re-entered via Back) re-mounts the SAME cached control into a fresh view's
+            // GraphHost, which is exactly the double-parent the fix must cure (ADR — #back-nav-crash).
+            // A Border is a real, layout-participating Control (it measures/arranges), so the
+            // visual-tree conflict surfaces headless on the measure pass — unlike a null View.
+            _ownRealSurface = new Border();
+        }
+    }
+
+    /// <summary>OPT-IN factory for the step-swap regression: a renderer whose <see cref="View"/>
+    /// returns its OWN single cached real <see cref="Control"/> (a <see cref="Border"/>), mirroring
+    /// the production renderer (one surface per renderer instance, re-mounted on re-attach). Does
+    /// NOT change the default <see cref="FakeGraphRenderer"/> behavior — the default ctor still
+    /// yields <see cref="View"/> == <c>null</c>, which the screenshot fixtures and other suites
+    /// depend on (a null View leaves the GraphHost placeholder in place).</summary>
+    public static FakeGraphRenderer WithRealSurface() => new(realSurface: true);
+
+    /// <summary>The renderer's mountable surface. In the default mode this is a settable property
+    /// defaulting to <c>null</c> (set a plain control — e.g. a Border — to test a mount manually).
+    /// In the OPT-IN <see cref="WithRealSurface"/> mode this returns the renderer's single cached
+    /// real control and the setter is inert (the cached surface is the contract under test).</summary>
+    public Control? View
+    {
+        get => _ownRealSurface ?? _settableView;
+        set
+        {
+            if (_ownRealSurface is null)
+            {
+                _settableView = value;
+            }
+        }
+    }
+
+    private Control? _settableView;
 
     /// <summary>Every model received by <see cref="ShowGraphAsync"/>, in call order.</summary>
     public List<GraphModel> ShownGraphs { get; } = [];
