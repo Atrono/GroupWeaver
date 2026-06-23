@@ -45,6 +45,22 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <see cref="WorkspaceViewModel.ApplyRulesetAsync"/>.</summary>
     private EffectiveRuleset? _ruleset;
 
+    /// <summary>The one window-scoped graph-surface coordinator (#122 / ADR-025): built in
+    /// <c>MainWindow.OnOpened</c> over the hidden parking <c>Panel</c> and pushed in via
+    /// <see cref="UseGraphSurfaceCoordinator"/> (mirroring the <see cref="WorkspaceViewModel"/>
+    /// export-dialog seam). The shell uses it to PARK the Back-target step's live graph surface
+    /// BEFORE a forward swap reassigns <see cref="CurrentStep"/>, so the WebView2 page + viewport
+    /// survive the round-trip. <c>null</c> headless / off a window — the shell then leaves the
+    /// step swap exactly as before (the ADR-024 re-render fallback).</summary>
+    private IGraphSurfaceCoordinator? _surfaceCoordinator;
+
+    /// <summary>The Plan step currently authored over the active workspace (#122 reclaim): set in
+    /// <see cref="OnDesignPlan"/>, cleared when the Plan is abandoned (Back to Workspace) or
+    /// superseded (a fresh Design-plan). Kept so <see cref="OnDesignPlan"/> can dispose a stale
+    /// predecessor — bounding the live WebViews to ≤ Workspace + current Plan (+ a transient Gap).
+    /// <c>null</c> when no plan is live.</summary>
+    private PlanViewModel? _currentPlan;
+
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
     private object _currentStep;
@@ -129,6 +145,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>Banner hyperlink: open the runtime's download page in the browser.</summary>
     [RelayCommand]
     private void OpenWebView2DownloadPage() => WebView2Runtime.OpenDownloadPage();
+
+    /// <summary>Installs the window-scoped graph-surface coordinator (#122 / ADR-025), pushed in by
+    /// <c>MainWindow.OnOpened</c> once it owns the parking <c>Panel</c> — mirroring how the export
+    /// seam is wired through the same window. With it the shell parks the Back-target surface before
+    /// a forward swap (<see cref="OnDesignPlan"/>/<see cref="OnGapAnalysis"/>); without it (headless)
+    /// the step swap stays exactly as before. Idempotent — the last writer wins.</summary>
+    public void UseGraphSurfaceCoordinator(IGraphSurfaceCoordinator coordinator) =>
+        _surfaceCoordinator = coordinator;
 
     /// <summary>
     /// The top command strip's "⚙ Settings" affordance (AP 3.3 / ADR-011 §1): builds the
@@ -260,23 +284,53 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <see cref="PlanViewModel"/> seeded EMPTY at <paramref name="current"/>'s root DN (the
     /// empty-start default), carrying the live ruleset and the same renderer factory (the plan
     /// builds its OWN renderer instance). Back returns the SAME <paramref name="current"/>
-    /// instance — never disposed on the switch, so the Ist load, viewport and selection survive.
-    /// Both steps are tracked and disposed only at shell teardown.
+    /// instance — never disposed on the switch, so the Ist load, viewport and selection survive;
+    /// the abandoned Plan is disposed + untracked on Back (#122 reclaim) so its WebView is freed (a
+    /// fresh Plan is built on re-entry). The workspace is tracked and disposed at shell teardown.
     /// </summary>
     public void OnDesignPlan(WorkspaceViewModel current)
     {
+        // #122 reclaim: a previously-authored Plan for this workspace (if Back-to-Workspace did not
+        // already dispose it) is superseded by this fresh one — dispose + untrack it so its WebView
+        // is freed and the live count stays bounded. Idempotent if already gone.
+        if (_currentPlan is { } stale)
+        {
+            DisposeAndUntrack(stale);
+            _currentPlan = null;
+        }
+
         var effective = _ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, []);
-        var plan = new PlanViewModel(
+        PlanViewModel? plan = null;
+        plan = new PlanViewModel(
             current.RootDn,
             effective,
             _graphRendererFactory,
             WebView2Missing,
-            onBackToExplore: () => CurrentStep = current);
+            // Back to Workspace abandons the Plan (#122): a fresh PlanViewModel is always made on
+            // re-entry, so dispose + untrack this one to free its WebView. The workspace surface was
+            // parked below before this swap, so its re-mount preserves the viewport.
+            onBackToExplore: () =>
+            {
+                CurrentStep = current;
+                if (plan is not null)
+                {
+                    DisposeAndUntrack(plan);
+                }
+
+                _currentPlan = null;
+            });
         // Arm the plan's "Gap analysis" button (ADR-015 / #66) — exactly like the workspace's
         // Design-plan callback is installed in OnRootChosen, so the PlanView button is live once
         // Plan mode is reached. The BaseOuDn == RootDn + snapshot-null gate lives in OnGapAnalysis.
         plan.UseGapAnalysisCallback(() => OnGapAnalysis(plan, current));
         Track(plan);
+        _currentPlan = plan;
+
+        // #122 (ADR-025): PARK the workspace surface we will Back INTO — SYNCHRONOUSLY, BEFORE the
+        // CurrentStep reassignment below detaches the leaving workspace view. This ordering is the
+        // single load-bearing invariant: if the swap detached first, the view's detach guard would
+        // release (un-root) the live surface and reproduce the negative-control page-death.
+        ParkSurface(current.GraphRenderer);
         CurrentStep = plan;
     }
 
@@ -286,8 +340,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <see cref="WorkspaceViewModel.Snapshot"/>) against <paramref name="plan"/>'s
     /// <see cref="PlanViewModel.Plan"/>, at the workspace root, carrying the same renderer factory
     /// (the gap builds its OWN renderer instance). Back returns the SAME <paramref name="plan"/>
-    /// instance — never disposed on the switch, so the authored model survives. The gap step is
-    /// tracked and disposed only at shell teardown (Workspace + Plan + Gap each once).
+    /// instance — never disposed on the switch, so the authored model survives; the abandoned Gap
+    /// is disposed + untracked on Back (#122 reclaim) so its WebView is freed (a fresh Gap is built
+    /// on re-entry). Survivors are disposed at shell teardown.
     ///
     /// <para>GATE (ADR-015 D7): a no-op unless the workspace has a loaded Ist whose root equals the
     /// plan's base OU. <c>BaseOuDn == RootDn</c> holds by construction (OnDesignPlan seeds the
@@ -302,14 +357,31 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var gap = new GapViewModel(
+        GapViewModel? gap = null;
+        gap = new GapViewModel(
             ist,
             plan.Plan,
             workspace.RootDn,
             _graphRendererFactory,
             WebView2Missing,
-            onBack: () => CurrentStep = plan);
+            // Back to Plan abandons the Gap (#122): a fresh GapViewModel is always made on re-entry,
+            // so dispose + untrack this one to free its WebView. The plan surface was parked below
+            // before this swap, so its re-mount preserves the viewport.
+            onBack: () =>
+            {
+                CurrentStep = plan;
+                if (gap is not null)
+                {
+                    DisposeAndUntrack(gap);
+                }
+            });
         Track(gap);
+
+        // #122 (ADR-025): PARK the plan surface we will Back INTO — SYNCHRONOUSLY, BEFORE the
+        // CurrentStep reassignment detaches the leaving plan view (same load-bearing ordering as
+        // OnDesignPlan). The workspace surface is already parked from the Design-plan hop, so the
+        // lot now legitimately holds Workspace + Plan at once.
+        ParkSurface(plan.GraphRenderer);
         CurrentStep = gap;
 
         // Fire-and-forget compute + push (it awaits renderer-ready internally, so the GapView mount
@@ -327,11 +399,34 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Parks a step's live graph surface in the hidden parking lot (#122 / ADR-025) so it
+    /// stays rooted (page + viewport alive) across the forward swap. A no-op when no coordinator is
+    /// wired (headless) or the step has no renderer surface (null factory / missing WebView2). MUST
+    /// be called BEFORE the <see cref="CurrentStep"/> reassignment that detaches the leaving view —
+    /// the single load-bearing ordering invariant.</summary>
+    private void ParkSurface(IGraphRenderer? renderer)
+    {
+        if (_surfaceCoordinator is { } coordinator && renderer?.View is { } view)
+        {
+            coordinator.Park(view);
+        }
+    }
+
+    /// <summary>Disposes a step and drops it from the teardown set (#122 reclaim): the renderer
+    /// Dispose (Slice 1) frees the WebView, so abandoned Gap/superseded-Plan surfaces do not
+    /// accumulate. Idempotent — a step's <c>Dispose</c> is idempotent and a not-tracked step is
+    /// silently skipped on removal.</summary>
+    private void DisposeAndUntrack(IDisposable step)
+    {
+        _disposableSteps.Remove(step);
+        step.Dispose();
+    }
+
     /// <summary>
-    /// Disposes EVERY disposable step the shell created (AP 4.2.2 dispose discipline): both the
-    /// workspace and any plan step — the Ist↔Plan switch never disposes the step it leaves, so
-    /// teardown is the sole tear-down point. Each step's <c>Dispose</c> is idempotent (cancels
-    /// its in-flight load/render). Idempotent overall.
+    /// Disposes the surviving disposable steps (AP 4.2.2 dispose discipline): the workspace and any
+    /// still-live plan/gap step. Abandoned plan/gap steps were already disposed + untracked on Back
+    /// (#122 reclaim), so this tears down only what is still tracked. Each step's <c>Dispose</c> is
+    /// idempotent (cancels its in-flight load/render, then disposes its renderer). Idempotent overall.
     /// </summary>
     public void Dispose()
     {

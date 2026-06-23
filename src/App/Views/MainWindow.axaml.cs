@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 
 using GroupWeaver.App.Export;
+using GroupWeaver.App.Graph;
 using GroupWeaver.App.ViewModels;
 
 namespace GroupWeaver.App.Views;
@@ -22,6 +23,13 @@ public sealed partial class MainWindow : Window
     /// Without this the AP 4.1 export commands ship permanently disabled (the seam was never
     /// wired in production).</summary>
     private IExportFileDialogs? _exportDialogs;
+
+    /// <summary>The ONE window-scoped graph-surface coordinator (#122 / ADR-025): built once in
+    /// <see cref="OnOpened"/> over the hidden <c>ParkingLot</c> Panel and pushed — exactly like
+    /// <see cref="_exportDialogs"/> — into the shell and each graph-bearing <c>CurrentStep</c> (via
+    /// <see cref="WireGraphSurface"/>). It lets the shell park a Back-target surface before a
+    /// forward swap and the returning view re-mount the live control, preserving the viewport.</summary>
+    private IGraphSurfaceCoordinator? _surfaceCoordinator;
 
     /// <summary>The shell whose <c>CurrentStep</c> changes are watched, kept so the subscription
     /// is torn down in <see cref="OnClosed"/> (no leak).</summary>
@@ -131,15 +139,22 @@ public sealed partial class MainWindow : Window
         _exportDialogs = new StorageProviderExportFileDialogs(topLevel);
         _wiredShell = shell;
 
+        // #122 (ADR-025): build the ONE graph-surface coordinator over the hidden parking Panel
+        // and push it into the shell (which parks the Back-target surface before a forward swap).
+        _surfaceCoordinator = new GraphSurfaceCoordinator(ParkingLot);
+        shell.UseGraphSurfaceCoordinator(_surfaceCoordinator);
+
         // Arm whatever step is current right now…
         WireExport(shell.CurrentStep);
+        WireGraphSurface(shell.CurrentStep);
 
-        // …and re-arm each new exportable step (a workspace, or a Plan step entered later).
+        // …and re-arm each new step (a workspace, or a Plan/Gap step entered later).
         _currentStepChanged = (_, args) =>
         {
             if (args.PropertyName == nameof(ShellViewModel.CurrentStep))
             {
                 WireExport(shell.CurrentStep);
+                WireGraphSurface(shell.CurrentStep);
             }
         };
         shell.PropertyChanged += _currentStepChanged;
@@ -161,6 +176,31 @@ public sealed partial class MainWindow : Window
                 break;
             case PlanViewModel plan:
                 plan.UseExportFileDialogs(_exportDialogs);
+                break;
+        }
+    }
+
+    /// <summary>Pushes the one graph-surface coordinator into the current step if it hosts the graph
+    /// (Workspace/Plan/Gap), mirroring <see cref="WireExport"/> (#122 / ADR-025). A no-op before the
+    /// coordinator exists or for a graph-less step. The view's mount path then reads the coordinator
+    /// to re-mount a parked live surface (preserving the viewport) instead of the direct mount.</summary>
+    private void WireGraphSurface(object? step)
+    {
+        if (_surfaceCoordinator is null)
+        {
+            return;
+        }
+
+        switch (step)
+        {
+            case WorkspaceViewModel workspace:
+                workspace.UseGraphSurfaceCoordinator(_surfaceCoordinator);
+                break;
+            case PlanViewModel plan:
+                plan.UseGraphSurfaceCoordinator(_surfaceCoordinator);
+                break;
+            case GapViewModel gap:
+                gap.UseGraphSurfaceCoordinator(_surfaceCoordinator);
                 break;
         }
     }

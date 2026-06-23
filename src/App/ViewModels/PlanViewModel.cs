@@ -186,6 +186,12 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     /// WebView2 Runtime is missing — <see cref="RevalidateAsync"/> then skips the push.</summary>
     public IGraphRenderer? GraphRenderer { get; }
 
+    /// <summary>The window-scoped graph-surface coordinator (#122 / ADR-025), pushed in by
+    /// <c>MainWindow</c> via <see cref="UseGraphSurfaceCoordinator"/> (mirroring the export seam).
+    /// The view uses it to MOUNT the live graph surface (preserving a parked viewport); <c>null</c>
+    /// headless / off a window — the view then keeps today's direct GraphHost mount.</summary>
+    public IGraphSurfaceCoordinator? GraphSurfaceCoordinator { get; private set; }
+
     /// <summary>The last projected snapshot; <c>null</c> until the first revalidate.</summary>
     public DirectorySnapshot? Snapshot { get; private set; }
 
@@ -276,6 +282,13 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         _exportDialogs = dialogs;
         ExportPlanScriptCommand.NotifyCanExecuteChanged();
     }
+
+    /// <summary>Installs the window-scoped graph-surface coordinator (#122 / ADR-025): pushed in by
+    /// <c>MainWindow</c> through the <c>CurrentStep</c> watcher, exactly like
+    /// <see cref="UseExportFileDialogs"/>. The view's mount path reads
+    /// <see cref="GraphSurfaceCoordinator"/>; idempotent — the last writer wins.</summary>
+    public void UseGraphSurfaceCoordinator(IGraphSurfaceCoordinator coordinator) =>
+        GraphSurfaceCoordinator = coordinator;
 
     /// <summary>
     /// Exports the authored plan as an inert PowerShell script to a user-picked path
@@ -681,8 +694,11 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         or AdObjectKind.UniversalGroup
         or AdObjectKind.External;
 
-    /// <summary>Cancels any in-flight revalidate render; idempotent. The shell disposes
-    /// this step at teardown (never on the Ist↔Plan switch — the step you leave survives).</summary>
+    /// <summary>Cancels any in-flight revalidate render, then disposes the renderer (#122 — tears
+    /// down its WebView, retiring the ADR-024 never-disposed leak); idempotent. The CTS is cancelled
+    /// FIRST so the renderer's own-cancellation guards see an already-cancelled command token. The
+    /// shell disposes this step at teardown — and now also on the abandon paths (Back to Workspace
+    /// abandons the Plan), so the bound live WebViews stay ≤ Workspace + current Plan (#122 Slice 5).</summary>
     public void Dispose()
     {
         if (IsDisposed)
@@ -693,5 +709,6 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
         IsDisposed = true;
         _cts.Cancel();
         _cts.Dispose();
+        GraphRenderer?.Dispose();
     }
 }

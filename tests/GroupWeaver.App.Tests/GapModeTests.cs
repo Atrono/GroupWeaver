@@ -611,5 +611,11 @@ public sealed class GapModeTests
             add { }
             remove { }
         }
+
+        // #122: IGraphRenderer is now IDisposable — minimal no-op to keep this compile-only
+        // fake compiling (no surface to tear down).
+        public void Dispose()
+        {
+        }
     }
 }

@@ -15,7 +15,19 @@ public sealed partial class GapView : UserControl
         // WebView2 Runtime, headless fakes) the XAML placeholder stays in place.
         DataContextChanged += (_, _) =>
         {
-            if (DataContext is GapViewModel { GraphRenderer.View: { } rendererView })
+            if (DataContext is not GapViewModel { GraphRenderer.View: { } rendererView } vm)
+            {
+                return;
+            }
+
+            // #122 (ADR-025): MOUNT through the coordinator when wired (atomic reparent, preserves
+            // a parked-and-alive viewport); else keep today's direct mount with the stale-parent
+            // guard. See WorkspaceView for the full rationale.
+            if (vm.GraphSurfaceCoordinator is { } coordinator)
+            {
+                coordinator.Mount(rendererView, GraphHost);
+            }
+            else
             {
                 // The renderer's single control may still be parented to the GraphHost of a
                 // discarded previous view: each step VM owns one renderer, and Back re-enters
@@ -31,9 +43,18 @@ public sealed partial class GapView : UserControl
             }
         };
 
-        // Release the shared renderer control when this view leaves the visual tree, so the
-        // next view (e.g. Back to Workspace) can mount it without a "already has a visual
-        // parent" conflict. The renderer keeps the control alive; only the parenting is freed.
-        DetachedFromVisualTree += (_, _) => GraphHost.Content = null;
+        // Release the shared renderer control on leave — but ONLY IF THE SURFACE IS STILL OUR CHILD
+        // (#122 / ADR-025): a shell-parked surface was already moved out by the coordinator, so this
+        // is a no-op for it; an abandoned / no-coordinator surface is still our child -> released
+        // (ADR-024 D1 fallback preserved). See WorkspaceView for the full rationale.
+        DetachedFromVisualTree += (_, _) =>
+        {
+            if (GraphHost.Content is Control content
+                && DataContext is GapViewModel { GraphRenderer.View: { } view }
+                && ReferenceEquals(content, view))
+            {
+                GraphHost.Content = null;
+            }
+        };
     }
 }

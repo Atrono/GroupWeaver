@@ -93,6 +93,19 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
     /// Runtime is missing — <see cref="RefreshAsync"/> then skips the push.</summary>
     public IGraphRenderer? GraphRenderer { get; }
 
+    /// <summary>The window-scoped graph-surface coordinator (#122 / ADR-025), pushed in by
+    /// <c>MainWindow</c> via <see cref="UseGraphSurfaceCoordinator"/> (mirroring the workspace/plan
+    /// export seam). The view uses it to MOUNT the live graph surface (preserving a parked
+    /// viewport); <c>null</c> headless / off a window — the view then keeps today's direct
+    /// GraphHost mount.</summary>
+    public IGraphSurfaceCoordinator? GraphSurfaceCoordinator { get; private set; }
+
+    /// <summary>Installs the window-scoped graph-surface coordinator (#122 / ADR-025): pushed in by
+    /// <c>MainWindow</c> through the <c>CurrentStep</c> watcher. The view's mount path reads
+    /// <see cref="GraphSurfaceCoordinator"/>; idempotent — the last writer wins.</summary>
+    public void UseGraphSurfaceCoordinator(IGraphSurfaceCoordinator coordinator) =>
+        GraphSurfaceCoordinator = coordinator;
+
     /// <summary>The render UNION (<see cref="SnapshotDiff.BuildUnion"/>) — set in
     /// <see cref="RefreshAsync"/> BEFORE <see cref="Report"/> so <see cref="OnReportChanged"/>
     /// resolves subject names against it (it carries both Ist + Plan names, Ist-wins).
@@ -219,9 +232,12 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Cancels any in-flight refresh render; idempotent. The shell disposes this step at
-    /// teardown. NEVER disposes nor mutates the borrowed Ist snapshot or plan (ADR-015 D3 /
-    /// ADR-005 append-only) — the shell owns their lifetime.</summary>
+    /// <summary>Cancels any in-flight refresh render, then disposes the renderer (#122 — tears down
+    /// its WebView, retiring the ADR-024 never-disposed leak); idempotent. The CTS is cancelled FIRST
+    /// so the renderer's own-cancellation guards see an already-cancelled command token. The shell
+    /// disposes this step at teardown — and now also when Gap's Back abandons it (#122 Slice 5).
+    /// NEVER disposes nor mutates the borrowed Ist snapshot or plan (ADR-015 D3 / ADR-005
+    /// append-only) — the shell owns their lifetime.</summary>
     public void Dispose()
     {
         if (IsDisposed)
@@ -232,5 +248,6 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
         IsDisposed = true;
         _cts.Cancel();
         _cts.Dispose();
+        GraphRenderer?.Dispose();
     }
 }

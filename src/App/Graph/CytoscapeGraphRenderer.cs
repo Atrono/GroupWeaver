@@ -44,6 +44,19 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private bool _navigated;
     private bool _commandInFlight;
 
+    /// <summary>Cancelled by <see cref="Dispose"/> (#122) so the lifecycle
+    /// <see cref="ReNavigateAndReplayAsync"/> probe loop — which otherwise polls on its own
+    /// timer after a re-attach — observes own-disposal and unwinds instead of running to its
+    /// 60 s deadline against a torn-down control. Caller-driven commands keep awaiting on the
+    /// CALLER's token; on dispose they unwind harmlessly because the native control is detached
+    /// and the <see cref="_disposed"/> guard turns any further dispatch/RaiseError into a quiet
+    /// no-op (so a faulted in-flight command can neither crash nor leak the WebView).</summary>
+    private readonly CancellationTokenSource _disposeCts = new();
+
+    /// <summary>True once <see cref="Dispose"/> ran (#122): the <see cref="View"/> getter then
+    /// returns the existing control (or <c>null</c>) and NEVER recreates the torn-down WebView.</summary>
+    private bool _disposed;
+
     /// <summary>The chunk commands of the most recent successful base render (show/update/
     /// diff) — replayed after a re-attach, when Avalonia recreates the native control blank
     /// (<see cref="CreateWebView"/>). Transient camera/selection ops (focus/select/busy) are
@@ -51,8 +64,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private IReadOnlyList<string>? _lastRenderChunks;
 
     /// <summary>The WebView, created on first access (single instance for the
-    /// renderer's lifetime). Must be accessed on the UI thread.</summary>
-    public Control? View => _webView ??= CreateWebView();
+    /// renderer's lifetime). Must be accessed on the UI thread. After <see cref="Dispose"/>
+    /// (#122) it returns the existing control (or <c>null</c> if one was never created) and
+    /// NEVER recreates the torn-down WebView.</summary>
+    public Control? View => _disposed ? _webView : _webView ??= CreateWebView();
 
     public event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
@@ -434,8 +449,9 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         IReadOnlyList<string> commands, CancellationToken cancellationToken)
     {
         // Defensive: a ready confirmation always implies a live _webView, but a re-attach
-        // race could in principle null it between checks. Bail quietly rather than NRE.
-        if (_webView is null)
+        // race could in principle null it between checks. Bail quietly rather than NRE. A
+        // disposed renderer (#122) has torn the WebView down — also bail.
+        if (_disposed || _webView is null)
         {
             return;
         }
@@ -466,11 +482,20 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// <see cref="FocusDto"/>). An empty <c>Id</c> => clearSelection JS-side.</summary>
     private sealed record SelectDto(string Type, string Id);
 
+    // The exact handler delegates wired in CreateWebView/HardenWebView, kept as fields so
+    // Dispose (#122) can unsubscribe them from the NativeWebView before tearing it down — the
+    // anonymous lambdas could not otherwise be detached. UI-thread-only, like every other field.
+    private EventHandler<WebMessageReceivedEventArgs>? _onWebMessage;
+    private EventHandler<Avalonia.VisualTreeAttachmentEventArgs>? _onAttachedToTree;
+    private EventHandler<Avalonia.VisualTreeAttachmentEventArgs>? _onDetachedFromTree;
+    private EventHandler<WebViewEnvironmentRequestedEventArgs>? _onEnvironmentRequested;
+    private EventHandler<WebViewNewWindowRequestedEventArgs>? _onNewWindowRequested;
+
     private NativeWebView CreateWebView()
     {
         var webView = new NativeWebView();
-        webView.WebMessageReceived += (_, e) => OnWebMessageReceived(e.Body ?? string.Empty);
-        webView.AttachedToVisualTree += (_, _) => OnAttached(webView);
+        _onWebMessage = (_, e) => OnWebMessageReceived(e.Body ?? string.Empty);
+        _onAttachedToTree = (_, _) => OnAttached(webView);
 
         // On detach Avalonia destroys the native WebView2 child and recreates it BLANK on
         // re-attach (NativeControlHost). The old page (and its "ready") is gone, so reset the
@@ -478,8 +503,12 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         // ready (raised by the re-navigated page) instead of resuming on a stale-completed one.
         // All access is UI-thread (this handler, View creation, command resumes), so the plain
         // field swap is safe.
-        webView.DetachedFromVisualTree += (_, _) =>
+        _onDetachedFromTree = (_, _) =>
             _ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        webView.WebMessageReceived += _onWebMessage;
+        webView.AttachedToVisualTree += _onAttachedToTree;
+        webView.DetachedFromVisualTree += _onDetachedFromTree;
 
         HardenWebView(webView);
         return webView;
@@ -514,8 +543,16 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// </summary>
     private async Task ReNavigateAndReplayAsync(NativeWebView webView)
     {
+        // #122: this lifecycle recovery runs on the own-disposal token (not CancellationToken.None),
+        // so a Dispose mid-replay cancels the probe loop + dispatch instead of running the full 60 s.
+        var cancellationToken = _disposeCts.Token;
         try
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             var indexUri = new Uri(Path.Combine(AppContext.BaseDirectory, "web", "index.html"));
             webView.Navigate(indexUri);
 
@@ -561,13 +598,18 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                     return;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(150));
+                await Task.Delay(TimeSpan.FromMilliseconds(150), cancellationToken);
             }
 
             var loaded = _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await DispatchAsync(chunks, CancellationToken.None);
+            await DispatchAsync(chunks, cancellationToken);
             await AwaitConfirmationAsync(
-                loaded.Task, "graph replay never completed (60 s)", CancellationToken.None);
+                loaded.Task, "graph replay never completed (60 s)", cancellationToken);
+        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
+            // Own-Dispose cancellation (#122): the replay was abandoned because the renderer is
+            // being torn down — nothing to surface.
         }
         catch (Exception ex)
         {
@@ -601,8 +643,12 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// </summary>
     private void HardenWebView(NativeWebView webView)
     {
-        webView.EnvironmentRequested += (_, e) => e.EnableDevTools = false;
-        webView.NewWindowRequested += (_, e) => e.Handled = true;
+        // Kept as fields so Dispose (#122) can unsubscribe them (NavigationStarted is a method
+        // group, detachable directly); same UI-thread-only contract as the CreateWebView handlers.
+        _onEnvironmentRequested = (_, e) => e.EnableDevTools = false;
+        _onNewWindowRequested = (_, e) => e.Handled = true;
+        webView.EnvironmentRequested += _onEnvironmentRequested;
+        webView.NewWindowRequested += _onNewWindowRequested;
         webView.NavigationStarted += OnNavigationStarted;
     }
 
@@ -702,9 +748,15 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
     /// <summary>ShowGraphAsync continuations already resume on the UI thread (the VM
     /// awaits on the dispatcher context), but the event contract is "always UI thread"
-    /// — marshal defensively.</summary>
+    /// — marshal defensively. A disposed renderer (#122) raises nothing — the VM that
+    /// owned the error surface is being torn down.</summary>
     private void RaiseError(string source, string message)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         if (Dispatcher.UIThread.CheckAccess())
         {
             RendererError?.Invoke(this, new GraphErrorEventArgs(source, message));
@@ -714,5 +766,73 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             Dispatcher.UIThread.Post(
                 () => RendererError?.Invoke(this, new GraphErrorEventArgs(source, message)));
         }
+    }
+
+    /// <summary>
+    /// Tears the renderer down (#122, retires the ADR-024 never-disposed leak): cancels any
+    /// in-flight command + the re-attach replay loop via <see cref="_disposeCts"/> (the existing
+    /// never-throw command paths special-case own-cancellation), unsubscribes every handler wired
+    /// in <see cref="CreateWebView"/>/<see cref="HardenWebView"/>, and detaches the single
+    /// <see cref="NativeWebView"/> from its current host so its native WebView2 child is destroyed
+    /// (NativeControlHost frees the child on detach — ADR-024). <see cref="NativeWebView"/> exposes
+    /// no <c>Dispose()</c>; the detach IS the native teardown. Idempotent. After this the
+    /// <see cref="View"/> getter returns the existing control (or <c>null</c>) and NEVER recreates
+    /// it. UI-thread-only, like every other member (the owning VM's Dispose runs on the UI thread).
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _disposeCts.Cancel();
+
+        if (_webView is { } webView)
+        {
+            // Unsubscribe the exact delegates wired at creation.
+            if (_onWebMessage is not null)
+            {
+                webView.WebMessageReceived -= _onWebMessage;
+            }
+
+            if (_onAttachedToTree is not null)
+            {
+                webView.AttachedToVisualTree -= _onAttachedToTree;
+            }
+
+            if (_onDetachedFromTree is not null)
+            {
+                webView.DetachedFromVisualTree -= _onDetachedFromTree;
+            }
+
+            if (_onEnvironmentRequested is not null)
+            {
+                webView.EnvironmentRequested -= _onEnvironmentRequested;
+            }
+
+            if (_onNewWindowRequested is not null)
+            {
+                webView.NewWindowRequested -= _onNewWindowRequested;
+            }
+
+            webView.NavigationStarted -= OnNavigationStarted;
+
+            // Detach from whatever host still parents it (a GraphHost ContentControl, the parking
+            // Panel, or nothing) so NativeControlHost destroys the native WebView2 child. The
+            // owning VM is gone, so this surface must leave the tree to stop painting + free the HWND.
+            switch (webView.Parent)
+            {
+                case ContentControl host when ReferenceEquals(host.Content, webView):
+                    host.Content = null;
+                    break;
+                case Panel panel:
+                    panel.Children.Remove(webView);
+                    break;
+            }
+        }
+
+        _disposeCts.Dispose();
     }
 }

@@ -279,6 +279,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// null or the WebView2 Runtime is missing — the view then keeps its placeholder.</summary>
     public IGraphRenderer? GraphRenderer { get; }
 
+    /// <summary>The window-scoped graph-surface coordinator (#122 / ADR-025), pushed in by
+    /// <c>MainWindow</c> via <see cref="UseGraphSurfaceCoordinator"/> (mirroring the export seam).
+    /// The view uses it to MOUNT the live graph surface (preserving a parked viewport); <c>null</c>
+    /// headless / off a window — the view then keeps today's direct GraphHost mount.</summary>
+    public IGraphSurfaceCoordinator? GraphSurfaceCoordinator { get; private set; }
+
     /// <summary>The loaded scope; <c>null</c> until the load completed (AP 2.3/2.5 seam).</summary>
     public DirectorySnapshot? Snapshot { get; private set; }
 
@@ -561,6 +567,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         ExportReportHtmlCommand.NotifyCanExecuteChanged();
         ExportGraphImageCommand.NotifyCanExecuteChanged();
     }
+
+    /// <summary>Installs the window-scoped graph-surface coordinator (#122 / ADR-025): pushed in by
+    /// <c>MainWindow</c> through the <c>CurrentStep</c> watcher, exactly like
+    /// <see cref="UseExportFileDialogs"/>. The view's mount path reads
+    /// <see cref="GraphSurfaceCoordinator"/>; idempotent — the last writer wins.</summary>
+    public void UseGraphSurfaceCoordinator(IGraphSurfaceCoordinator coordinator) =>
+        GraphSurfaceCoordinator = coordinator;
 
     /// <summary>
     /// Exports the current <see cref="Report"/> as RFC-4180 CSV to a user-picked path
@@ -936,7 +949,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Cancels an in-flight scope load or expand fetch; idempotent.</summary>
+    /// <summary>Cancels an in-flight scope load or expand fetch, then disposes the renderer
+    /// (#122 — tears down its WebView, retiring the ADR-024 never-disposed leak); idempotent.
+    /// The CTS is cancelled FIRST so the renderer's own-cancellation guards see an already-
+    /// cancelled command token.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -947,5 +963,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         _disposed = true;
         _cts.Cancel();
         _cts.Dispose();
+        GraphRenderer?.Dispose();
     }
 }
