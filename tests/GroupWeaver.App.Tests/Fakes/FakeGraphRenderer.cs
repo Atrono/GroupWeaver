@@ -295,10 +295,16 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     public void RaiseRendererError(string source, string message) =>
         RendererError?.Invoke(this, new GraphErrorEventArgs(source, message));
 
+    /// <summary><c>true</c> once <see cref="Dispose"/> has run (#122 abandon-reclaim assertions):
+    /// the shell disposes an abandoned Gap / superseded Plan step, whose <c>Dispose</c> disposes
+    /// its renderer — this flag lets the parking-lot tests prove that reclaim actually tore the
+    /// renderer down (freeing its WebView in production). Default-mode and <see cref="WithRealSurface"/>
+    /// behavior is otherwise unchanged; <see cref="View"/> is intentionally left intact after dispose
+    /// (the tests inspect the surface's parent/tree state post-reclaim).</summary>
+    public bool Disposed { get; private set; }
+
     /// <summary>Satisfies the #122 <see cref="IGraphRenderer"/> : <see cref="IDisposable"/>
-    /// contract. Minimal here (no WebView to tear down); richer dispose-tracking assertions are
-    /// the test-engineer's to add.</summary>
-    public void Dispose()
-    {
-    }
+    /// contract. No WebView to tear down here; sets the observable <see cref="Disposed"/> flag
+    /// (idempotent) so the abandon-reclaim path is assertable. Leaves <see cref="View"/> intact.</summary>
+    public void Dispose() => Disposed = true;
 }
