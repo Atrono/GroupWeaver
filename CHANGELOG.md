@@ -4,6 +4,22 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-23
+
+Back-navigation polish. Returning from Plan or Gap mode to the previous graph now
+preserves the exact viewport (zoom/pan) instead of reloading and re-fitting. Still
+read-only by construction.
+
+### Fixed
+- **Viewport-preserving Back** — pressing Back from Plan (to the workspace) or from
+  Gap (to Plan) used to reload the graph and re-fit it (a brief flash, viewport
+  lost). It now restores the live view at the exact zoom and pan you left: the graph
+  surface is kept alive in a hidden, always-attached host and moved back into place
+  rather than re-rendered (ADR-025). The re-render path remains as the fallback.
+- **Renderer disposal** — a Plan/Gap graph surface is now disposed deterministically
+  when abandoned, retiring a long-standing never-disposed-renderer leak; live WebView
+  surfaces stay bounded.
+
 ## [0.3.0] - 2026-06-23
 
 Third feature release — graph **navigation and presentation**. It makes the graph
@@ -161,6 +177,7 @@ of AGDLP — resource ACLs) are permanently out of scope.
 - Read-only by construction: there is no code path that writes to Active
   Directory anywhere in the product.
 
+[0.3.1]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.3.0
 [0.2.1]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Atrono/GroupWeaver/releases/tag/v0.2

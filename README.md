@@ -37,14 +37,14 @@ operations of any kind. It runs in the logged-on user's security context
 
 ## Status
 
-**v0.3.0 is the latest public release** — it adds in-graph navigation (find any
-node by name or DN, zoom / fit / all-labels controls) and a distraction-free
-**focus mode** with full-screen and an adjustable, collapsible panel rail, on top
-of the v0.2 feature set (plan mode, gap analysis, export) and the v0.2.1 polish
-pass (crafted motion, selection feedback, WCAG 2.2 AA). It also fixes a
-back-navigation crash and hardens the naming-rule preview (see the
-[project plan](PLANNING.md), German; architecture decisions in
-[docs/adr/](docs/adr/)). GroupWeaver offers:
+**v0.3.1 is the latest public release** — Back navigation between graph steps now
+preserves the viewport (zoom / pan) with no reload flash, on top of v0.3.0's
+in-graph navigation (find any node by name or DN, zoom / fit / all-labels controls)
+and a distraction-free **focus mode** with full-screen and an adjustable,
+collapsible panel rail. These ride on the v0.2 feature set (plan mode, gap analysis,
+export) and the v0.2.1 polish pass (crafted motion, selection feedback, WCAG 2.2 AA);
+see the [project plan](PLANNING.md), German; architecture decisions in
+[docs/adr/](docs/adr/). GroupWeaver offers:
 
 **Explore the live structure**
 
@@ -135,10 +135,10 @@ provenance attestation. There is no code-signing certificate (see the SmartScree
 note above); instead, verify integrity and origin yourself — two commands.
 
 **1. Check the SHA256 hash** against the value in the release notes / the
-`GroupWeaver-0.3.0-win-x64.zip.sha256` sidecar:
+`GroupWeaver-0.3.1-win-x64.zip.sha256` sidecar:
 
 ```powershell
-Get-FileHash .\GroupWeaver-0.3.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\GroupWeaver-0.3.1-win-x64.zip -Algorithm SHA256
 ```
 
 **2. Verify build provenance** with the [GitHub CLI](https://cli.github.com/) —
@@ -146,7 +146,7 @@ this cryptographically confirms the `.zip` was built by this repository's releas
 workflow on GitHub's runners, not repackaged by someone else:
 
 ```powershell
-gh attestation verify .\GroupWeaver-0.3.0-win-x64.zip --repo Atrono/GroupWeaver
+gh attestation verify .\GroupWeaver-0.3.1-win-x64.zip --repo Atrono/GroupWeaver
 ```
 
 A passing check prints the matched attestation and the workflow that produced it.
