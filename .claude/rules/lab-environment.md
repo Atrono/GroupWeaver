@@ -20,19 +20,25 @@
   (RDP/server/VM) — see `spikes/GraphSpike/RESULTS-software-rendering.md`. This bullet
   is about PERF / rendering mode ONLY — it is NOT the cause of the local view-test
   failures below (the driver is currently PRESENT; the box has not been rebuilt).
-- **`build.ps1` shows ~12 FAILING App view-realization tests LOCALLY — green on CI,
-  NOT a regression, NOT the GPU (found session 28, tracked in #124):** the full local
-  suite reports ~12 failures in `GroupWeaver.App.Tests` (`TypographyTests`,
-  `DetailPanelViewTests`, `WorkspaceLoadTests`, `ViolationsSidebarViewTests`,
-  `SidebarExportButtonsViewTests`, …), all `Assert.True`/`Assert.Single` over
-  `IsEffectivelyVisible` / realized visual children (`Collection: []`). They are GREEN
-  on CI (App N/N, `Skipped: 0`, none filtered). Session 26 wrongly blamed an absent GPU
-  driver — but `Get-CimInstance Win32_VideoController` shows the Intel UHD 620 driver
-  (31.0.101.2141) PRESENT/OK, so it is NOT the Basic-Display-Adapter state above; it is a
-  local-only Avalonia.Headless realization quirk (root cause TBD in **#124**). The local
-  count reconciles as the CI-shared tests + the 6 `Category=RequiresAd` App tests that run
-  locally against the live DC (CI excludes those). **Rely on CI as the gate; NEVER "fix"
-  these by editing the tests** — they are correct and pass on the runner.
+- **RESOLVED (#124, session 29): the ~12 local-only App view-test failures were a
+  test-isolation bug, NOT a GPU/headless quirk.** History: ~12 `GroupWeaver.App.Tests`
+  view-realization tests (`TypographyTests`, `DetailPanelViewTests`, `WorkspaceLoadTests`,
+  `ViolationsSidebarViewTests`, `SidebarExportButtonsViewTests`) failed LOCALLY (all
+  `Assert.*` over `IsEffectivelyVisible` / realized children seeing `Collection: []`) while
+  green on CI. Session 26 blamed an absent GPU driver (wrong — driver was PRESENT); session
+  28 called it an unexplained Avalonia.Headless quirk (also wrong). **Real root cause** (found
+  via an instrumented headless probe): those tests built the real `WorkspaceViewModel` WITHOUT
+  injecting a `UiStateStore`, so its ctor defaulted to `new UiStateStore()` and read the real
+  `%APPDATA%\GroupWeaver\ui-state.json`. This box had `RailCollapsed:true` persisted (from
+  interactive use / the demo-GIF recorder), so the ADR-022 right rail collapsed to width 0 →
+  `DetailPanelRegion`/sidebar got Bounds 0x0, `IsEffectivelyVisible=false`, zero realized
+  children → the text assertions saw `[]`. CI is a fresh machine (no ui-state.json) → `Load()`
+  returns `UiState.Default` (rail expanded) → green. **Fix:** inject a fresh
+  `Directory.CreateTempSubdirectory(...)`-backed `UiStateStore` into each affected test's VM
+  helper (the established idiom from `ParkingLotBackNavigationTests`/`ShellScreenshotTests`/
+  `WorkspaceRailStateTests`) — hermetic, never touches real `%APPDATA%`. **General lesson:**
+  any App test that constructs a VM reading user-profile state (`UiStateStore`, `RulesetLocator`)
+  MUST inject a temp-dir seam — a green CI run can still hide a dev-box-polluting read.
 - **`bash`/`sh` ARE on the Machine PATH since 2026-06-12** (`C:\Program
   Files\Git\bin`, added by `bootstrap.ps1` step 2b; `usr\bin` deliberately NOT —
   its Unix `find`/`sort` risk shadowing Windows'). Sessions started before the

@@ -145,7 +145,10 @@ public sealed class ViolationsSidebarViewTests
 
     /// <summary>Workspace VM rooted at <see cref="RootDn"/> (AP 2.2 S6 ctor shape), null
     /// ruleset => the embedded default (the 19-finding-baseline contract; here it yields the
-    /// two empty-group findings of the stub scope).</summary>
+    /// two empty-group findings of the stub scope). Fresh temp-dir UiStateStore (#124 /
+    /// ADR-022 D4): never touches the real %APPDATA% ui-state.json, so a persisted
+    /// RailCollapsed:true cannot collapse the right rail and starve the sidebar realization
+    /// this file asserts over.</summary>
     private static WorkspaceViewModel Workspace(
         StubDirectoryProvider provider, Func<IGraphRenderer> rendererFactory) =>
         new(
@@ -153,7 +156,9 @@ public sealed class ViolationsSidebarViewTests
             Obj("Lab", RootDn, AdObjectKind.OrganizationalUnit),
             new DirectoryConnection("stub directory", 5),
             webView2Missing: false,
-            rendererFactory);
+            rendererFactory,
+            uiStateStore: new GroupWeaver.App.Settings.UiStateStore(
+                System.IO.Directory.CreateTempSubdirectory("groupweaver-violsidebar-uistate-").FullName));
 
     /// <summary>The full workspace view in a sized, shown headless window (bindings live,
     /// the sidebar realized) — the DetailPanelViewTests hosting idiom.</summary>
