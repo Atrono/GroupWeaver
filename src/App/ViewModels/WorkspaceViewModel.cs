@@ -50,6 +50,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportReportHtmlCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportGraphImageCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AuditCommand))]
     private bool _isLoading;
 
     /// <summary>Inline load/renderer error; <c>null</c> hides the error block.</summary>
@@ -150,6 +151,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// mode. <c>null</c> until installed — the command then stays disarmed
     /// (<see cref="CanToggleFocus"/>), so a headless/renderer-less workspace never half-toggles.</summary>
     private Action? _onToggleFocus;
+
+    /// <summary>The WP5 "Audit" callback (#152): the shell installs it via
+    /// <see cref="UseAuditCallback"/> at <c>OnRootChosen</c> (mirroring
+    /// <see cref="UseDesignPlanCallback"/>), so the header button can switch into the audit step.
+    /// <c>null</c> until installed — the command then stays disarmed (<see cref="CanAudit"/>),
+    /// keeping every pre-WP5 test on the default.</summary>
+    private Action? _onAudit;
 
     /// <summary>The ADR-022 D4 rail-state store; seeds <see cref="RailWidth"/>/
     /// <see cref="IsRailCollapsed"/> at construction and is written on each change. Best-effort —
@@ -510,6 +518,24 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     {
         _onToggleFocus = toggle;
         ToggleFocusCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>The WP5 "Audit" header button (#152): switches the shell into the audit step
+    /// via the installed callback. Armed iff the callback is installed AND a load has completed
+    /// (<c>Snapshot is not null</c> — the audit summary is computed over the loaded scope); a
+    /// stale-armed Execute with no callback is a silent no-op.</summary>
+    [RelayCommand(CanExecute = nameof(CanAudit))]
+    private void Audit() => _onAudit?.Invoke();
+
+    private bool CanAudit() => _onAudit is not null && Snapshot is not null;
+
+    /// <summary>Installs the shell's audit-step switch callback (WP5 / #152) and re-arms
+    /// <see cref="AuditCommand"/>. Called by the shell when this workspace becomes the current
+    /// step; mirrors <see cref="UseDesignPlanCallback"/>.</summary>
+    public void UseAuditCallback(Action onAudit)
+    {
+        _onAudit = onAudit;
+        AuditCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Toggles the rail collapsed state (ADR-022 D3 — <c>Ctrl+B</c> / the seam chevron).

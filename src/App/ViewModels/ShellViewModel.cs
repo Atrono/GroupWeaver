@@ -238,6 +238,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             await plan.ApplyRulesetAsync(ruleset);
         }
+        else if (CurrentStep is AuditViewModel audit)
+        {
+            // WP5 / #152: recompute the audit step's report + summary against the flipped ruleset
+            // (sync, pure). The full re-thread-the-parked-workspace-too refinement is WP5e.
+            audit.ApplyRuleset(ruleset);
+        }
     }
 
     /// <summary>ADR-022 D2: flips focus mode and propagates the new state to the active workspace
@@ -320,11 +326,17 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     };
 
     /// <summary>Applies <see cref="IsLightTheme"/> to <c>Application.Current.RequestedThemeVariant</c>
-    /// (Light ⇒ <see cref="Avalonia.Styling.ThemeVariant.Light"/>, else Dark). A no-op when no app is
-    /// running (some headless theories) — the bound <see cref="IsLightTheme"/> still reflects state.</summary>
+    /// (Light ⇒ <see cref="Avalonia.Styling.ThemeVariant.Light"/>, else Dark). A no-op under two
+    /// guards: (1) no app is running (some headless theories), and (2) the caller is NOT on the
+    /// Avalonia UI thread — <c>RequestedThemeVariant</c> is a UI-thread-affine setter that throws
+    /// "Call from invalid thread" off-thread. In production both the ctor (during
+    /// <c>OnFrameworkInitializationCompleted</c>) and <c>ToggleTheme</c> run on the UI thread, so the
+    /// apply still happens; off-thread (tests, any non-UI caller) it safely skips the global setter
+    /// while the bound <see cref="IsLightTheme"/> still reflects the persisted choice. Synchronous
+    /// skip — never dispatched (that would reorder startup).</summary>
     private void ApplyThemeVariant()
     {
-        if (Application.Current is { } app)
+        if (Application.Current is { } app && Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
         {
             app.RequestedThemeVariant = IsLightTheme
                 ? Avalonia.Styling.ThemeVariant.Light
@@ -363,6 +375,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // Arm the workspace "Focus" button (ADR-022 D2) — dead until armed, exactly like the
         // Design-plan callback, so a renderer-less/headless workspace never half-toggles.
         workspace.UseFocusToggleCallback(() => ToggleFocusMode());
+        // Arm the workspace "Audit" button (WP5 / #152) — same install idiom as Design-plan; the
+        // snapshot-null gate lives in OnAudit (and the command's own CanAudit).
+        workspace.UseAuditCallback(() => OnAudit(workspace));
         Track(workspace);
         CurrentStep = workspace;
     }
@@ -475,6 +490,56 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // Fire-and-forget compute + push (it awaits renderer-ready internally, so the GapView mount
         // race is handled) — mirrors the workspace/plan observable-compute hand-off.
         _ = gap.RefreshAsync();
+    }
+
+    /// <summary>
+    /// The Workspace→Audit switch (WP5 / #152): makes <see cref="CurrentStep"/> a fresh
+    /// <see cref="AuditViewModel"/> that rolls up <paramref name="current"/>'s already-loaded Ist
+    /// <see cref="WorkspaceViewModel.Snapshot"/> + <see cref="WorkspaceViewModel.Report"/> against
+    /// the effective ruleset, at the workspace root. Back returns the SAME <paramref name="current"/>
+    /// instance — never disposed on the switch, so the Ist load, viewport and selection survive; the
+    /// abandoned Audit is disposed + untracked on Back. The Audit step owns NO renderer of its own
+    /// (table view, v1) — there is nothing to build and no airspace conflict.
+    ///
+    /// <para>GATE: a no-op unless the workspace has a loaded Ist (the summary is meaningful only
+    /// against a loaded snapshot) — mirrors <see cref="OnGapAnalysis"/>'s snapshot-null arm.</para>
+    /// </summary>
+    public void OnAudit(WorkspaceViewModel current)
+    {
+        if (current.Snapshot is not { } ist)
+        {
+            return;
+        }
+
+        // The Ruleset behind the live evaluation (kept in sync by OnRulesetApplied); a null cached
+        // ruleset resolves to the embedded default — same resolution OnDesignPlan uses.
+        var effective = _ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, []);
+
+        AuditViewModel? audit = null;
+        audit = new AuditViewModel(
+            ist,
+            current.Report,
+            effective.Ruleset,
+            current.RootDn,
+            // Back to Workspace abandons the Audit: dispose + untrack this one (it owns no renderer,
+            // so this only flips IsDisposed and drops it from the tracked set). The workspace surface
+            // was parked below before this swap, so its re-mount preserves the viewport.
+            onBack: () =>
+            {
+                CurrentStep = current;
+                if (audit is not null)
+                {
+                    DisposeAndUntrack(audit);
+                }
+            });
+        Track(audit);
+
+        // #122 (ADR-025): PARK the workspace surface we will Back INTO — SYNCHRONOUSLY, BEFORE the
+        // CurrentStep reassignment detaches the leaving workspace view (the same load-bearing
+        // ordering as OnDesignPlan/OnGapAnalysis). The Audit step has no surface of its own, so it
+        // never parks anything — Back must restore the live workspace viewport.
+        ParkSurface(current.GraphRenderer);
+        CurrentStep = audit;
     }
 
     /// <summary>Records a created step for teardown disposal (AP 4.2.2 dispose discipline),
