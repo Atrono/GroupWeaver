@@ -1,61 +1,210 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
+             xmlns:views="using:GroupWeaver.App.Views"
              x:Class="GroupWeaver.App.Views.AuditView"
              x:DataType="vm:AuditViewModel">
 
-  <!-- Audit step (WP5 / #152): a TABLE view (v1) — it owns NO graph renderer, so there is no
-       GraphHost airspace region here at all (unlike Workspace/Plan/Gap). This WP5b slice is a
-       minimal-but-real placeholder binding the live AuditSummary numbers; the rich health ring /
-       tiles / table land in WP5c-f. Theme-aware via DynamicResource tokens (both variants). -->
+  <!-- Audit step (WP5 / #152): the audit dashboard. WP5c (#154) fleshes the WP5b placeholder out
+       into the real health band — a band-coded health RING + a four-tile count row across the top,
+       a categories pane below. It owns NO graph renderer (no GraphHost airspace region, unlike
+       Workspace/Plan/Gap). The findings TABLE is WP5d; bulk triage + status filters are WP5e.
+       Theme-aware via DynamicResource tokens (both variants); all text >= 4.5:1 on the card surface
+       in both themes (the colored accents/dots are the non-text channel, WCAG 1.4.1). -->
   <Border Padding="24" Background="{DynamicResource PageBackgroundBrush}">
-    <Grid RowDefinitions="Auto,Auto,*,Auto" MaxWidth="640" HorizontalAlignment="Left">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
 
       <!-- 1. Header: "Audit · {RootDn}". -->
       <TextBlock Grid.Row="0" Text="{Binding Title}" Classes="heading" />
 
-      <!-- 2. Health band placeholder: the score + qualitative band on a card. -->
-      <Border Grid.Row="1" Margin="0,16,0,0" Padding="16"
+      <!-- 2. Health band: the score RING (left) + the four count tiles (right). -->
+      <Grid Grid.Row="1" Margin="0,16,0,0" ColumnDefinitions="Auto,*" ColumnSpacing="16">
+
+        <!-- Health ring card. The ring is a ConicGradientBrush filled to RingFraction (= Score/100)
+             with a band-coded hue; the inner disc punches the card surface back through, leaving a
+             donut. The meaning is the always-present "{Score} / 100" + band TEXT (WCAG 1.4.1 — the
+             ring colour is a redundant emphasis cue, never the sole channel). The whole control
+             carries an AutomationProperties.Name restating score + band for screen readers. -->
+        <Border Grid.Column="0" Padding="20" VerticalAlignment="Top"
+                Background="{DynamicResource CardBackgroundBrush}"
+                BorderBrush="{DynamicResource CardBorderBrush}"
+                BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}"
+                AutomationProperties.Name="{Binding HealthAutomationName}">
+          <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+
+            <!-- The ring: a 96x96 conic-filled disc with a 70x70 inner disc cut back to the card
+                 surface; the score/band text sits on the inner disc. Two stop pairs share the
+                 RingFraction offset to give a hard fill edge (band hue 0..frac, track frac..1). -->
+            <Panel Width="96" Height="96">
+              <Ellipse Width="96" Height="96">
+                <Ellipse.Fill>
+                  <ConicGradientBrush>
+                    <GradientStop Offset="0"
+                                  Color="{Binding Band, Converter={x:Static views:SeverityConverters.BandToRingColor}}" />
+                    <GradientStop Offset="{Binding RingFraction}"
+                                  Color="{Binding Band, Converter={x:Static views:SeverityConverters.BandToRingColor}}" />
+                    <GradientStop Offset="{Binding RingFraction}" Color="#33808080" />
+                    <GradientStop Offset="1" Color="#33808080" />
+                  </ConicGradientBrush>
+                </Ellipse.Fill>
+              </Ellipse>
+              <!-- Inner disc: paints the card surface back over the ring centre (donut hole) and
+                   hosts the score text. -->
+              <Border Width="70" Height="70" CornerRadius="35"
+                      Background="{DynamicResource CardBackgroundBrush}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="-2">
+                <TextBlock Name="ScoreText" Text="{Binding Score}"
+                           FontSize="26" FontWeight="Bold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="/ 100" Classes="caption"
+                           HorizontalAlignment="Center" />
+              </StackPanel>
+            </Panel>
+
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="Directory health" Classes="subheading" />
+              <TextBlock Name="BandText" Text="{Binding Band}"
+                         FontSize="18" FontWeight="SemiBold" />
+            </StackPanel>
+
+          </StackPanel>
+        </Border>
+
+        <!-- Four count tiles. Each: the big count + a label + a colored accent (left-border + dot)
+             from the severity palette. The count + label use the NORMAL card foreground (theme
+             default / SecondaryForegroundBrush) on the card surface — both clear 4.5:1 in BOTH
+             themes; the colour lives only in the accent border/dot (the non-text channel). -->
+        <UniformGrid Grid.Column="1" Columns="4" VerticalAlignment="Top">
+
+          <!-- Critical (Error red). -->
+          <Border Margin="0,0,12,0" Padding="14,12"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{x:Static views:BrandTokens.Error}"
+                  BorderThickness="3,0,0,0" CornerRadius="{StaticResource CardCornerRadius}">
+            <StackPanel Spacing="3">
+              <TextBlock Name="CriticalCount" Text="{Binding Critical}"
+                         FontSize="26" FontWeight="Bold" />
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{x:Static views:BrandTokens.Error}" />
+                <TextBlock Text="Critical" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- Warnings (Warning amber) + an Info sub-affordance (muted chip). -->
+          <Border Margin="0,0,12,0" Padding="14,12"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{x:Static views:BrandTokens.Warning}"
+                  BorderThickness="3,0,0,0" CornerRadius="{StaticResource CardCornerRadius}">
+            <StackPanel Spacing="3">
+              <TextBlock Name="WarningsCount" Text="{Binding Warnings}"
+                         FontSize="26" FontWeight="Bold" />
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{x:Static views:BrandTokens.Warning}" />
+                <TextBlock Text="Warnings" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" />
+              </StackPanel>
+              <!-- Info as a muted sub-count on the Warnings tile (honest: Info is not part of
+                   Critical/Warnings — it is the lowest severity). -->
+              <TextBlock Name="InfoSub" Classes="caption"
+                         Text="{Binding Info, StringFormat='+ {0} info'}" />
+            </StackPanel>
+          </Border>
+
+          <!-- Passing (success green — NamingOk, deliberately outside the severity palette). -->
+          <Border Margin="0,0,12,0" Padding="14,12"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{x:Static views:BrandTokens.NamingOk}"
+                  BorderThickness="3,0,0,0" CornerRadius="{StaticResource CardCornerRadius}">
+            <StackPanel Spacing="3">
+              <TextBlock Name="PassingCount" Text="{Binding Passing}"
+                         FontSize="26" FontWeight="Bold" />
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{x:Static views:BrandTokens.NamingOk}" />
+                <TextBlock Text="Passing" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- Rule classes (neutral — the card-border colour, no severity hue). -->
+          <Border Padding="14,12"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{DynamicResource CardBorderBrush}"
+                  BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
+            <StackPanel Spacing="3">
+              <TextBlock Name="RuleClassesCount" Text="{Binding RuleClasses}"
+                         FontSize="26" FontWeight="Bold" />
+              <TextBlock Text="Rule classes" FontSize="12" FontWeight="SemiBold"
+                         Foreground="{DynamicResource SecondaryForegroundBrush}" />
+            </StackPanel>
+          </Border>
+
+        </UniformGrid>
+      </Grid>
+
+      <!-- 3. Categories pane: the rule classes that produced findings (canonical rule order),
+           each a row of dot + class name + count. Read-only for now (click-to-filter is WP5d/e).
+           The unchecked caveat sits below the list inside the same card. -->
+      <Border Grid.Row="2" Margin="0,16,0,0" Padding="16"
               Background="{DynamicResource CardBackgroundBrush}"
               BorderBrush="{DynamicResource CardBorderBrush}"
-              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
-        <StackPanel Spacing="6">
-          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-            <TextBlock Name="ScoreText" Text="{Binding Score}"
-                       FontSize="40" FontWeight="Bold" />
-            <TextBlock Text="/ 100" FontSize="16" Opacity="0.6" VerticalAlignment="Bottom"
-                       Margin="0,0,0,6" />
-            <TextBlock Name="BandText" Text="{Binding Band}"
-                       FontSize="16" FontWeight="SemiBold" VerticalAlignment="Bottom"
-                       Margin="8,0,0,8" />
-          </StackPanel>
+              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}"
+              VerticalAlignment="Top">
+        <Grid RowDefinitions="Auto,Auto,Auto">
 
-          <!-- The four counts as plain text (WP5c replaces these with the tile grid). -->
-          <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,4,0,0">
-            <TextBlock>
-              <Run Text="Critical:" FontWeight="SemiBold" />
-              <Run Name="CriticalRun" Text="{Binding Critical}" />
-            </TextBlock>
-            <TextBlock>
-              <Run Text="Warnings:" FontWeight="SemiBold" />
-              <Run Name="WarningsRun" Text="{Binding Warnings}" />
-            </TextBlock>
-            <TextBlock>
-              <Run Text="Passing:" FontWeight="SemiBold" />
-              <Run Name="PassingRun" Text="{Binding Passing}" />
-            </TextBlock>
-            <TextBlock>
-              <Run Text="Rule classes:" FontWeight="SemiBold" />
-              <Run Name="RuleClassesRun" Text="{Binding RuleClasses}" />
-            </TextBlock>
-          </StackPanel>
-        </StackPanel>
+          <TextBlock Grid.Row="0" Text="Rule classes" Classes="eyebrow" Margin="0,0,0,8" />
+
+          <!-- The category rows. Each: a max-severity dot (colour, non-text channel) + the class
+               display name + its count. The name + count use the normal foreground on the card
+               surface (>= 4.5:1, both themes). -->
+          <ItemsControl Grid.Row="1" Name="CategoriesList"
+                        ItemsSource="{Binding Categories}"
+                        IsVisible="{Binding HasCategories}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AuditCategoryRow">
+                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,2" Height="32">
+                  <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center"
+                           Margin="2,0,10,0"
+                           Fill="{Binding MaxSeverity, Converter={x:Static views:SeverityConverters.ToBrush}}" />
+                  <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
+                             VerticalAlignment="Center" FontSize="13" />
+                  <TextBlock Grid.Column="2" Text="{Binding Count}" Classes="dn"
+                             VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- All-clear: no class produced a finding. -->
+          <TextBlock Grid.Row="1" Text="No rule violations found."
+                     IsVisible="{Binding !HasCategories}"
+                     Classes="secondary" TextWrapping="Wrap" />
+
+          <!-- Unchecked caveat (gated on UncheckedPresent): the SAME honest treatment as the rail —
+               a tinted info block with a plain-text info glyph — so the score never implies a clean
+               bill over unexpanded subtrees. -->
+          <Border Grid.Row="2" Margin="0,12,0,0"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{DynamicResource CardBorderBrush}"
+                  BorderThickness="1" CornerRadius="6" Padding="8,6"
+                  IsVisible="{Binding UncheckedPresent}">
+            <Grid ColumnDefinitions="Auto,*">
+              <TextBlock Grid.Column="0" Text="&#x2139;" Classes="secondary"
+                         VerticalAlignment="Top" Margin="0,0,8,0" />
+              <TextBlock Grid.Column="1"
+                         Text="Unexpanded areas are unchecked — the score covers checked objects only."
+                         Classes="secondary" TextWrapping="Wrap" />
+            </Grid>
+          </Border>
+
+        </Grid>
       </Border>
-
-      <!-- 3. Reserved for the WP5c-f rich health ring / tiles / table. -->
-      <TextBlock Grid.Row="2" Margin="0,16,0,0"
-                 Text="The detailed audit table arrives in a later slice."
-                 Classes="secondary" TextWrapping="Wrap" VerticalAlignment="Top" />
 
       <!-- 4. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
       <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
