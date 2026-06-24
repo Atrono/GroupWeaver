@@ -239,7 +239,12 @@
            ShowInGraphCommand (v1 has no in-audit renderer); "Table" is the always-active in-audit
            pane (pressed style). Theme-aware via DynamicResource; severity colour is the redundant
            glyph+colour channel (SeverityConverters), all text >= 4.5:1 on the card surface both themes. -->
-      <Border Grid.Row="3" Margin="0,16,0,0" Padding="16"
+      <!-- Two-pane split (WP5f / #160): the findings TABLE card on the left, the selected finding's
+           DETAIL pane on the right. The detail is driven by the table's ListBox SelectedItem (the
+           single ACTIVE finding) — DISTINCT from the multi-select triage checkboxes. -->
+      <Grid Grid.Row="3" Margin="0,16,0,0" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+
+      <Border Grid.Column="0" Padding="16"
               Background="{DynamicResource CardBackgroundBrush}"
               BorderBrush="{DynamicResource CardBorderBrush}"
               BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
@@ -366,6 +371,7 @@
           <ListBox Grid.Row="3" Name="FindingsList"
                    Background="Transparent"
                    ItemsSource="{Binding Findings}"
+                   SelectedItem="{Binding SelectedFinding, Mode=TwoWay}"
                    IsVisible="{Binding HasFindings}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:AuditFindingRowModel">
@@ -449,6 +455,123 @@
 
         </Grid>
       </Border>
+
+      <!-- Detail pane (WP5f / #160): the read-only detail of the ListBox-SELECTED finding. Header
+           (rule class + severity glyph + object name/DN), "What's wrong" (message + plain restatement),
+           "Why it matters" + numbered "How to fix" (static per-rule-class copy), and a COPY-ONLY
+           PowerShell remediation snippet with a PROMINENT preview-only banner. The snippet is INERT
+           TEXT — the Copy button writes it to the clipboard; the app NEVER executes it (no Process.Start,
+           no shell, no AD call). Theme-aware via DynamicResource; the code block uses FontFamilyMono on
+           the page surface (the documented WCAG reference bg) with the theme default foreground
+           (~15:1 dark / ~13:1 light — well above 4.5:1). -->
+      <Border Grid.Column="1" Width="380" Padding="16"
+              Background="{DynamicResource CardBackgroundBrush}"
+              BorderBrush="{DynamicResource CardBorderBrush}"
+              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
+
+        <!-- Empty state: nothing selected. -->
+        <Panel>
+          <StackPanel IsVisible="{Binding !HasDetail}" VerticalAlignment="Top" Spacing="6">
+            <TextBlock Text="Finding detail" Classes="eyebrow" />
+            <TextBlock Text="Select a finding from the table to see what is wrong, why it matters, how to fix it, and a copy-only PowerShell remediation snippet."
+                       Classes="secondary" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <!-- Populated detail. -->
+          <ScrollViewer IsVisible="{Binding HasDetail}"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="14" DataContext="{Binding Detail}"
+                        x:CompileBindings="True" x:DataType="vm:AuditFindingDetail">
+
+              <!-- Header: rule-class label + severity glyph + object name + DN. -->
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Border Width="20" Height="20" CornerRadius="3" VerticalAlignment="Center"
+                          Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                    <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                               Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                               FontSize="12" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <TextBlock Text="{Binding RuleClassLabel}" Classes="eyebrow" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="{Binding ObjectName}" Classes="heading" TextWrapping="Wrap" />
+                <SelectableTextBlock Text="{Binding PrimaryDn}" Classes="dn" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <!-- What's wrong: the engine message + a plain restatement. -->
+              <StackPanel Spacing="4">
+                <TextBlock Text="WHAT'S WRONG" Classes="eyebrow" />
+                <TextBlock Text="{Binding Message}" Classes="body" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding PlainRestatement}" Classes="secondary" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <!-- Why it matters: the per-rule-class rationale. -->
+              <StackPanel Spacing="4">
+                <TextBlock Text="WHY IT MATTERS" Classes="eyebrow" />
+                <TextBlock Text="{Binding WhyItMatters}" Classes="body" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <!-- How to fix: the per-rule-class numbered steps. -->
+              <StackPanel Spacing="4">
+                <TextBlock Text="HOW TO FIX" Classes="eyebrow" />
+                <ItemsControl ItemsSource="{Binding HowToFix}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <TextBlock Text="{Binding}" Classes="body" TextWrapping="Wrap" Margin="0,1" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <!-- Remediation snippet: copy-only PowerShell text. -->
+              <StackPanel Spacing="6">
+                <TextBlock Text="REMEDIATION (COPY ONLY)" Classes="eyebrow" />
+
+                <!-- PROMINENT preview-only banner: an Info-tinted block restating the read-only
+                     invariant. The dark OnLightText ink on the Info-soft fill clears 4.5:1 (the same
+                     WCAG-proven pairing the Info badges use). -->
+                <Border Background="{x:Static views:BrandTokens.Info}"
+                        CornerRadius="6" Padding="10,8">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="&#x2139;" FontWeight="Bold" VerticalAlignment="Top"
+                               Foreground="{x:Static views:BrandTokens.OnLightText}" />
+                    <TextBlock TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{x:Static views:BrandTokens.OnLightText}"
+                               Text="Preview only — GroupWeaver never changes Active Directory. Review and run this in your own shell." />
+                  </StackPanel>
+                </Border>
+
+                <!-- The snippet, mono on the page surface (the WCAG reference bg). Selectable so the
+                     operator can also hand-pick lines; the Copy button copies the whole snippet. -->
+                <Border Background="{DynamicResource PageBackgroundBrush}"
+                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                        CornerRadius="6" Padding="10,8">
+                  <SelectableTextBlock Text="{Binding Snippet}"
+                                       FontFamily="{StaticResource FontFamilyMono}"
+                                       FontSize="12" TextWrapping="Wrap" />
+                </Border>
+
+                <!-- Copy button (clipboard-only; never executes the snippet) + the transient "Copied"
+                     affordance. The Click is handled in code-behind: it writes Detail.Snippet to the
+                     system clipboard via TopLevel.Clipboard and nothing else. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <Button Name="CopySnippetButton" Content="Copy"
+                          Click="OnCopySnippetClick"
+                          ToolTip.Tip="Copy this snippet to the clipboard (it is never run by GroupWeaver)" />
+                  <TextBlock Text="Copied to clipboard"
+                             Classes="secondary" VerticalAlignment="Center"
+                             IsVisible="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SnippetCopied}" />
+                </StackPanel>
+              </StackPanel>
+
+            </StackPanel>
+          </ScrollViewer>
+        </Panel>
+      </Border>
+
+      </Grid>
 
       <!-- 5. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
       <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">

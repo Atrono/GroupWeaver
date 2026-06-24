@@ -54,23 +54,27 @@ public sealed partial class AuditFindingRowModel : ObservableObject
 {
     public AuditFindingRowModel(
         int reportOrder,
-        RuleSeverity severity,
-        string message,
+        RuleViolation violation,
         string objectName,
         string ruleClass,
-        string primaryDn,
-        string ruleId,
         TriageStatus status)
     {
         ReportOrder = reportOrder;
-        Severity = severity;
-        Message = message;
+        Violation = violation;
+        Severity = violation.Severity;
+        Message = violation.Message;
         ObjectName = objectName;
         RuleClass = ruleClass;
-        PrimaryDn = primaryDn;
-        RuleId = ruleId;
+        PrimaryDn = violation.PrimaryDn;
+        RuleId = violation.RuleId;
         Status = status;
     }
+
+    /// <summary>The underlying would-be <see cref="RuleViolation"/> this row projects (WP5f / #160).
+    /// Carried (not bound) so the detail pane can read the FULL <see cref="RuleViolation.Dns"/> set —
+    /// the row's <see cref="PrimaryDn"/> is only <c>Dns[0]</c>, but the nesting/circular remediation
+    /// snippets need every endpoint. Structured fields only — never an arbitrary AD attribute.</summary>
+    public RuleViolation Violation { get; }
 
     /// <summary>The 0-based rank of this row in the canonical <see cref="RuleReport.Violations"/>
     /// order (assigned at projection). The <see cref="AuditSortColumn.None"/> ordering and the
@@ -263,6 +267,30 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _selectedCount;
 
+    /// <summary>The ONE finding whose detail pane is shown (WP5f / #160): the findings ListBox's
+    /// <c>SelectedItem</c> — the single ACTIVE row. This is DISTINCT from the multi-select triage
+    /// checkboxes (<see cref="AuditFindingRowModel.IsSelected"/>): selecting a row for detail must
+    /// NOT toggle any checkbox, and toggling a checkbox must not change this. <c>null</c> = nothing
+    /// selected (the detail pane shows its empty-state hint). The view binds the ListBox
+    /// <c>SelectedItem</c> two-way to this; <see cref="OnSelectedFindingChanged"/> re-projects
+    /// <see cref="Detail"/>.</summary>
+    [ObservableProperty]
+    private AuditFindingRowModel? _selectedFinding;
+
+    /// <summary>The read-only detail projection (header / what / why / how + the copy-only snippet) of
+    /// <see cref="SelectedFinding"/>, or <c>null</c> when nothing is selected (WP5f / #160). Re-derived
+    /// purely from the selected row's <see cref="AuditFindingRowModel.Violation"/> + resolved name — no
+    /// AD, no arbitrary attributes; the snippet is INERT TEXT (never executed).</summary>
+    [ObservableProperty]
+    private AuditFindingDetail? _detail;
+
+    /// <summary>The transient "Copied" affordance (WP5f / #160): the view sets it via
+    /// <see cref="MarkSnippetCopied"/> after it writes the snippet to the CLIPBOARD (the only side
+    /// effect — never an execution), and clears it when the active finding changes. Drives the Copy
+    /// button's "Copied" caption swap. View-driven so the VM stays clipboard-free.</summary>
+    [ObservableProperty]
+    private bool _snippetCopied;
+
     /// <summary>True when at least one finding is selected — gates the selection bar's visibility.</summary>
     public bool HasSelection => SelectedCount > 0;
 
@@ -342,6 +370,30 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(AllSelected));
     }
 
+    /// <summary>True when a finding is selected for detail — gates the detail pane against its
+    /// empty-state hint (WP5f / #160).</summary>
+    public bool HasDetail => Detail is not null;
+
+    /// <summary>Re-projects <see cref="Detail"/> when the active (detail) row changes (WP5f / #160).
+    /// Pure: derives the detail from the selected row's borrowed <see cref="AuditFindingRowModel.Violation"/>
+    /// — no AD, no provider, no mutation. Independent of the triage checkboxes. Also clears the transient
+    /// "Copied" affordance so it never lingers onto the next finding.</summary>
+    partial void OnSelectedFindingChanged(AuditFindingRowModel? value)
+    {
+        SnippetCopied = false;
+        Detail = value is null
+            ? null
+            : AuditFindingDetail.From(value.Violation, value.ObjectName, value.RuleClass);
+    }
+
+    /// <summary>Re-gates the detail-pane visibility whenever the projection swaps.</summary>
+    partial void OnDetailChanged(AuditFindingDetail? value) => OnPropertyChanged(nameof(HasDetail));
+
+    /// <summary>The view calls this AFTER it has written the snippet to the clipboard (WP5f / #160):
+    /// flips the transient "Copied" affordance. The VM never touches the clipboard itself and NEVER
+    /// executes the snippet — copying is a pure clipboard write the view owns.</summary>
+    public void MarkSnippetCopied() => SnippetCopied = true;
+
     /// <summary>A header click re-orders the live <see cref="Findings"/> collection in place.</summary>
     partial void OnSortColumnChanged(AuditSortColumn value) => ApplySort();
 
@@ -416,18 +468,18 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
             };
             var row = new AuditFindingRowModel(
                 reportOrder++,
-                violation.Severity,
-                violation.Message,
+                violation,
                 name,
                 ruleClass,
-                violation.PrimaryDn,
-                violation.RuleId,
                 status);
             row.PropertyChanged += OnFindingPropertyChanged;
             Findings.Add(row);
         }
 
         SelectedCount = 0;
+        // A re-thread rebuilds the rows, so the prior detail selection no longer points at a live row;
+        // clear it (the detail pane returns to its empty state). WP5f / #160.
+        SelectedFinding = null;
         OnPropertyChanged(nameof(HasFindings));
         OnPropertyChanged(nameof(AllSelected));
         ApplySort();
