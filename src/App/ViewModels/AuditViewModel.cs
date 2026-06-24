@@ -18,24 +18,49 @@ namespace GroupWeaver.App.ViewModels;
 /// </summary>
 public sealed record AuditCategoryRow(string RuleId, string DisplayName, int Count, RuleSeverity MaxSeverity);
 
+/// <summary>The triage state of one audit finding (WP5e / ADR-028): <see cref="Open"/> = a live
+/// finding, <see cref="Acknowledged"/>/<see cref="Suppressed"/> = covered by an equal-strength
+/// tagged global-ignore entry (so it is OUT of the live report — health rises, graph/sidebar go
+/// quiet — but still listed in the audit "would-be" table for reversibility). The two triaged
+/// states differ only by the entry's note tag (a human annotation of intent), never by engine
+/// strength.</summary>
+public enum TriageStatus
+{
+    /// <summary>A live finding — no triage ignore entry covers it.</summary>
+    Open,
+
+    /// <summary>Covered by an <c>[ack]</c>-tagged ignore entry ("seen, accepted").</summary>
+    Acknowledged,
+
+    /// <summary>Covered by a <c>[suppress]</c>-tagged ignore entry ("intentionally hidden").</summary>
+    Suppressed,
+}
+
 /// <summary>
-/// One findings-table row (WP5d / #156): the projection of a <see cref="RuleViolation"/> the
-/// <see cref="Views.AuditView"/> table binds. The display fields are immutable; only
-/// <see cref="IsSelected"/> mutates (the multi-select checkbox the WP5e bulk Ack/Suppress will
-/// consume — this slice only collects the selection, it does NOT act on it).
+/// One findings-table row (WP5d / #156, WP5e status): the projection of a would-be
+/// <see cref="RuleViolation"/> the <see cref="Views.AuditView"/> table binds. The display fields are
+/// immutable; only <see cref="IsSelected"/> mutates (the multi-select checkbox the WP5e bulk
+/// Ack/Suppress/Untriage commands consume).
 ///
 /// <para>Mirrors <see cref="ViolationRowModel"/>'s projection shape: severity (glyph color +
 /// redundant letter via the one <see cref="Views.SeverityConverters"/> palette), the canonical
 /// message, the snapshot-resolved object name (raw/External anchors fall back to the DN via the
 /// shared <see cref="SubjectNameResolver"/>), and the jump anchor (<see cref="RuleViolation.PrimaryDn"/>).
 /// <see cref="RuleClass"/> is the human rule-class label from <see cref="Ruleset.EnumerateRules"/>.
-/// <see cref="Status"/> is a fixed "Open" placeholder — the Acknowledged/Suppressed states land in
-/// WP5e (no state machine here, just an honest neutral label).</para>
+/// <see cref="Status"/> reflects whether a tagged triage ignore entry covers this finding (WP5e) —
+/// the row stays listed even when Acknowledged/Suppressed so the triage is visible + reversible.</para>
 /// </summary>
 public sealed partial class AuditFindingRowModel : ObservableObject
 {
     public AuditFindingRowModel(
-        int reportOrder, RuleSeverity severity, string message, string objectName, string ruleClass, string primaryDn)
+        int reportOrder,
+        RuleSeverity severity,
+        string message,
+        string objectName,
+        string ruleClass,
+        string primaryDn,
+        string ruleId,
+        TriageStatus status)
     {
         ReportOrder = reportOrder;
         Severity = severity;
@@ -43,6 +68,8 @@ public sealed partial class AuditFindingRowModel : ObservableObject
         ObjectName = objectName;
         RuleClass = ruleClass;
         PrimaryDn = primaryDn;
+        RuleId = ruleId;
+        Status = status;
     }
 
     /// <summary>The 0-based rank of this row in the canonical <see cref="RuleReport.Violations"/>
@@ -67,8 +94,25 @@ public sealed partial class AuditFindingRowModel : ObservableObject
     /// <summary>The jump-to-node anchor (<c>Dns[0]</c>) — the future detail/jump key.</summary>
     public string PrimaryDn { get; }
 
-    /// <summary>Triage status — fixed "Open" in v1 (WP5e adds Acknowledged/Suppressed).</summary>
-    public string Status => "Open";
+    /// <summary>The finding's rule id — carried into the <see cref="TriageRequest"/> the bulk/per-row
+    /// commands build (the match key is escaped DN + tag; the rule id rides along for the note).</summary>
+    public string RuleId { get; }
+
+    /// <summary>Triage status (WP5e): Open, Acknowledged, or Suppressed — set at projection from the
+    /// live ruleset's tagged ignore entries (<see cref="TriageEntry.StatusFor"/>).</summary>
+    public TriageStatus Status { get; }
+
+    /// <summary>True when this finding is already triaged (Acknowledged or Suppressed) — the view
+    /// mutes the row + the bulk Un-triage command targets it; Open rows are the Ack/Suppress targets.</summary>
+    public bool IsTriaged => Status != TriageStatus.Open;
+
+    /// <summary>The status pill caption (WCAG-inked in the view): "Open" / "Acknowledged" / "Suppressed".</summary>
+    public string StatusLabel => Status switch
+    {
+        TriageStatus.Acknowledged => "Acknowledged",
+        TriageStatus.Suppressed => "Suppressed",
+        _ => "Open",
+    };
 
     /// <summary>Multi-select checkbox state (WP5d). The selection bar tallies it; WP5e's bulk
     /// Ack/Suppress will act on the selected rows. The VM owns the toggled notifications via the
@@ -119,9 +163,24 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     private readonly Action _onBack;
     private Ruleset _ruleset;
 
-    /// <summary>The current rule report — borrowed at construction, replaced in place by
-    /// <see cref="ApplyRuleset"/> (a settings Apply/Save re-thread). Drives <see cref="Summary"/>.</summary>
+    /// <summary>The current LIVE rule report (post-suppression) — borrowed at construction, replaced
+    /// in place by <see cref="ApplyRuleset"/> (a settings Apply/Save re-thread). Drives
+    /// <see cref="Summary"/> / health — ack'd AND suppressed findings are BOTH absent from it.</summary>
     private RuleReport _report;
+
+    /// <summary>The would-be report (WP5e / ADR-028): the report the engine WOULD produce with the
+    /// triage-tagged ignore entries removed (= the base ignore set). It drives the findings TABLE so
+    /// triaged rows stay visible + reversible; per-row <see cref="TriageStatus"/> is then read from
+    /// the LIVE ruleset's tagged entries. One extra cheap <see cref="RuleEngine.Evaluate"/> per
+    /// ruleset change (accepted per the full-re-run rule-engine contract).</summary>
+    private RuleReport _wouldBeReport;
+
+    /// <summary>The shell-supplied triage seam (WP5e / ADR-028): the <see cref="AuditViewModel"/>
+    /// hands it a batch of <see cref="TriageRequest"/>s; the SHELL appends/removes the global-ignore
+    /// entries and routes them through the existing <c>SettingsViewModel</c> gate (the single write
+    /// path — never AD). Dead until armed by <see cref="UseTriageCallback"/> (mirrors the Design-plan
+    /// callback idiom), so a headless / un-wired audit never half-acts; the commands no-op when null.</summary>
+    private Action<IReadOnlyList<TriageRequest>>? _triage;
 
     /// <summary>The dashboard health roll-up the view binds (WP5). Recomputed from
     /// <see cref="AuditSummary.Compute"/> at construction and on every <see cref="ApplyRuleset"/>;
@@ -138,12 +197,36 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         _snapshot = snapshot; // BORROWED — never disposed, never mutated.
         _report = report;
         _ruleset = ruleset;
+        _wouldBeReport = ComputeWouldBeReport(snapshot, ruleset);
         RootDn = rootDn;
         _onBack = onBack;
 
         _summary = AuditSummary.Compute(report, snapshot, ruleset);
         RebuildCategories();
         RebuildFindings();
+    }
+
+    /// <summary>Arms the shell's triage seam (WP5e / ADR-028): the install idiom mirrors the
+    /// workspace Design-plan/Audit callbacks (<c>OnRootChosen</c>). Until called the Ack/Suppress/
+    /// Un-triage commands are inert no-ops, so a renderer-less / headless audit never half-acts.
+    /// Idempotent — the last writer wins.</summary>
+    public void UseTriageCallback(Action<IReadOnlyList<TriageRequest>> triage) => _triage = triage;
+
+    /// <summary>The would-be report (ADR-028): re-evaluates over a clone of <paramref name="ruleset"/>
+    /// whose global ignore list excludes the triage-tagged (<c>[ack]</c>/<c>[suppress]</c>) entries —
+    /// so acknowledged + suppressed findings reappear in the TABLE (visible + reversible) while plain
+    /// ignore entries still suppress as ever. Pure: never mutates the borrowed snapshot/ruleset.</summary>
+    private static RuleReport ComputeWouldBeReport(DirectorySnapshot snapshot, Ruleset ruleset)
+    {
+        var baseIgnore = ruleset.Ignore.Where(e => TriageEntry.KindOf(e) is null).ToList();
+        // No triage entries => the would-be report IS the live report; skip the extra Evaluate.
+        if (baseIgnore.Count == ruleset.Ignore.Count)
+        {
+            return RuleEngine.Evaluate(snapshot, ruleset);
+        }
+
+        var untriaged = ruleset with { Ignore = baseIgnore };
+        return RuleEngine.Evaluate(snapshot, untriaged);
     }
 
     /// <summary>The categories pane (WP5c): one row per rule class that produced findings, in the
@@ -318,12 +401,28 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
 
         Findings.Clear();
         var reportOrder = 0;
-        foreach (var violation in _report.Violations)
+        foreach (var violation in _wouldBeReport.Violations)
         {
             var name = SubjectNameResolver.Resolve(_snapshot, violation.PrimaryDn);
             var ruleClass = ruleClassById.TryGetValue(violation.RuleId, out var label) ? label : violation.RuleId;
+            // Per-row status (ADR-028): match the finding's ESCAPED primary DN against the LIVE
+            // ruleset's tagged ignore entries — a hit means a tagged entry covers it (ack/suppress).
+            var escapedDn = TriageEntry.Escape(violation.PrimaryDn);
+            var status = TriageEntry.StatusFor(_ruleset.Ignore, escapedDn) switch
+            {
+                TriageKind.Acknowledge => TriageStatus.Acknowledged,
+                TriageKind.Suppress => TriageStatus.Suppressed,
+                _ => TriageStatus.Open,
+            };
             var row = new AuditFindingRowModel(
-                reportOrder++, violation.Severity, violation.Message, name, ruleClass, violation.PrimaryDn);
+                reportOrder++,
+                violation.Severity,
+                violation.Message,
+                name,
+                ruleClass,
+                violation.PrimaryDn,
+                violation.RuleId,
+                status);
             row.PropertyChanged += OnFindingPropertyChanged;
             Findings.Add(row);
         }
@@ -417,6 +516,79 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Acknowledge every SELECTED open finding (WP5e / ADR-028): emits one
+    /// <c>[ack]</c> triage request per selected Open row through the shell seam (the gate appends the
+    /// tagged ignore entries → RulesetApplied re-threads → the rows re-project as Acknowledged + the
+    /// findings drop from the live health report). Already-triaged selected rows are skipped (no-op).</summary>
+    [RelayCommand]
+    private void AcknowledgeSelected() => TriageSelected(TriageKind.Acknowledge);
+
+    /// <summary>Suppress every SELECTED open finding (WP5e / ADR-028): the <c>[suppress]</c>
+    /// twin of <see cref="AcknowledgeSelected"/> — equal engine strength, different note tag.</summary>
+    [RelayCommand]
+    private void SuppressSelected() => TriageSelected(TriageKind.Suppress);
+
+    /// <summary>Reverse triage on every SELECTED triaged finding (WP5e / ADR-028): emits one
+    /// Un-triage request per selected Acknowledged/Suppressed row (the gate removes the matching
+    /// tagged ignore entry → the finding reappears as Open + re-enters the live report). Open rows
+    /// are skipped.</summary>
+    [RelayCommand]
+    private void UntriageSelected()
+    {
+        var requests = Findings
+            .Where(r => r.IsSelected && r.IsTriaged)
+            .Select(r => new TriageRequest(TriageEntry.Escape(r.PrimaryDn), r.RuleId, TriageKind.Untriage, null))
+            .ToList();
+        Submit(requests);
+    }
+
+    /// <summary>Acknowledge a single open finding (WP5e): the per-row affordance equivalent of
+    /// <see cref="AcknowledgeSelected"/> for <paramref name="row"/>.</summary>
+    [RelayCommand]
+    private void AcknowledgeRow(AuditFindingRowModel row) => TriageRows([row], TriageKind.Acknowledge);
+
+    /// <summary>Suppress a single open finding (WP5e): the per-row equivalent of
+    /// <see cref="SuppressSelected"/> for <paramref name="row"/>.</summary>
+    [RelayCommand]
+    private void SuppressRow(AuditFindingRowModel row) => TriageRows([row], TriageKind.Suppress);
+
+    /// <summary>Reverse triage on a single triaged finding (WP5e): the per-row equivalent of
+    /// <see cref="UntriageSelected"/> for <paramref name="row"/>.</summary>
+    [RelayCommand]
+    private void UntriageRow(AuditFindingRowModel row)
+    {
+        if (row.IsTriaged)
+        {
+            Submit([new TriageRequest(TriageEntry.Escape(row.PrimaryDn), row.RuleId, TriageKind.Untriage, null)]);
+        }
+    }
+
+    /// <summary>Builds an Ack/Suppress batch over the SELECTED Open rows and submits it.</summary>
+    private void TriageSelected(TriageKind kind) =>
+        TriageRows(Findings.Where(r => r.IsSelected).ToList(), kind);
+
+    /// <summary>Builds an Ack/Suppress batch over the OPEN rows in <paramref name="rows"/> (triaged
+    /// rows are skipped — re-tagging an already-ignored finding is a no-op) and submits it through
+    /// the shell seam. The DN is glob-escaped so a single-object ignore stays exact.</summary>
+    private void TriageRows(IReadOnlyList<AuditFindingRowModel> rows, TriageKind kind)
+    {
+        var requests = rows
+            .Where(r => !r.IsTriaged)
+            .Select(r => new TriageRequest(TriageEntry.Escape(r.PrimaryDn), r.RuleId, kind, null))
+            .ToList();
+        Submit(requests);
+    }
+
+    /// <summary>Hands a non-empty triage batch to the shell seam (WP5e). The shell owns the gate; a
+    /// null seam (un-armed / headless) or empty batch is a no-op — never a parallel write path.</summary>
+    private void Submit(IReadOnlyList<TriageRequest> requests)
+    {
+        if (requests.Count > 0)
+        {
+            _triage?.Invoke(requests);
+        }
+    }
+
     /// <summary>Re-tallies <see cref="SelectedCount"/> when a row's checkbox toggles (WP5d).</summary>
     private void OnFindingPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -435,6 +607,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         ArgumentNullException.ThrowIfNull(ruleset);
         _ruleset = ruleset;
         _report = RuleEngine.Evaluate(_snapshot, _ruleset);
+        // WP5e / ADR-028: the table shows the WOULD-BE findings (triage-tagged ignores removed) so
+        // triaged rows stay listed + reversible; the LIVE report drives health. Recompute both, then
+        // Summary's setter re-projects the table (RebuildFindings reads _wouldBeReport + status).
+        _wouldBeReport = ComputeWouldBeReport(_snapshot, _ruleset);
         Summary = AuditSummary.Compute(_report, _snapshot, _ruleset);
     }
 
