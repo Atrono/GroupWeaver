@@ -39,6 +39,10 @@
       --gw-diff-added: #2FAE4E;
       --gw-diff-removed: #E0503A;
       --gw-diff-unchecked: #8A8F98;
+      /* ADR-027 D4 (WP3): the selection accent ring hue (DARK default; flips to
+         #6A5CFF on a {variant:'light'} command via CHROME.light). Mirror of
+         BrandTokens.GraphAccentHex / the bundle script's THEME.dark.accent. */
+      --gw-accent: #8B7BFF;
     }
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--gw-canvas-bg); }
     #cy { width: 100%; height: 100%; }
@@ -146,10 +150,48 @@
       font-size: 11px; color: var(--gw-no-match); padding: 0 1px;
     }
     #controls .no-match[hidden] { display: none; }
+    /* ADR-027 D3/D4 (WP3): the selection accent halo/pulse. ONE absolutely-positioned
+       ring element (the bundle script positions it at the selected node's renderedPosition and
+       sizes it to the node + glow margin), drawn ABOVE the canvas (z-index 5, below the
+       #legend/#controls chrome at z 10) and ON TOP of the node:selected white border.
+       pointer-events:none so graph pan/tap below stays unaffected. The glow is a
+       3px accent ring + a soft accent box-shadow halo; opacity 0.9 reads the brand
+       purple clearly on BOTH the dark #1b1f27 and light #F5F6F8 canvases (decorative
+       non-text object, redundant with the white selection border — ADR-027 D4). Hidden
+       by default (the [hidden] attribute); the bundle script toggles it on select/clear. */
+    #gw-accent-ring {
+      position: fixed; z-index: 5;
+      pointer-events: none;
+      box-sizing: border-box;
+      border-radius: 50%;
+      border: 3px solid var(--gw-accent);
+      box-shadow: 0 0 12px 3px var(--gw-accent);
+      opacity: 0.9;
+    }
+    #gw-accent-ring[hidden] { display: none; }
+    /* The gentle pulse (ADR-027 D3). The bundle script adds .gw-accent-pulse ONLY when motion
+       is allowed; under prefers-reduced-motion:reduce it leaves the class off => a
+       STATIC ring (ADR-017). The @media guard is belt-and-braces so the keyframe never
+       animates even if the class were present under reduced motion. */
+    @keyframes gw-accent-pulse {
+      0%, 100% { transform: scale(1); opacity: 0.9; }
+      50% { transform: scale(1.08); opacity: 0.6; }
+    }
+    #gw-accent-ring.gw-accent-pulse {
+      transform-origin: center center;
+      animation: gw-accent-pulse 1.8s ease-in-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #gw-accent-ring.gw-accent-pulse { animation: none; }
+    }
   </style>
 </head>
 <body>
   <div id="cy"></div>
+  <!-- ADR-027 D3 (WP3): the single selection accent halo/pulse ring. Positioned +
+       sized + shown/hidden by the bundle script (one element, software-rendering-floor
+       safe). Hidden until a node is selected. -->
+  <div id="gw-accent-ring" hidden></div>
   <div id="legend">
     <div class="legend-section">
       <div class="legend-section-title">Kinds</div>
