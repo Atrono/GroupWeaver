@@ -366,6 +366,32 @@
     return substr;
   }
 
+  // WP3c (#144): the command-palette node matcher — REUSES findNode's exact match
+  // rule (label OR id, case-insensitive, comma-DN-safe value compare, ADR-004 D5)
+  // but returns up to `limit` matches (exact hits first, then substring hits in
+  // cytoscape z-order). Empty/blank query => [] (the palette then shows actions
+  // only). Pure cy read; never a mutation.
+  function findNodes(query, limit) {
+    if (cy === null) { return []; }
+    var q = query.trim().toLowerCase();
+    if (q === '') { return []; }
+    var nodes = cy.nodes();
+    var exact = [];
+    var substr = [];
+    // The `limit * 4` cap is a PERF bound (10K-node target), not a correctness one:
+    // element 0 of the result — the auto-highlighted item, identical to findNode's
+    // single result — is always reached (the first exact, else the first substring,
+    // is collected long before the cap). Only the tail ORDER of the top-N could vary.
+    for (var i = 0; i < nodes.length && (exact.length + substr.length) < limit * 4; i++) {
+      var node = nodes[i];
+      var label = String(node.data('label') || '').toLowerCase();
+      var id = String(node.id() || '').toLowerCase();
+      if (label === q || id === q) { exact.push(node); }
+      else if (label.indexOf(q) !== -1 || id.indexOf(q) !== -1) { substr.push(node); }
+    }
+    return exact.concat(substr).slice(0, limit);
+  }
+
   // Builds cytoscape element descriptors from the accumulated chunks and CLEARS
   // the accumulator: each chunk+commit cycle starts from scratch, never re-feeds
   // the accumulated union (duplicate-id errors). Shared by both commit verbs
@@ -934,20 +960,14 @@
     cy.zoom({ level: next, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
   }
 
-  // ADR-023 D3: find mirrors a tap (nodeClick + applySelection) then frames the
-  // node LOCALLY — it deliberately does NOT reuse focusOn() and NEVER emits a
-  // `focused` message (that confirmation is the .NET focus protocol's; an
-  // unsolicited one would perturb the JumpAsync/FocusCalls pin, ADR-017/020).
-  function controlFind(noMatchEl) {
-    if (cy === null) { return; }
-    var input = document.getElementById('find-input');
-    var node = findNode(input ? input.value : '');
-    if (node === null) {
-      if (noMatchEl) { noMatchEl.hidden = false; }
-      return;  // no bridge traffic on a no-match.
-    }
-    if (noMatchEl) { noMatchEl.hidden = true; }
-    // WP3b (#142): a Find can resolve to a clean node hidden by issues-only —
+  // ADR-023 D3: select + frame a resolved node LOCALLY (the shared node-jump path,
+  // reused by controlFind AND the WP3c command palette). Mirrors a tap (nodeClick +
+  // applySelection) then frames the node — it deliberately does NOT reuse focusOn()
+  // and NEVER emits a `focused` message (that confirmation is the .NET focus
+  // protocol's; an unsolicited one would perturb the JumpAsync/FocusCalls pin,
+  // ADR-017/020). Caller guarantees node !== null and cy !== null.
+  function selectAndFrame(node) {
+    // WP3b (#142): a jump can resolve to a clean node hidden by issues-only —
     // clear the filter so the target is visible BEFORE selecting/framing it
     // (least-surprising: a find always lands on a visible node).
     revealIfHiddenByFilter(node);
@@ -966,6 +986,22 @@
     } else {
       cy.animate({ fit: { eles: node, padding: 80 } }, { duration: 280, easing: 'ease-out-cubic' });
     }
+  }
+
+  // ADR-023 D3: find-on-submit fallback (still the Enter behavior when the palette
+  // has nothing highlighted, e.g. a no-match). Resolves the best match via findNode
+  // and either jumps to it or surfaces the no-match affordance (no bridge traffic on
+  // a no-match — ADR-023 D3).
+  function controlFind(noMatchEl) {
+    if (cy === null) { return; }
+    var input = document.getElementById('find-input');
+    var node = findNode(input ? input.value : '');
+    if (node === null) {
+      if (noMatchEl) { noMatchEl.hidden = false; }
+      return;  // no bridge traffic on a no-match.
+    }
+    if (noMatchEl) { noMatchEl.hidden = true; }
+    selectAndFrame(node);
   }
 
   function controlToggleLabels() {
@@ -994,6 +1030,143 @@
     syncIssuesButton();
   }
 
+  // WP3c (#144): the Ctrl+K command palette. A small module over the existing
+  // #find-input + a new #palette-results dropdown. As the user types, the dropdown
+  // lists node matches (via findNodes — the EXISTING matcher) then quick actions
+  // whose names match the query; ↑/↓ move a highlighted index, Enter invokes it
+  // (node => selectAndFrame, the existing find/select path; action => its handler),
+  // Esc closes+clears, click invokes, click-outside closes. Canvas-local (ADR-023):
+  // no bridge command, no C# change — node selection still fires exactly one
+  // nodeClick (via selectAndFrame); actions fire none.
+  var PALETTE_NODE_LIMIT = 8;
+  // The quick actions, filtered by query against `name`. Handlers are the EXISTING
+  // control functions (no new behavior). `name` is what the query matches and what
+  // the row shows; `hint` is the dim secondary line.
+  var PALETTE_ACTIONS = [
+    { name: 'Fit to view', hint: 'Reset the camera', run: controlFit },
+    { name: 'Toggle labels', hint: 'Show all labels at fit zoom', run: controlToggleLabels },
+    { name: 'Issues only', hint: 'Filter to flagged nodes', run: controlToggleIssues }
+  ];
+
+  var paletteItems = [];   // current result rows: {kind:'node'|'action', node?, action?}
+  var paletteIndex = -1;   // highlighted row index, or -1 (nothing highlighted)
+  var paletteOpen = false;
+
+  function getPaletteEl() { return document.getElementById('palette-results'); }
+
+  // Build the result row model for `query`: node matches first (top N), then the
+  // actions whose name matches. Empty query => all actions (a hint, not all nodes —
+  // WP3c). Pure data; rendering is renderPalette.
+  function buildPaletteItems(query) {
+    var items = [];
+    var q = query.trim().toLowerCase();
+    var nodes = findNodes(query, PALETTE_NODE_LIMIT);
+    for (var i = 0; i < nodes.length; i++) {
+      items.push({ kind: 'node', node: nodes[i] });
+    }
+    for (var a = 0; a < PALETTE_ACTIONS.length; a++) {
+      if (q === '' || PALETTE_ACTIONS[a].name.toLowerCase().indexOf(q) !== -1) {
+        items.push({ kind: 'action', action: PALETTE_ACTIONS[a] });
+      }
+    }
+    return items;
+  }
+
+  // Render paletteItems into #palette-results, marking paletteIndex active. Rebuilt
+  // wholesale each input — small lists (<= 8 nodes + 3 actions). Click handlers bind
+  // per row (mousedown so the input keeps focus; preventDefault stops blur).
+  function renderPalette() {
+    var el = getPaletteEl();
+    if (el === null) { return; }
+    while (el.firstChild) { el.removeChild(el.firstChild); }
+    for (var i = 0; i < paletteItems.length; i++) {
+      var it = paletteItems[i];
+      var li = document.createElement('li');
+      li.className = 'palette-item' + (i === paletteIndex ? ' gw-active' : '');
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', i === paletteIndex ? 'true' : 'false');
+      var labelEl = document.createElement('div');
+      labelEl.className = 'palette-label';
+      var hintEl = document.createElement('div');
+      hintEl.className = 'palette-hint';
+      if (it.kind === 'node') {
+        labelEl.textContent = String(it.node.data('label') || it.node.id());
+        hintEl.textContent = String(it.node.data('kind') || '') + ' · ' + it.node.id();
+      } else {
+        labelEl.textContent = it.action.name;
+        hintEl.textContent = it.action.hint;
+      }
+      li.appendChild(labelEl);
+      li.appendChild(hintEl);
+      (function (idx) {
+        // mousedown (not click) + preventDefault: invoke without blurring the input
+        // first, so a node jump still runs with the palette state intact.
+        li.addEventListener('mousedown', function (e) { e.preventDefault(); invokePaletteItem(idx); });
+      })(i);
+      el.appendChild(li);
+    }
+    el.hidden = paletteItems.length === 0;
+  }
+
+  // Open the palette: focus the input and render the current results (empty query =>
+  // the action list). Idempotent.
+  function openPalette() {
+    var input = document.getElementById('find-input');
+    if (input === null) { return; }
+    paletteOpen = true;
+    input.setAttribute('aria-expanded', 'true');
+    input.focus();
+    refreshPalette();
+  }
+
+  // Close the palette: hide + clear the dropdown and forget the highlight. Does NOT
+  // clear the input value (Esc does that separately, matching the prior find-Esc).
+  function closePalette() {
+    var input = document.getElementById('find-input');
+    var el = getPaletteEl();
+    paletteOpen = false;
+    paletteIndex = -1;
+    paletteItems = [];
+    if (el !== null) {
+      while (el.firstChild) { el.removeChild(el.firstChild); }
+      el.hidden = true;
+    }
+    if (input !== null) { input.setAttribute('aria-expanded', 'false'); }
+  }
+
+  // Rebuild + render from the current input value. Auto-highlights the first row
+  // (index 0) when there are results so Enter has a sensible default; -1 when empty.
+  function refreshPalette() {
+    var input = document.getElementById('find-input');
+    var noMatchEl = document.getElementById('find-no-match');
+    paletteItems = buildPaletteItems(input ? input.value : '');
+    paletteIndex = paletteItems.length > 0 ? 0 : -1;
+    // Typing dismisses a stale no-match affordance from a prior failed submit.
+    if (noMatchEl) { noMatchEl.hidden = true; }
+    renderPalette();
+  }
+
+  function movePaletteHighlight(delta) {
+    if (paletteItems.length === 0) { return; }
+    if (paletteIndex < 0) { paletteIndex = delta > 0 ? 0 : paletteItems.length - 1; }
+    else { paletteIndex = (paletteIndex + delta + paletteItems.length) % paletteItems.length; }
+    renderPalette();
+  }
+
+  // Invoke a result row: a node => selectAndFrame (existing find/select path: one
+  // nodeClick + applySelection + camera frame + WP3b reveal-if-hidden); an action =>
+  // its handler (zero bridge traffic). Closes the palette after.
+  function invokePaletteItem(idx) {
+    var it = paletteItems[idx];
+    if (!it) { return; }
+    if (it.kind === 'node') {
+      if (cy !== null) { selectAndFrame(it.node); }
+    } else {
+      it.action.run();
+    }
+    closePalette();
+  }
+
   function wireControls() {
     var findInput = document.getElementById('find-input');
     var noMatchEl = document.getElementById('find-no-match');
@@ -1009,15 +1182,43 @@
     if (labelsBtn) { labelsBtn.addEventListener('click', controlToggleLabels); }
     if (issuesBtn) { issuesBtn.addEventListener('click', controlToggleIssues); }
     if (findInput) {
+      // WP3c (#144): typing rebuilds the palette dropdown (open it lazily on first
+      // input so a programmatic value-set + 'input' event — as the verify harness
+      // drives Find — also populates results).
+      findInput.addEventListener('input', function () {
+        if (!paletteOpen) { paletteOpen = true; findInput.setAttribute('aria-expanded', 'true'); }
+        refreshPalette();
+      });
       findInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
+        if (e.key === 'ArrowDown') {
           e.preventDefault();
-          controlFind(noMatchEl);
+          if (!paletteOpen) { openPalette(); } else { movePaletteHighlight(1); }
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (!paletteOpen) { openPalette(); } else { movePaletteHighlight(-1); }
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          // Enter invokes the highlighted item; with nothing highlighted (empty
+          // results / no-match) fall back to the ADR-023 D3 best-match find — which
+          // surfaces #find-no-match on a true miss (and stays bridge-silent then).
+          if (paletteIndex >= 0 && paletteIndex < paletteItems.length) {
+            invokePaletteItem(paletteIndex);
+          } else {
+            controlFind(noMatchEl);
+          }
         } else if (e.key === 'Escape') {
           findInput.value = '';
           if (noMatchEl) { noMatchEl.hidden = true; }
+          closePalette();
           findInput.blur();
         }
+      });
+      // Click outside the #controls cluster closes the palette (the input keeps its
+      // value; clicking a row is handled by the per-row mousedown above).
+      document.addEventListener('mousedown', function (e) {
+        if (!paletteOpen) { return; }
+        var controls = document.getElementById('controls');
+        if (controls && !controls.contains(e.target)) { closePalette(); }
       });
     }
 
@@ -1026,8 +1227,14 @@
     // never swallow keys we do not handle.
     document.addEventListener('keydown', function (e) {
       var key = e.key;
+      // WP3c (#144): Ctrl+K / Cmd+K opens the command palette and focuses the input.
+      if ((e.ctrlKey || e.metaKey) && (key === 'k' || key === 'K')) {
+        if (findInput) { e.preventDefault(); openPalette(); }
+        return;
+      }
+      // Ctrl+F stays an alias for opening the palette (ADR-023 D5 — keep working).
       if ((e.ctrlKey || e.metaKey) && (key === 'f' || key === 'F')) {
-        if (findInput) { e.preventDefault(); findInput.focus(); }
+        if (findInput) { e.preventDefault(); openPalette(); }
         return;
       }
       // Esc handling for the find input lives on the input listener above.
