@@ -41,12 +41,23 @@ namespace GroupWeaver.App.Settings;
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly RulesetLocator _locator;
+    private readonly DemoPreviewSource _demoPreview;
     private IRulesetFileDialogs _dialogs;
 
+    // Monotonic token so a slower in-flight preview refresh can never clobber a newer
+    // one's result when its (off-thread) evaluation completes out of order.
+    private int _previewGeneration;
+
     private SettingsViewModel(RulesetLocator locator, IRulesetFileDialogs dialogs)
+        : this(locator, dialogs, new DemoPreviewSource())
+    {
+    }
+
+    private SettingsViewModel(RulesetLocator locator, IRulesetFileDialogs dialogs, DemoPreviewSource demoPreview)
     {
         _locator = locator;
         _dialogs = dialogs;
+        _demoPreview = demoPreview;
 
         // The section editors are non-null by construction; every entry point
         // (Open/LoadFrom/Import/Reset) replaces them via Seed before use.
@@ -109,6 +120,31 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _rawEditorValid;
 
+    /// <summary>The live finding-count + diff-from-default preview (WP6b / #164): the
+    /// currently-VALID edited ruleset evaluated over the EMBEDDED DEMO snapshot, joined
+    /// against the default ruleset's demo counts (the cached baseline). <c>null</c> when
+    /// there is no preview to show — the text is invalid (the validation band already
+    /// explains why) or the demo data could not load (<see cref="PreviewUnavailable"/>).
+    /// The preview is ALWAYS over the demo dataset — never the live directory — and
+    /// computes nothing on disk: a pure, read-only, in-memory eval.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPreview))]
+    private RulesetPreview? _preview;
+
+    /// <summary>True while a refresh is computing the preview off-thread (the text is valid
+    /// but the demo eval has not yet returned) — drives a transient "computing…" affordance.</summary>
+    [ObservableProperty]
+    private bool _previewComputing;
+
+    /// <summary>True when the embedded demo dataset could not be loaded, so no preview can
+    /// ever be shown (a degraded, never-crashing fallback — the preview is an affordance,
+    /// not a gate). Mutually exclusive with a non-null <see cref="Preview"/>.</summary>
+    [ObservableProperty]
+    private bool _previewUnavailable;
+
+    /// <summary>True when a live preview is currently available to bind.</summary>
+    public bool HasPreview => Preview is not null;
+
     /// <summary>Re-validates the raw editor text on every keystroke (the loader is
     /// cheap — ADR-009; a full re-Load is ms): never-throw <see cref="RulesetLoader.Load"/>,
     /// errors surfaced verbatim, no apply/persist. Auto-invoked by the generated
@@ -123,6 +159,76 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         RawEditorValid = result.Success;
+
+        // Recompute the demo preview from the freshly-parsed ruleset (WP6b / #164). On
+        // invalid text there is nothing to preview — clear it (the validation band already
+        // shows the errors). The loader's re-parsed ruleset is the known-good fixed point;
+        // pass it straight on so the preview never re-parses.
+        RefreshPreview(result.Success ? result.Ruleset : null);
+    }
+
+    /// <summary>Recomputes the live demo preview (WP6b / #164) from <paramref name="ruleset"/>:
+    /// when non-null (a valid edited ruleset), it is evaluated over the cached embedded DEMO
+    /// snapshot OFF the UI thread (the engine is ms-fast and pure, ADR-009) and joined against
+    /// the cached default-ruleset baseline into a <see cref="RulesetPreview"/>; the result is
+    /// marshalled back to set <see cref="Preview"/>. A <c>null</c> ruleset (invalid text) clears
+    /// the preview at once. If the demo data cannot load, <see cref="PreviewUnavailable"/> is set
+    /// and the preview stays hidden — it degrades silently, never crashes. A monotonic generation
+    /// token discards any stale in-flight result so a slower refresh cannot overwrite a newer one.
+    ///
+    /// <para>The preview NEVER evaluates the live directory and NEVER writes anything — it is a
+    /// pure in-memory eval over the embedded demo snapshot, deterministic and safe in the
+    /// standalone Settings modal.</para></summary>
+    private void RefreshPreview(Ruleset? ruleset)
+    {
+        var generation = ++_previewGeneration;
+
+        if (ruleset is null)
+        {
+            Preview = null;
+            PreviewComputing = false;
+            PreviewUnavailable = false;
+            return;
+        }
+
+        PreviewComputing = true;
+        _ = ComputePreviewAsync(ruleset, generation);
+    }
+
+    private async Task ComputePreviewAsync(Ruleset ruleset, int generation)
+    {
+        var baseline = await _demoPreview.EnsureLoadedAsync().ConfigureAwait(true);
+
+        // A newer edit superseded this refresh while the demo loaded — drop the stale result.
+        if (generation != _previewGeneration)
+        {
+            return;
+        }
+
+        if (baseline is null)
+        {
+            Preview = null;
+            PreviewComputing = false;
+            PreviewUnavailable = true;
+            return;
+        }
+
+        // Evaluate off the UI thread: pure + ms-fast, but keep the editor responsive.
+        var preview = await Task.Run(() =>
+        {
+            var report = RuleEngine.Evaluate(baseline.Snapshot, ruleset);
+            var summary = AuditSummary.Compute(report, baseline.Snapshot, ruleset);
+            return RulesetPreview.Compute(summary, baseline.DefaultSummary, ruleset);
+        }).ConfigureAwait(true);
+
+        if (generation != _previewGeneration)
+        {
+            return;
+        }
+
+        PreviewUnavailable = false;
+        Preview = preview;
+        PreviewComputing = false;
     }
 
     /// <summary>Seeds <see cref="RawEditorText"/> from the CURRENT structured mirror
@@ -210,6 +316,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     public static SettingsViewModel LoadFrom(Ruleset ruleset)
     {
         var vm = new SettingsViewModel(new RulesetLocator(), new NullRulesetFileDialogs());
+        vm.Seed(ruleset);
+        return vm;
+    }
+
+    /// <summary>Mirrors <paramref name="ruleset"/> into a fresh editable tree over an injected
+    /// <paramref name="demoPreview"/> source — the WP6b test seam: pinning preview counts against
+    /// a known demo snapshot (or a deliberately failing one for the degrade-gracefully path)
+    /// without touching the real embedded dataset.</summary>
+    internal static SettingsViewModel LoadFrom(Ruleset ruleset, DemoPreviewSource demoPreview)
+    {
+        var vm = new SettingsViewModel(new RulesetLocator(), new NullRulesetFileDialogs(), demoPreview);
         vm.Seed(ruleset);
         return vm;
     }
