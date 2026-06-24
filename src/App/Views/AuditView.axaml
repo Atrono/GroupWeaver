@@ -257,16 +257,29 @@
                     Command="{Binding ShowInGraphCommand}" />
           </StackPanel>
 
-          <!-- Selection bar (WP5d): "{n} selected" + Clear. No Acknowledge/Suppress yet (WP5e) —
-               no dead buttons. Visible only when >= 1 finding is selected. -->
+          <!-- Selection bar (WP5d + WP5e triage): "{n} selected" + the real Acknowledge / Suppress /
+               Un-triage actions + Clear. Acknowledge/Suppress append an equal-strength tagged global-
+               ignore entry (ADR-028) so the finding drops from the live report (health up, graph/rail
+               quiet) but stays listed here as reversible; Un-triage removes the entry, reopening it.
+               Visible only when >= 1 finding is selected. -->
           <Border Grid.Row="1" Margin="0,12,0,0" Padding="10,6"
                   Background="{DynamicResource CardBackgroundBrush}"
                   BorderBrush="{DynamicResource CardBorderBrush}"
                   BorderThickness="1" CornerRadius="6"
                   IsVisible="{Binding HasSelection}">
-            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"
-                         FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                         FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                         Margin="0,0,4,0" />
+              <Button Name="AcknowledgeButton" Content="Acknowledge" Padding="10,2" FontSize="12"
+                      Command="{Binding AcknowledgeSelectedCommand}"
+                      ToolTip.Tip="Mark the selected findings acknowledged (a reversible ignore entry)" />
+              <Button Name="SuppressButton" Content="Suppress" Padding="10,2" FontSize="12"
+                      Command="{Binding SuppressSelectedCommand}"
+                      ToolTip.Tip="Suppress the selected findings (a reversible ignore entry)" />
+              <Button Name="UntriageButton" Content="Un-triage" Padding="10,2" FontSize="12"
+                      Command="{Binding UntriageSelectedCommand}"
+                      ToolTip.Tip="Reopen the selected acknowledged/suppressed findings" />
               <Button Content="Clear" Padding="8,2" FontSize="12"
                       Command="{Binding ClearSelectionCommand}"
                       ToolTip.Tip="Deselect all findings" />
@@ -341,9 +354,9 @@
                 </TextBlock>
               </StackPanel>
             </Button>
-            <!-- Status (fixed "Open" in v1). -->
+            <!-- Status (Open / Acknowledged / Suppressed — WP5e). -->
             <TextBlock Grid.Column="5" Classes="eyebrow" Text="STATUS"
-                       Margin="12,0,0,0" MinWidth="56" VerticalAlignment="Center" />
+                       Margin="12,0,0,0" MinWidth="72" VerticalAlignment="Center" />
           </Grid>
 
           <!-- Body rows. The ListBox gives the selection affordance + scrolling; each row template
@@ -356,9 +369,15 @@
                    IsVisible="{Binding HasFindings}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:AuditFindingRowModel">
+                <!-- Triaged rows are muted (still listed + selectable for reversal — ADR-028). The
+                     0.6 dim is applied to the CONTENT cells ONLY (severity / message / object / rule),
+                     never to the row root: dimming the status pill too would composite its ink+fill
+                     toward the card bg and drop the WCAG-proven 6.04:1/8.02:1 below 4.5:1. The
+                     checkbox + the status pill therefore stay full-opacity (a child cannot exceed its
+                     parent's composited opacity in Avalonia, so the dim must live below the row). -->
                 <Grid ColumnDefinitions="32,28,*,1.4*,Auto,Auto" Height="36">
 
-                  <!-- Select. -->
+                  <!-- Select (full opacity — the reversal affordance). -->
                   <CheckBox Grid.Column="0" VerticalAlignment="Center" Margin="0"
                             IsChecked="{Binding IsSelected, Mode=TwoWay}"
                             ToolTip.Tip="Select this finding" />
@@ -367,6 +386,7 @@
                        safe channel beside the colour, one SeverityConverters palette. -->
                   <Border Grid.Column="1" Width="20" Height="20" CornerRadius="3"
                           VerticalAlignment="Center" HorizontalAlignment="Left"
+                          Opacity="{Binding IsTriaged, Converter={x:Static views:AuditTableConverters.TriagedToOpacity}}"
                           Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
                     <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
                                Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
@@ -378,28 +398,44 @@
                   <TextBlock Grid.Column="2" Text="{Binding Message}"
                              VerticalAlignment="Center" Margin="4,0,8,0"
                              TextTrimming="CharacterEllipsis"
+                             Opacity="{Binding IsTriaged, Converter={x:Static views:AuditTableConverters.TriagedToOpacity}}"
                              ToolTip.Tip="{Binding Message}" />
 
                   <!-- Object (resolved name; tooltip shows the DN). -->
                   <TextBlock Grid.Column="3" Text="{Binding ObjectName}"
                              VerticalAlignment="Center" Margin="0,0,8,0"
                              TextTrimming="CharacterEllipsis"
+                             Opacity="{Binding IsTriaged, Converter={x:Static views:AuditTableConverters.TriagedToOpacity}}"
                              ToolTip.Tip="{Binding PrimaryDn}" />
 
                   <!-- Rule class. -->
                   <TextBlock Grid.Column="4" Text="{Binding RuleClass}"
                              VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="120"
+                             Opacity="{Binding IsTriaged, Converter={x:Static views:AuditTableConverters.TriagedToOpacity}}"
                              Classes="secondary" />
 
-                  <!-- Status (neutral "Open" pill). -->
-                  <Border Grid.Column="5" Margin="12,0,0,0" MinWidth="56"
-                          Padding="8,2" CornerRadius="10" VerticalAlignment="Center"
-                          Background="{DynamicResource CardBackgroundBrush}"
-                          BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
-                    <TextBlock Text="{Binding Status}" FontSize="11"
-                               HorizontalAlignment="Center"
-                               Foreground="{DynamicResource SecondaryForegroundBrush}" />
-                  </Border>
+                  <!-- Status pill (WP5e / ADR-028). Two variants share the cell, picked by IsTriaged:
+                       Open = a ghost pill (transparent fill, card border, theme secondary ink ≥ 4.5:1);
+                       Acknowledged/Suppressed = a filled Info/Warning pill with the WCAG-proven dark
+                       OnLightText ink (6.04:1 / 8.02:1). The label TEXT carries the meaning (WCAG 1.4.1);
+                       the fill hue is the redundant emphasis cue. -->
+                  <Panel Grid.Column="5" Margin="12,0,0,0" MinWidth="72" VerticalAlignment="Center">
+                    <!-- Open. -->
+                    <Border Padding="8,2" CornerRadius="10" IsVisible="{Binding !IsTriaged}"
+                            Background="{DynamicResource CardBackgroundBrush}"
+                            BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                      <TextBlock Text="{Binding StatusLabel}" FontSize="11"
+                                 HorizontalAlignment="Center"
+                                 Foreground="{DynamicResource SecondaryForegroundBrush}" />
+                    </Border>
+                    <!-- Acknowledged / Suppressed (filled, theme-independent fill + WCAG ink). -->
+                    <Border Padding="8,2" CornerRadius="10" IsVisible="{Binding IsTriaged}"
+                            Background="{Binding Status, Converter={x:Static views:AuditTableConverters.StatusToFill}}">
+                      <TextBlock Text="{Binding StatusLabel}" FontSize="11" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center"
+                                 Foreground="{Binding Status, Converter={x:Static views:AuditTableConverters.StatusToInk}}" />
+                    </Border>
+                  </Panel>
 
                 </Grid>
               </DataTemplate>

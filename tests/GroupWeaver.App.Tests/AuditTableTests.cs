@@ -47,18 +47,19 @@ public sealed class AuditTableTests
 
     private const string RootDn = "OU=Lab,DC=stub,DC=lab";
 
-    // === (1) Row projection: 1:1 with Report.Violations, field-by-field, Status="Open" ==========
+    // === (1) Row projection: 1:1 with Report.Violations, field-by-field, Status=Open ============
 
     /// <summary>
     /// <see cref="AuditViewModel.Findings"/> is one row per <see cref="RuleReport.Violations"/> entry
     /// (same count), and each row's <see cref="AuditFindingRowModel.Severity"/>/<c>Message</c>/
     /// <c>PrimaryDn</c>/<c>RuleClass</c>/<c>ReportOrder</c> matches the corresponding violation, with
-    /// <c>Status</c> a fixed "Open". <c>RuleClass</c> is the <see cref="Ruleset.EnumerateRules"/>
+    /// <c>Status</c> a fixed <see cref="TriageStatus.Open"/> (no triage entries in this fixture).
+    /// <c>RuleClass</c> is the <see cref="Ruleset.EnumerateRules"/>
     /// DisplayName for that finding's rule id. The default <see cref="AuditSortColumn.None"/> sort keeps
     /// the rows in canonical report order so the positional match is honest.
     /// </summary>
     [Fact]
-    public void Findings_AreOneRowPerViolation_FieldByField_StatusOpen()
+    public void Findings_AreOneRowPerViolation_FieldByField_StatusOpen() // status is TriageStatus.Open
     {
         var (snapshot, ruleset) = LoadedScopeWithFindings();
         var report = RuleEngine.Evaluate(snapshot, ruleset);
@@ -84,7 +85,7 @@ public sealed class AuditTableTests
             Assert.Equal(v.PrimaryDn, row.PrimaryDn);
             Assert.Equal(i, row.ReportOrder);
             Assert.Equal(displayNameById[v.RuleId], row.RuleClass);
-            Assert.Equal("Open", row.Status);
+            Assert.Equal(TriageStatus.Open, row.Status);
         }
     }
 
@@ -92,10 +93,16 @@ public sealed class AuditTableTests
     /// <see cref="AuditFindingRowModel.ObjectName"/> resolves the anchor DN via the SNAPSHOT (a loaded
     /// subject → its <c>Name</c>) and falls back to the raw DN for an anchor that is absent from the
     /// snapshot. The loaded branch is proven over the engine-produced fixture (every finding's PrimaryDn
-    /// resolves to its Name); the DN-fallback branch is proven over a hand-built <see cref="RuleReport"/>
-    /// carrying a synthetic finding whose anchor DN is genuinely absent from the snapshot (no real rule
-    /// emits an absent PrimaryDn — a nesting parent is always loaded — so the fallback path is exercised
-    /// via a constructed report the VM consumes verbatim).
+    /// resolves to its Name).
+    ///
+    /// <para><b>WP5e contract note:</b> the findings table is now projected from the engine's WOULD-BE
+    /// report (<see cref="RuleEngine.Evaluate"/> over the snapshot + base ignore — ADR-028), NOT from a
+    /// report the caller hands the VM, so the table can no longer be driven with a hand-built synthetic
+    /// finding (no real rule emits an absent PrimaryDn — a nesting parent is always loaded). The
+    /// DN-fallback branch is therefore pinned on the EXACT resolver the VM's projection calls,
+    /// <see cref="SubjectNameResolver.Resolve"/> (see <c>AuditViewModel.RebuildFindings</c>), which is the
+    /// load-bearing production code path; the parity test below proves the table's <c>ObjectName</c> is
+    /// that same call for every row.</para>
     /// </summary>
     [Fact]
     public void ObjectName_ResolvesLoadedSubjectName_AndFallsBackToDnForAbsentAnchor()
@@ -116,33 +123,16 @@ public sealed class AuditTableTests
             audit.Findings,
             r => snapshot.TryGetObject(r.PrimaryDn, out _) && !string.Equals(r.ObjectName, r.PrimaryDn, StringComparison.Ordinal));
 
-        // --- DN-fallback branch: a hand-built report with an ABSENT-anchor finding ---
+        // --- DN-fallback branch: pinned on the resolver the VM projection calls (RebuildFindings →
+        //     SubjectNameResolver.Resolve). A loaded subject resolves to its Name; an absent anchor
+        //     falls back to the raw DN — exactly what an absent-PrimaryDn row would show in the table. ---
         const string loadedDn = "CN=GG_Real,OU=Lab,DC=stub,DC=lab";
         const string absentDn = "CN=ghost,DC=elsewhere,DC=lab"; // deliberately NOT in Objects
         var fallbackScope = new DirectorySnapshot();
         fallbackScope.AddObject(new AdObject { Dn = loadedDn, Kind = AdObjectKind.GlobalGroup, Name = "GG_Real" });
 
-        var fallbackReport = new RuleReport(
-            new[]
-            {
-                new RuleViolation
-                {
-                    RuleId = RuleIds.EmptyGroup, Severity = RuleSeverity.Info,
-                    Dns = new[] { loadedDn }, Message = "loaded subject",
-                },
-                new RuleViolation
-                {
-                    RuleId = RuleIds.EmptyGroup, Severity = RuleSeverity.Info,
-                    Dns = new[] { absentDn }, Message = "absent anchor",
-                },
-            },
-            Array.Empty<string>());
-        using var fallbackAudit = new AuditViewModel(fallbackScope, fallbackReport, RulesetLoader.LoadDefault(), RootDn, onBack: () => { });
-
-        var loadedRow = fallbackAudit.Findings.Single(r => r.PrimaryDn == loadedDn);
-        var absentRow = fallbackAudit.Findings.Single(r => r.PrimaryDn == absentDn);
-        Assert.Equal("GG_Real", loadedRow.ObjectName);  // loaded => Name
-        Assert.Equal(absentDn, absentRow.ObjectName);    // absent => the DN itself
+        Assert.Equal("GG_Real", SubjectNameResolver.Resolve(fallbackScope, loadedDn)); // loaded => Name
+        Assert.Equal(absentDn, SubjectNameResolver.Resolve(fallbackScope, absentDn));   // absent => the DN itself
     }
 
     /// <summary>

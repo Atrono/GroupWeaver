@@ -61,6 +61,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <c>null</c> when no plan is live.</summary>
     private PlanViewModel? _currentPlan;
 
+    /// <summary>The workspace the CURRENT audit step backs into (WP5e / ADR-028): set in
+    /// <see cref="OnAudit"/>, used by <see cref="OnRulesetApplied"/> to re-thread that PARKED
+    /// workspace too when a triage Save fires while the audit is the current step — so the graph
+    /// halos + violations rail update even though Audit (a table view) is showing. Cleared when the
+    /// audit is abandoned (Back) or superseded. <c>null</c> when no audit is live.</summary>
+    private WorkspaceViewModel? _auditBackWorkspace;
+
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
     private object _currentStep;
@@ -240,10 +247,79 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }
         else if (CurrentStep is AuditViewModel audit)
         {
-            // WP5 / #152: recompute the audit step's report + summary against the flipped ruleset
-            // (sync, pure). The full re-thread-the-parked-workspace-too refinement is WP5e.
+            // WP5e / ADR-028: recompute the audit step's live + would-be report + summary + table
+            // against the flipped ruleset (sync, pure) AND re-thread the PARKED workspace this audit
+            // backs into — so its graph halos + violations rail update even though Audit (a table
+            // view) is the current step. The workspace surface is parked, so this is a pure re-Evaluate
+            // (no rebuild): ApplyRulesetAsync no-ops the render when no renderer is live and re-pushes
+            // on the next mount.
             audit.ApplyRuleset(ruleset);
+            if (_auditBackWorkspace is { } parkedWorkspace)
+            {
+                await parkedWorkspace.ApplyRulesetAsync(ruleset);
+            }
         }
+    }
+
+    /// <summary>
+    /// The audit-triage write path (WP5e / ADR-028): turns a batch of <see cref="TriageRequest"/>s
+    /// into global-ignore <see cref="MatchEntry"/> mutations on the CURRENT ruleset and routes the
+    /// result through the SINGLE existing <c>SettingsViewModel</c> gate — never a parallel
+    /// serialize/validate. Acknowledge/Suppress APPEND a tagged entry (skipping a duplicate already
+    /// present); Untriage REMOVES the matching tagged entry (by escaped DN + tag). The gate
+    /// (<c>BuildRuleset → Serialize → RulesetLoader.Load → Save</c>) persists atomically to
+    /// <c>%APPDATA%\GroupWeaver\ruleset.jsonc</c> and fires <see cref="SettingsViewModel.RulesetApplied"/>
+    /// → <see cref="OnRulesetApplied"/> (re-thread audit + the parked workspace). <b>The only write
+    /// is the ruleset file + in-memory state — never Active Directory.</b>
+    /// </summary>
+    public void ApplyTriage(IReadOnlyList<TriageRequest> requests, WorkspaceViewModel workspace)
+    {
+        if (requests.Count == 0)
+        {
+            return;
+        }
+
+        // Seed the editable mirror from the CURRENT effective ruleset; the seam also subscribes the
+        // shell's re-thread to RulesetApplied (so the Save below re-threads exactly as a settings Save).
+        var settings = BuildSettingsViewModel();
+        foreach (var request in requests)
+        {
+            switch (request.Kind)
+            {
+                case TriageKind.Acknowledge:
+                case TriageKind.Suppress:
+                    // Append the tagged dn-mode ignore entry — unless an equal one is already present
+                    // (re-triaging an already-covered finding is a no-op, never a duplicate entry).
+                    if (!settings.Ignore.Any(e =>
+                            TriageEntry.MatchesFinding(e.Build(), request.Dn, request.Kind)))
+                    {
+                        var entry = TriageEntry.Build(request);
+                        settings.Ignore.Add(MatchEntryEditor.LoadFrom(entry, endpointEditable: false));
+                    }
+
+                    break;
+
+                case TriageKind.Untriage:
+                    // Remove BOTH tags for this DN — a reversal reopens the finding regardless of how
+                    // it was triaged; the row only knows it is triaged, not by which tag.
+                    var stale = settings.Ignore
+                        .Where(e =>
+                            TriageEntry.MatchesFinding(e.Build(), request.Dn, TriageKind.Acknowledge)
+                            || TriageEntry.MatchesFinding(e.Build(), request.Dn, TriageKind.Suppress))
+                        .ToList();
+                    foreach (var editor in stale)
+                    {
+                        settings.Ignore.Remove(editor);
+                    }
+
+                    break;
+            }
+        }
+
+        // The single gate: persist + fire RulesetApplied (→ re-thread). A gate refusal writes nothing
+        // and surfaces errors on the throwaway settings VM (the audit batch is well-formed dn entries,
+        // so a refusal would mean a pre-existing invalid mirror — left honest, never force-written).
+        settings.Save();
     }
 
     /// <summary>ADR-022 D2: flips focus mode and propagates the new state to the active workspace
@@ -527,11 +603,21 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             onBack: () =>
             {
                 CurrentStep = current;
+                _auditBackWorkspace = null;
                 if (audit is not null)
                 {
                     DisposeAndUntrack(audit);
                 }
             });
+        // The workspace this audit backs into — re-threaded alongside the audit step when a triage
+        // Save fires (OnRulesetApplied), so the parked graph + rail update too (ADR-028).
+        _auditBackWorkspace = current;
+        // Arm the audit triage seam (WP5e / ADR-028) — the same install idiom as the Design-plan
+        // callback. The shell OWNS the single write path: it routes every triage batch through
+        // BuildSettingsViewModel()'s gate (BuildRuleset → Serialize → RulesetLoader.Load → Save),
+        // which fires RulesetApplied → OnRulesetApplied (re-thread audit + parked workspace). Writes
+        // hit ONLY %APPDATA%\GroupWeaver\ruleset.jsonc + in-memory state — never AD.
+        audit.UseTriageCallback(requests => ApplyTriage(requests, current));
         Track(audit);
 
         // #122 (ADR-025): PARK the workspace surface we will Back INTO — SYNCHRONOUSLY, BEFORE the
