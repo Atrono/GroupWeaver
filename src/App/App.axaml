@@ -51,6 +51,31 @@
     <Style Selector="Button.ghost:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource GhostHoverBrush}" />
     </Style>
+
+    <!-- Primary "accent" button (ADR-026 D6, WP2): the brand purple, replacing FluentTheme's
+         default-blue accent class on the primary actions that carry Classes="accent" (Connect,
+         Settings Save). WCAG: WHITE text on the AccentFill ramp clears 4.5:1 at every interactive
+         state (rest 5.02:1 / hover 5.97:1 / pressed 6.39:1 dark; 6.12 / 7.58 / 8.20 light) —
+         the ramp goes DARKER on hover/pressed, never lighter (auto-lightening would fall
+         below 4.5:1). DynamicResource so it re-resolves on a live ThemeVariant flip. The base
+         Setters target the control (rest); the :pointerover/:pressed states target the Fluent
+         template's PART_ContentPresenter (the same seam Button.ghost uses). -->
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="{DynamicResource AccentFillBrush}" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.accent /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentFillBrush}" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentFillHoverBrush}" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentFillPressedBrush}" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
   </Application.Styles>
 
 </Application>

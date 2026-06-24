@@ -201,6 +201,98 @@ public static class BrandTokens
     /// fills themselves stay unchanged.</summary>
     public const string NodeLiftRingHex = "#8A93A3";
 
+    // --- Accent (ADR-026 D6, WP2: the redesign's brand purple). Theme-aware, like the WP1a chrome
+    // roles. TWO distinct purples per variant, by use: a DECORATIVE accent (DEMO badge text,
+    // selection/focus rings) — the lighter Frame-1/Frame-4 hue — and an ACCESSIBLE primary-button
+    // FILL whose WHITE text clears 4.5:1 (the lighter decorative hues FAIL: dark #8B7BFF white-text
+    // = 3.29:1, light #6A5CFF = 4.58:1 only at rest with no hover headroom). The fill ramp goes
+    // hover/pressed DARKER (richer), never lighter — auto-lightening below 4.5:1 is the trap the
+    // explicit ramp avoids. The DEMO badge sits on an accent-SOFT pill; the soft + line tints are
+    // the Frame translucent-accent values. ----------------------------------------------------
+
+    /// <summary>DARK decorative accent — brand purple #8B7BFF (Frame 1 <c>--accent</c>). NON-text
+    /// decorative use only (selection/focus rings, the "GW" mark): white text on this fill is only
+    /// 3.29:1 (FAILS 1.4.3), so primary buttons use <see cref="AccentFillHex"/>. Note: the DEMO
+    /// badge TEXT does NOT use this — it uses the per-theme <see cref="DemoBadgeTextHex"/> deepened
+    /// to clear 4.5:1 on the soft pill (ADR-021 ToTextBrush precedent).</summary>
+    public const string AccentHex = "#8B7BFF";
+
+    /// <summary>LIGHT decorative accent — brand purple #6A5CFF (Frame 4 <c>--accent</c>). NON-text
+    /// decorative use only; white text 4.58:1 at rest with no hover headroom, so the primary FILL is
+    /// the deeper <see cref="AccentFillLightHex"/>.</summary>
+    public const string AccentLightHex = "#6A5CFF";
+
+    /// <summary>DARK accent-soft pill background — #298B7BFF (Frame 1 <c>rgba(139,123,255,.16)</c>;
+    /// 0.16×255 = 40.8 ⇒ <c>0x29</c>): the DEMO badge's translucent-accent fill, mirrored as #AARRGGBB.</summary>
+    public const string AccentSoftHex = "#298B7BFF";
+
+    /// <summary>LIGHT accent-soft pill background — #1F6A5CFF (Frame 4 <c>rgba(106,92,255,.12)</c>).</summary>
+    public const string AccentSoftLightHex = "#1F6A5CFF";
+
+    /// <summary>DARK DEMO-badge ink — #A99BFF (Frame 1 <c>--accent-2</c> light value). The badge text
+    /// is readable text (1.4.3 applies — a "decorative" label is not exempt; ADR-021 standard), so it
+    /// is DEEPENED/LIGHTENED off the raw accent to clear 4.5:1 on the dark soft pill: #A99BFF reads
+    /// 5.51:1 on the blended dark accent-soft pill (#2D2E4A). The soft-pill BACKGROUND is unchanged.</summary>
+    public const string DemoBadgeTextHex = "#A99BFF";
+
+    /// <summary>LIGHT DEMO-badge ink — #4A3CC8 (= the light primary-fill hover purple). Deepened so
+    /// the badge text clears 4.5:1 on the light soft pill: 5.62:1 on the blended light accent-soft
+    /// pill (#DCDCF3) and 6.52:1 on the raw page #ECEEF1. The raw accent #6A5CFF read only 3.40:1.</summary>
+    public const string DemoBadgeTextLightHex = "#4A3CC8";
+
+    /// <summary>DARK accent-line — #808B7BFF (Frame 1 <c>rgba(139,123,255,.5)</c>): a 50%-accent
+    /// hairline (decorative pill border / focus ring), mirrored as #AARRGGBB.</summary>
+    public const string AccentLineHex = "#808B7BFF";
+
+    /// <summary>LIGHT accent-line — #806A5CFF (Frame 4 <c>rgba(106,92,255,.5)</c>).</summary>
+    public const string AccentLineLightHex = "#806A5CFF";
+
+    /// <summary>DARK accessible primary-button FILL — #6B5BDF (Frame 1 <c>--accent-2</c> gradient
+    /// end). WHITE text clears 4.5:1 across the whole interactive ramp: rest 5.02:1, hover
+    /// <see cref="AccentFillHoverHex"/> 5.97:1, pressed <see cref="AccentFillPressedHex"/> 6.39:1.
+    /// Replaces FluentTheme's default blue accent on the Connect/Save/primary buttons.</summary>
+    public const string AccentFillHex = "#6B5BDF";
+
+    /// <summary>DARK primary-fill pointer-over — #5F4FD0 (white text 5.97:1). DARKER than rest by
+    /// design, keeping every state ≥ 4.5:1 (auto-lightened hover would fall to ~4.1:1).</summary>
+    public const string AccentFillHoverHex = "#5F4FD0";
+
+    /// <summary>DARK primary-fill pressed — #5B4BC8 (white text 6.39:1).</summary>
+    public const string AccentFillPressedHex = "#5B4BC8";
+
+    /// <summary>LIGHT accessible primary-button FILL — #5547E6 (Frame 4 <c>--accent-2</c>). WHITE
+    /// text: rest 6.12:1, hover <see cref="AccentFillHoverLightHex"/> 7.58:1, pressed
+    /// <see cref="AccentFillPressedLightHex"/> 8.20:1 — all clear 4.5:1.</summary>
+    public const string AccentFillLightHex = "#5547E6";
+
+    /// <summary>LIGHT primary-fill pointer-over — #4A3CC8 (white text 7.58:1).</summary>
+    public const string AccentFillHoverLightHex = "#4A3CC8";
+
+    /// <summary>LIGHT primary-fill pressed — #4537C0 (white text 8.20:1).</summary>
+    public const string AccentFillPressedLightHex = "#4537C0";
+
+    // --- Read-only lock pill (ADR-026 D6, WP2): the always-on "Read-only" pill. The redesign uses
+    // its severity/ok GREEN ink on a green-soft pill; the GREEN here is the Frame green (distinct
+    // from the kind/severity palette — this is chrome, not a finding). Decorative pill text. -----
+
+    /// <summary>DARK read-only-pill ink — green #46C98A (Frame 1 <c>--green</c>). Reads 5.93:1 on the
+    /// blended dark green-soft pill (#213836) — clears 1.4.3.</summary>
+    public const string ReadOnlyPillTextHex = "#46C98A";
+
+    /// <summary>LIGHT read-only-pill ink — deep forest green #0B6B36. The Frame-4 <c>--green</c>
+    /// #1F9D57 reads only 2.65:1 on the blended light green-soft pill (1.4.3 FAIL — the label is
+    /// readable text, not exempt; ADR-021 ToTextBrush precedent), so the LIGHT ink is deepened:
+    /// #0B6B36 reads 5.03:1 on the blended light pill (#D3E4DF) and 5.70:1 on the raw page #ECEEF1.
+    /// The soft-pill BACKGROUND keeps the Frame green-soft tint.</summary>
+    public const string ReadOnlyPillTextLightHex = "#0B6B36";
+
+    /// <summary>DARK read-only-pill background — #2646C98A (Frame 1 <c>rgba(70,201,138,.15)</c>):
+    /// the green-soft pill fill, mirrored as #AARRGGBB.</summary>
+    public const string ReadOnlyPillBackgroundHex = "#2646C98A";
+
+    /// <summary>LIGHT read-only-pill background — #1F1F9D57 (Frame 4 <c>rgba(31,157,87,.12)</c>).</summary>
+    public const string ReadOnlyPillBackgroundLightHex = "#1F1F9D57";
+
     // --- Graph-canvas LIGHT theme (ADR-026 WP1b). These are the DOCUMENTED C# MIRROR of the light
     // values graph.js owns in its THEME.light / CHROME.light tables (the wire carries only the
     // variant string — no token values cross the bridge). They are NOT consumed by any Avalonia

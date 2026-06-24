@@ -84,6 +84,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isFocusMode;
 
+    /// <summary>ADR-026 D6 (WP2): true while the active connection is the embedded demo directory
+    /// (the Connect-screen "Demo mode" button OR the CLI <c>--demo</c>, both routed through
+    /// <see cref="ConnectionViewModel"/>'s demo path). The top strip's "DEMO" badge binds its
+    /// <c>IsVisible</c> to this. Set in <see cref="OnConnected"/> from the threaded demo flag and
+    /// reset in <see cref="OnBackToConnect"/> (Back drops the connection, so the badge clears).</summary>
+    [ObservableProperty]
+    private bool _isDemoMode;
+
     /// <summary>ADR-026 D4: the app-chrome theme is Light when true (Dark otherwise). Seeded in the
     /// ctor from the persisted <see cref="UiState.Theme"/> and flipped by <see cref="ToggleTheme"/>;
     /// the top strip's theme button binds its glyph to <see cref="ThemeGlyph"/>. Shell-level because
@@ -330,9 +338,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private static Avalonia.Controls.Window? GetMainWindow() =>
         (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
 
-    private void OnConnected(IDirectoryProvider provider, DirectoryConnection connection)
+    private void OnConnected(IDirectoryProvider provider, DirectoryConnection connection, bool isDemo)
     {
         Provider = provider;
+        IsDemoMode = isDemo;
         CurrentStep = new RootPickerViewModel(
             provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing,
             _graphRendererFactory, _ruleset, _uiStateStore);
@@ -342,6 +351,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void OnBackToConnect()
     {
         Provider = null;
+        IsDemoMode = false;
         CurrentStep = new ConnectionViewModel(_providerFactory, OnConnected);
     }
 
