@@ -206,6 +206,7 @@ public sealed class WebBundleTests
             BrandTokens.GraphDiffAddedLightHex,       // #1F9D57 diff added
             BrandTokens.GraphDiffRemovedLightHex,     // #D63A4A diff removed
             BrandTokens.GraphDiffUncheckedLightHex,   // #5A6473 diff unchecked
+            BrandTokens.GraphAccentLightHex,          // #6A5CFF ADR-027 D4 selection accent ring hue (THEME.light.accent)
         ];
         foreach (var hex in lightHexes)
         {
@@ -249,6 +250,7 @@ public sealed class WebBundleTests
             BrandTokens.AddedHex,    // #2FAE4E diff added
             BrandTokens.RemovedHex,  // #E0503A diff removed
             BrandTokens.UncheckedHex, // #8A8F98 diff unchecked
+            BrandTokens.GraphAccentHex, // #8B7BFF ADR-027 D4 selection accent ring hue (THEME.dark.accent)
         ];
         foreach (var hex in darkRoleHexes)
         {
@@ -269,6 +271,77 @@ public sealed class WebBundleTests
 
         // ADR-004 consequence: labels appear only when zoomed in.
         Assert.Contains("min-zoomed-font-size", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ADR-027 D4 (WP3): the selection accent ring hue reaches the <c>#gw-accent-ring</c> DOM
+    /// element through the <c>--gw-accent</c> CSS custom property (the canvas renderer has no free
+    /// per-node channel — the glow lives outside cytoscape's style system). This pins the
+    /// <c>--gw-accent</c> var across the FULL hand-mirror chain: index.html's <c>:root</c> DARK
+    /// default + graph.js's <c>CHROME.dark</c> / <c>CHROME.light</c> tables, keyed to the actual
+    /// <see cref="BrandTokens"/> constants (the documented C# source of truth) so a drift on either
+    /// side fails here. The dark <c>:root</c> default must stay byte-identical to the dark CHROME
+    /// value (ADR-026 WP1b invariant: index.html ships the dark chrome defaults).
+    /// </summary>
+    [Fact]
+    public void Graph_AccentChromeVarMatchesBrandTokens()
+    {
+        var indexHtml = ReadShippedText("index.html");
+        var graphJs = ReadShippedText("graph.js");
+        var darkChrome = ChromeDarkTable(graphJs);
+        var lightChrome = ChromeLightTable(graphJs);
+
+        // index.html :root DARK default — the --gw-accent var carries the dark accent hue
+        // (BrandTokens.GraphAccentHex), so the bundle renders the ring purple before any theme
+        // command (byte-identical to CHROME.dark, ADR-026 WP1b).
+        Assert.Contains(
+            $"--gw-accent: {BrandTokens.GraphAccentHex}",
+            indexHtml,
+            StringComparison.Ordinal);
+
+        // graph.js CHROME.dark / CHROME.light each set --gw-accent to the per-theme accent hue —
+        // applyChromeVariant writes these onto documentElement so the ring flips with the theme.
+        Assert.Contains(
+            $"'--gw-accent': '{BrandTokens.GraphAccentHex}'",
+            darkChrome,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"'--gw-accent': '{BrandTokens.GraphAccentLightHex}'",
+            lightChrome,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ADR-027 D3 (WP3): the selection accent halo/pulse needs a single DOM-overlay ring element
+    /// (the canvas renderer has no per-node DOM). Pins index.html ships exactly that element
+    /// (<c>#gw-accent-ring</c>, hidden by default) and the CSS pulse class (<c>gw-accent-pulse</c>)
+    /// behind a <c>prefers-reduced-motion: reduce</c> guard (ADR-017). graph.js must reference both
+    /// (show/hide/track wiring). These are the structural anchors the verify.mjs runtime asserts
+    /// stand on; if the element/class is renamed or dropped, this fails before the browser run.
+    /// </summary>
+    [Fact]
+    public void Index_HasAccentRingElementAndReducedMotionGuardedPulse()
+    {
+        var indexHtml = ReadShippedText("index.html");
+        var graphJs = ReadShippedText("graph.js");
+
+        // The single hidden ring element (ADR-027 D3: EXACTLY ONE, software-rendering-floor safe).
+        Assert.Matches(@"(?i)<div\b[^>]*\bid\s*=\s*[""']gw-accent-ring[""'][^>]*\bhidden\b", indexHtml);
+
+        // The CSS pulse class + the keyframes it animates.
+        Assert.Contains("#gw-accent-ring.gw-accent-pulse", indexHtml, StringComparison.Ordinal);
+        Assert.Contains("@keyframes gw-accent-pulse", indexHtml, StringComparison.Ordinal);
+
+        // The reduced-motion guard (ADR-017): the keyframe must NOT animate under reduce. Pin the
+        // @media block AND that it disables the pulse animation, so the belt-and-braces guard
+        // can't silently vanish.
+        Assert.Matches(
+            @"@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*\{[^}]*#gw-accent-ring\.gw-accent-pulse\s*\{\s*animation\s*:\s*none",
+            indexHtml);
+
+        // graph.js drives the element by id and toggles the pulse class.
+        Assert.Contains("getElementById('gw-accent-ring')", graphJs, StringComparison.Ordinal);
+        Assert.Contains("gw-accent-pulse", graphJs, StringComparison.Ordinal);
     }
 
     // --- 5. index.html structure -------------------------------------------------------
@@ -375,6 +448,23 @@ public sealed class WebBundleTests
     private static string ThemeLightTable(string graphJs) => ThemeTable(graphJs, "light");
 
     private static string ThemeDarkTable(string graphJs) => ThemeTable(graphJs, "dark");
+
+    /// <summary>
+    /// Slice of graph.js's <c>CHROME</c> variant table for <paramref name="variant"/> (ADR-027 D4
+    /// <c>--gw-accent</c> chrome-var coverage). CHROME shares the <c>&lt;variant&gt;: {</c> opener
+    /// shape with THEME, so first scope to the <c>var CHROME = {</c> block (after THEME), then
+    /// brace-match the variant table inside it — a hex in THEME can never satisfy a CHROME assert.
+    /// </summary>
+    private static string ChromeTable(string graphJs, string variant)
+    {
+        var chromeStart = graphJs.IndexOf("var CHROME = {", StringComparison.Ordinal);
+        Assert.True(chromeStart >= 0, "graph.js does not contain a 'var CHROME = {' block.");
+        return ThemeTable(graphJs.Substring(chromeStart), variant);
+    }
+
+    private static string ChromeDarkTable(string graphJs) => ChromeTable(graphJs, "dark");
+
+    private static string ChromeLightTable(string graphJs) => ChromeTable(graphJs, "light");
 
     private static string Sha256Hex(string path)
     {

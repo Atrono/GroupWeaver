@@ -214,7 +214,14 @@ const LIGHT_CHROME_VARS = {
   '--gw-diff-added': '#1F9D57',
   '--gw-diff-removed': '#D63A4A',
   '--gw-diff-unchecked': '#5A6473',
+  // ADR-027 D4 (WP3): the selection accent ring hue flips to the light brand purple
+  // (= THEME.light.accent / BrandTokens.GraphAccentLightHex) — the #gw-accent-ring reads it.
+  '--gw-accent': '#6A5CFF',
 };
+
+// ADR-027 D4: the DARK selection accent ring hue (= THEME.dark.accent / BrandTokens.GraphAccentHex),
+// the :root index.html default + CHROME.dark value. Pinned in the dark round-trip chrome-var block.
+const DARK_ACCENT = '#8B7BFF';
 
 const MESSAGE_TIMEOUT_MS = 60_000;
 // Node diameter D=44 (ADR-004 D3): model-space floor; the xUnit geometry test
@@ -370,6 +377,54 @@ function toNumber(cssValue) {
     throw new Error(`unrecognized numeric CSS value: '${cssValue}'`);
   }
   return Number(m[0]);
+}
+
+// ADR-027 D3 (WP3): one round-trip pulling the selection accent-ring DOM state.
+// The ring is a SINGLE absolutely-positioned #gw-accent-ring element OUTSIDE
+// cytoscape (the canvas renderer has no per-node DOM), shown by applySelection /
+// hidden by clearSelection, tracked at the selected node's renderedPosition. Reads
+// the `hidden` attribute, the pulse class (gw-accent-pulse — added only when motion
+// is allowed), and the rendered left/top/width/height so the caller can prove the
+// ring sits OVER the selected node (its center near the node's renderedPosition).
+// Pure DOM reads — never a cytoscape mutation.
+async function accentRingStateOf(page) {
+  return page.evaluate(() => {
+    const el = document.getElementById('gw-accent-ring');
+    if (el === null) { return { exists: false }; }
+    return {
+      exists: true,
+      hidden: el.hidden,
+      hasPulse: el.classList.contains('gw-accent-pulse'),
+      left: parseFloat(el.style.left),
+      top: parseFloat(el.style.top),
+      width: parseFloat(el.style.width),
+      height: parseFloat(el.style.height),
+    };
+  });
+}
+
+// ADR-027 D3: the live renderedPosition of a node (the coordinate the accent ring
+// must center on). getElementById keeps comma DNs byte-identical (ADR-004 D5).
+async function renderedPositionOf(page, id) {
+  return page.evaluate((nid) => {
+    const p = window.__cy.getElementById(nid).renderedPosition();
+    return { x: p.x, y: p.y };
+  }, id);
+}
+
+// ADR-027 D3: the accent ring is shown AND its center sits on the selected node's
+// renderedPosition (within a small tolerance for the half-diameter math). The ring
+// is left/top positioned at (pos - diameter/2), so center = left + width/2.
+function assertAccentRingOver(ring, pos, label) {
+  assert(ring.exists, `${label}: #gw-accent-ring element must exist in index.html`);
+  assert(ring.hidden === false,
+    `${label}: #gw-accent-ring must be SHOWN (not hidden) over the selected node (ADR-027 D3 applySelection)`);
+  assert(Number.isFinite(ring.width) && ring.width > 0 && Number.isFinite(ring.height) && ring.height > 0,
+    `${label}: #gw-accent-ring must be sized to the node + glow margin (width ${ring.width}, height ${ring.height})`);
+  const cx = ring.left + ring.width / 2;
+  const cy = ring.top + ring.height / 2;
+  assert(Math.abs(cx - pos.x) < 1.0 && Math.abs(cy - pos.y) < 1.0,
+    `${label}: #gw-accent-ring center (${cx}, ${cy}) must track the selected node's renderedPosition (${pos.x}, ${pos.y})`);
 }
 
 // One round-trip pulling the full severity-overlay triple for a DN (byte-
@@ -913,6 +968,34 @@ async function reducedMotionProbe(browser, indexHtml, fixture) {
   await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
   await awaitProbeMessage('loaded', 'reduced-motion graphCommit -> first render');
 
+  // --- ADR-027 D3 (WP3): the accent ring is STATIC under reduced motion ------
+  // showAccentRing adds the gw-accent-pulse class ONLY when motion is allowed
+  // (reduceMotion===false); under prefers-reduced-motion:reduce the ring is shown
+  // but carries NO pulse class (ADR-017 no-animation contract). The CSS pulse is
+  // not cy.animate, so __gwAnimateCalls must stay 0 across the select. Drive the
+  // select via the {type:'select'} command (instant, addClass/removeClass only).
+  const accentSelectNode = fixture.nodes.find((x) =>
+    x.id.includes(',') && !x.root && !x.sev && !x.below);
+  assert(accentSelectNode !== undefined,
+    'reduced-motion: fixture must contain a comma-DN, non-root, unflagged node for the accent-ring static check');
+  await page.evaluate(() => { window.__gwAnimateCalls = 0; });
+  await page.evaluate((id) => window.bridge.dispatch({ type: 'select', id }), accentSelectNode.id);
+  const reducedRing = await page.evaluate(() => {
+    const el = document.getElementById('gw-accent-ring');
+    return el === null
+      ? { exists: false }
+      : { exists: true, hidden: el.hidden, hasPulse: el.classList.contains('gw-accent-pulse'), animateCalls: window.__gwAnimateCalls };
+  });
+  assert(reducedRing.exists && reducedRing.hidden === false,
+    `reduced-motion: the accent ring must still be SHOWN on select (only the pulse is suppressed, ADR-027 D3): hidden=${reducedRing.hidden}`);
+  assert(reducedRing.hasPulse === false,
+    `reduced-motion: the accent ring must be STATIC (NO gw-accent-pulse class) under prefers-reduced-motion:reduce (ADR-017): hasPulse=${reducedRing.hasPulse}`);
+  assert(reducedRing.animateCalls === 0,
+    `reduced-motion: showing the accent ring must NOT call cy.animate (the CSS pulse is not cytoscape motion): __gwAnimateCalls ${reducedRing.animateCalls} != 0`);
+  // Clear the selection so the focus phase below starts from a clean state.
+  await page.evaluate(() => window.bridge.dispatch({ type: 'select', id: '' }));
+  phase('reduced-motion: accent ring shown but static (no pulse class, no cy.animate)');
+
   // --- focus under reduce: synchronous fit, NO camera animate ---------------
   const rootNode = fixture.nodes.find((n) => n.root === true);
   const ring1 = fixture.edges
@@ -985,6 +1068,135 @@ async function reducedMotionProbe(browser, indexHtml, fixture) {
   const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
   assert(probeJsErrors.length === 0,
     `reduced-motion probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
+
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
+// Fresh-page ACCENT-RING DROP probe (ADR-027 D3 / WP3): the selection accent ring
+// must HIDE when the tracked node VANISHES on a graphUpdate (lazy-expand replaces
+// the element set). graph.js' updateAccentRing reads the live element by id on the
+// render handler and hides the ring if it is gone (node.empty()), so a stale ring
+// never floats over empty canvas. Its OWN page/context/channel (modeled on
+// reducedMotionProbe / diffRenderTripwire) so its accounting is independent of the
+// main run's zero-jsError audit (and it must itself be jsError-free). The main
+// selection block already pins the show/hide-on-clear cases; this isolates the
+// drop-on-graphUpdate case (a graphUpdate that omits a node cannot run mid-selection-
+// block without disturbing the downstream phases). Harness morals hold: every wait
+// is a bridge-message promise (MESSAGE_TIMEOUT_MS), only primitives leave
+// page.evaluate, the bare protocol awaits fall under the global watchdog, no sleeps.
+// ---------------------------------------------------------------------------
+async function accentRingDropProbe(browser, indexHtml) {
+  const probeMessages = [];
+  const probePending = new Map();
+  const probeWaiters = new Map();
+
+  function onProbeMessage(text) {
+    const msg = JSON.parse(text);
+    probeMessages.push(msg);
+    const waiter = probeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!probePending.has(msg.type)) {
+      probePending.set(msg.type, []);
+    }
+    probePending.get(msg.type).push(msg);
+  }
+
+  function awaitProbeMessage(type, context) {
+    const queued = probePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = probeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = probeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (accent-ring-drop: ${context}); probe messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!probeWaiters.has(type)) {
+        probeWaiters.set(type, []);
+      }
+      probeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: accent-ring-drop probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  page.on('pageerror', (err) => onProbeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onProbeMessage);
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitProbeMessage('ready', 'accent-ring-drop bundle startup after goto');
+
+  // Tiny two-node dataset (comma-DNs - getElementById only, ADR-004 D5): the node
+  // that will be SELECTED (and tracked by the ring) and a survivor that stays.
+  const TRACKED = 'CN=Tracked,OU=AccentDrop,DC=groupweaver,DC=invalid';
+  const SURVIVOR = 'CN=Survivor,OU=AccentDrop,DC=groupweaver,DC=invalid';
+  const nodes = [
+    { id: TRACKED, label: 'Tracked', kind: 'GlobalGroup', x: 0, y: 0 },
+    { id: SURVIVOR, label: 'Survivor', kind: 'DomainLocalGroup', x: 160, y: 0 },
+  ];
+  const edges = [
+    { id: 'edge:accent-drop', s: SURVIVOR, t: TRACKED, rel: 'member' },
+  ];
+  for (const chunk of toChunks(nodes, edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitProbeMessage('loaded', 'accent-ring-drop graphCommit -> first render');
+
+  // Select the tracked node -> the ring is shown over it.
+  await page.evaluate((id) => window.bridge.dispatch({ type: 'select', id }), TRACKED);
+  const ringShown = await accentRingStateOf(page);
+  assert(ringShown.exists && ringShown.hidden === false,
+    `accent-ring-drop: ring must be SHOWN over the tracked node before the update, hidden=${ringShown.hidden}`);
+
+  // graphUpdate that DROPS the tracked node (re-feed only the survivor). The render
+  // handler's updateAccentRing reads the now-empty tracked node and hides the ring.
+  for (const chunk of toChunks([nodes[1]], [])) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+  await awaitProbeMessage('loaded', 'accent-ring-drop graphUpdate (tracked node dropped)');
+
+  const ringAfterDrop = await accentRingStateOf(page);
+  assert(ringAfterDrop.exists && ringAfterDrop.hidden === true,
+    `accent-ring-drop: the ring must HIDE when the tracked node vanishes on graphUpdate (ADR-027 D3 - no stale ring over empty canvas): hidden=${ringAfterDrop.hidden}`);
+  phase('accent-ring-drop: ring hides when the tracked node vanishes on graphUpdate');
+
+  // This phase is itself jsError-free on its own channel.
+  const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
+  assert(probeJsErrors.length === 0,
+    `accent-ring-drop probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
 
   await page.close();
 }
@@ -1385,6 +1597,8 @@ async function lightThemeProbe(browser, indexHtml, screenshotDir) {
     '--gw-diff-added': DIFF.added,
     '--gw-diff-removed': DIFF.removed,
     '--gw-diff-unchecked': DIFF.unchecked,
+    // ADR-027 D4: the accent var must restore to the DARK brand purple on the dark round-trip.
+    '--gw-accent': DARK_ACCENT,
   };
   const darkVars = await chromeVarsNow(Object.keys(DARK_CHROME_VARS));
   for (const [name, want] of Object.entries(DARK_CHROME_VARS)) {
@@ -2039,6 +2253,16 @@ async function main() {
       `dimmed non-neighbor '${nonNeighborDn}' background-blacken: rendered ${selState.nonBlacken} != pinned +${SELECTION.dimBlacken} (node.gw-dim rule missing/wrong?)`);
     phase(`selection + neighborhood dim ('${selectDn}': selected + ring un-dimmed, rest +0.6)`);
 
+    // --- ADR-027 D3 (WP3): the accent ring is SHOWN over the tapped node ---------
+    // applySelection (the tap path) shows #gw-accent-ring at the selected node's
+    // renderedPosition, additively over the white node:selected border. Prove it is
+    // not hidden AND centers on the selected node. The CSS pulse does NOT call
+    // cy.animate, so __gwAnimateCalls stays 0 (asserted at the end of this block).
+    const ringAfterTap = await accentRingStateOf(page);
+    const tapPos = await renderedPositionOf(page, selectDn);
+    assertAccentRingOver(ringAfterTap, tapPos, 'accent ring after tap-select');
+    phase(`accent ring shown over the tap-selected node ('${selectDn}')`);
+
     // --- HALO SURVIVES DIM (load-bearing): a dimmed sev='error' non-neighbor keeps
     // its FULL-strength severity overlay (#D13438 / 0.45 / padding 7) UNCHANGED.
     // This is the whole reason dim rides background-blacken (kind-fill only) and
@@ -2086,6 +2310,13 @@ async function main() {
       `previously-dimmed non-neighbor '${nonNeighborDn}' must return to background-blacken 0 after clear, got ${cleared.nonBlacken}`);
     phase('background-tap clears selection + dim (clean state restored)');
 
+    // --- ADR-027 D3: the accent ring HIDES on a background-tap clear ------------
+    // clearSelection hides #gw-accent-ring (no stale ring floats over empty canvas).
+    const ringAfterClear = await accentRingStateOf(page);
+    assert(ringAfterClear.exists && ringAfterClear.hidden === true,
+      `accent ring after background-tap clear: #gw-accent-ring must be HIDDEN (clearSelection, ADR-027 D3), got hidden=${ringAfterClear.hidden}`);
+    phase('accent ring hidden after background-tap clear');
+
     // --- ADR-020 (#96): {type:'select'} command drives selection from OUTSIDE a tap
     // The reverse sidebar->graph sync: a select command must reuse applySelection /
     // clearSelection, so a COMMAND-driven select is byte-identical to the tap-driven
@@ -2132,6 +2363,14 @@ async function main() {
       `non-neighbor '${nonNeighborDn}' must be dimmed +${SELECTION.dimBlacken} under a command select (background-blacken): rendered ${cmdSelState.nonBlacken}, gw-dim=${cmdSelState.nonHasDim}`);
     phase(`select command selects + dims identical to a tap ('${selectDn}')`);
 
+    // --- ADR-027 D3: the {type:'select'} reverse-sync ALSO shows the accent ring -
+    // The command path reuses applySelection, so the ring is byte-identical to the
+    // tap path: shown + centered on the selected node's renderedPosition.
+    const ringAfterCmdSelect = await accentRingStateOf(page);
+    const cmdSelectPos = await renderedPositionOf(page, selectDn);
+    assertAccentRingOver(ringAfterCmdSelect, cmdSelectPos, 'accent ring after {type:select} reverse-sync');
+    phase(`accent ring shown over the command-selected node ('${selectDn}')`);
+
     // (2) select with the EMPTY id => clearSelection (a null sidebar selection clears).
     await page.evaluate(() => window.bridge.dispatch({ type: 'select', id: '' }));
     const cmdCleared = await page.evaluate(() => {
@@ -2141,6 +2380,12 @@ async function main() {
     assert(cmdCleared.selectedCount === 0 && cmdCleared.anyDim === 0,
       `{type:'select', id:''} must clearSelection (null sidebar selection visibly clears the canvas): selected=${cmdCleared.selectedCount}, dim=${cmdCleared.anyDim}`);
     phase("select command with empty id clears the selection");
+
+    // --- ADR-027 D3: the accent ring HIDES on an empty {type:'select'} ----------
+    const ringAfterEmptySelect = await accentRingStateOf(page);
+    assert(ringAfterEmptySelect.exists && ringAfterEmptySelect.hidden === true,
+      `accent ring after {type:'select', id:''}: #gw-accent-ring must be HIDDEN (clearSelection), got hidden=${ringAfterEmptySelect.hidden}`);
+    phase('accent ring hidden after empty select command');
 
     // (3) re-select, then select an UNKNOWN comma DN => clearSelection (a stale/unknown
     // DN clears rather than leaving a frozen highlight) AND, crucially, hits the
@@ -2158,6 +2403,14 @@ async function main() {
     assert(cmdUnknown.selectedCount === 0 && cmdUnknown.anyDim === 0,
       `{type:'select'} of an UNKNOWN DN '${UNKNOWN_SELECT_DN}' must clearSelection (getElementById empty -> clear, never a stale highlight): selected=${cmdUnknown.selectedCount}, dim=${cmdUnknown.anyDim}`);
     phase("select command with an unknown DN clears (hits 'select' case, not default)");
+
+    // --- ADR-027 D3: the accent ring HIDES on an unknown {type:'select'} --------
+    // An unknown DN -> getElementById empty -> clearSelection -> ring hidden (never a
+    // stale ring frozen over the previous selection).
+    const ringAfterUnknownSelect = await accentRingStateOf(page);
+    assert(ringAfterUnknownSelect.exists && ringAfterUnknownSelect.hidden === true,
+      `accent ring after {type:'select'} of an unknown DN: #gw-accent-ring must be HIDDEN (clearSelection), got hidden=${ringAfterUnknownSelect.hidden}`);
+    phase('accent ring hidden after unknown-DN select command');
 
     // (4) the WHOLE select block is INSTANT — no camera animate, no enter tween fired.
     const cmdSelectMotion = await page.evaluate(() => ({
@@ -3285,6 +3538,15 @@ async function main() {
     await reducedMotionProbe(browser, indexHtml, fixture);
     phase('reduced-motion probe (fresh page: instant focus fit + full-opacity add, no tweens)');
 
+    // --- fresh-page ACCENT-RING DROP probe (ADR-027 D3 / WP3) ----------------
+    // After the audit and the other probes, on its OWN page/context/channel. Pins
+    // that the selection accent ring HIDES when its tracked node vanishes on a
+    // graphUpdate (lazy expand) - the one accent-ring case the main selection block
+    // cannot drive without disturbing the downstream phases. Independent of the main
+    // run's zero-jsError audit (and itself jsError-free).
+    await accentRingDropProbe(browser, indexHtml);
+    phase('accent-ring-drop probe (fresh page: ring hides when tracked node vanishes on graphUpdate)');
+
     // --- fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b) -------------------
     // After the audit and the other probes, on its OWN page/context/channel. Loads a
     // hand-built dataset, dispatches {type:'theme',variant:'light'}, awaits the live
@@ -3307,6 +3569,7 @@ async function main() {
       + `F2 eased focus + F1 enter fade + reduced-motion verified, `
       + `light-theme live restyle + dark round-trip verified (ADR-026 D5), `
       + `selection + neighborhood dim + hover + selective labels verified (#89), `
+      + `selection accent ring (show/clear/empty/unknown/drop + static-under-reduce) verified (ADR-027), `
       + `reverse select command (tap-identical/empty-clear/unknown-clear/instant) verified (#96), `
       + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
       + `control cluster + find (name/DN/no-match) + zoom/fit + labels toggle + keyboard verified (ADR-023), `

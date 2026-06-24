@@ -47,7 +47,12 @@
       busy: '#4FA3E3', busyOpacity: 0.35,
       diffAdded: '#2FAE4E', diffRemoved: '#E0503A', diffUnchecked: '#8A8F98',
       diffAddedUnderlayOpacity: 0.5, diffRemovedUnderlayOpacity: 0.5, diffUncheckedUnderlayOpacity: 0.35,
-      diffAddedLineOpacity: 0.95, diffRemovedLineOpacity: 0.85, diffUncheckedLineOpacity: 0.5
+      diffAddedLineOpacity: 0.95, diffRemovedLineOpacity: 0.85, diffUncheckedLineOpacity: 0.5,
+      // ADR-027 D4 (WP3): the selection accent halo/pulse ring hue — brand purple, mirrored from
+      // BrandTokens.GraphAccentHex (= the chrome decorative AccentHex). NOT a cytoscape style
+      // value (all per-node channels are taken); it reaches the #gw-accent-ring DOM element via
+      // the --gw-accent CSS var (CHROME below). Decorative non-text glow, reads on the dark canvas.
+      accent: '#8B7BFF'
     },
     // ADR-026 D5 light-canvas hues (all ratios computed vs the light canvas #F5F6F8):
     //   structural (>= 3:1): edge member #5A6473 5.54:1, contains #3A424E 9.39:1, root
@@ -75,7 +80,11 @@
       busy: '#2F6FE0', busyOpacity: 0.55,
       diffAdded: '#1F9D57', diffRemoved: '#D63A4A', diffUnchecked: '#5A6473',
       diffAddedUnderlayOpacity: 0.70, diffRemovedUnderlayOpacity: 0.70, diffUncheckedUnderlayOpacity: 0.50,
-      diffAddedLineOpacity: 0.95, diffRemovedLineOpacity: 0.85, diffUncheckedLineOpacity: 0.60
+      diffAddedLineOpacity: 0.95, diffRemovedLineOpacity: 0.85, diffUncheckedLineOpacity: 0.60,
+      // ADR-027 D4: light-canvas selection accent — brand purple #6A5CFF (mirror of
+      // BrandTokens.GraphAccentLightHex / chrome AccentLightHex); opacity (index.html) chosen to
+      // read on the light canvas #F5F6F8.
+      accent: '#6A5CFF'
     }
   };
 
@@ -106,7 +115,9 @@
       '--gw-edge-contains': '#6B788F',
       '--gw-sev-error': '#D13438', '--gw-sev-warning': '#F7A30B', '--gw-sev-info': '#4FA3E3',
       '--gw-sev-info-ink': '#1b1f27',
-      '--gw-diff-added': '#2FAE4E', '--gw-diff-removed': '#E0503A', '--gw-diff-unchecked': '#8A8F98'
+      '--gw-diff-added': '#2FAE4E', '--gw-diff-removed': '#E0503A', '--gw-diff-unchecked': '#8A8F98',
+      // ADR-027 D4: selection accent ring hue (= THEME.dark.accent, BrandTokens.GraphAccentHex).
+      '--gw-accent': '#8B7BFF'
     },
     light: {
       '--gw-canvas-bg': '#F5F6F8',
@@ -129,7 +140,9 @@
       '--gw-edge-contains': '#3A424E',
       '--gw-sev-error': '#D63A4A', '--gw-sev-warning': '#BD7C00', '--gw-sev-info': '#2F6FE0',
       '--gw-sev-info-ink': '#F5F6F8',
-      '--gw-diff-added': '#1F9D57', '--gw-diff-removed': '#D63A4A', '--gw-diff-unchecked': '#5A6473'
+      '--gw-diff-added': '#1F9D57', '--gw-diff-removed': '#D63A4A', '--gw-diff-unchecked': '#5A6473',
+      // ADR-027 D4: selection accent ring hue (= THEME.light.accent, BrandTokens.GraphAccentLightHex).
+      '--gw-accent': '#6A5CFF'
     }
   };
 
@@ -167,23 +180,90 @@
   // update) - no cy.animate, no opacity tween.
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // ADR-027 D3 (WP3): the selection accent halo/pulse. A SINGLE DOM-overlay ring
+  // element (#gw-accent-ring in index.html — the same overlay family as #legend/
+  // #controls, pointer-events:none), positioned at the selected node's
+  // renderedPosition and sized to its rendered diameter + a glow margin. Every per-
+  // node cytoscape channel is taken (kind/severity/diff/border/blacken), so the
+  // accent glow lives OUTSIDE cytoscape's style system — additive over the white
+  // node:selected border, which is kept. EXACTLY ONE element (software-rendering-floor
+  // safe). The pulse is a CSS @keyframes class (gw-accent-pulse), gated on
+  // reduceMotion (ADR-017): reduced-motion => static ring, no animation class.
+  // Tracked across cy render/pan/zoom/position so it follows the node during
+  // gestures and graphUpdate re-layouts; the tracked id is cleared when the node
+  // vanishes (lazy expand) so a stale ring never floats over empty canvas.
+  var accentRingEl = null;          // cached #gw-accent-ring (lazily, once)
+  var accentSelectedId = null;      // DN of the node the ring currently tracks, or null
+  // Extra px the glow extends beyond the node's rendered radius (margin for the
+  // soft outer glow). The ring's own box-shadow/border render the visible glow.
+  var ACCENT_RING_MARGIN = 10;
+
+  function getAccentRingEl() {
+    if (accentRingEl === null) {
+      accentRingEl = document.getElementById('gw-accent-ring');
+    }
+    return accentRingEl;
+  }
+
+  // Reposition the ring over the tracked node. Hides it if cy is gone, nothing is
+  // tracked, or the tracked node has vanished (graphUpdate dropped it). Pure DOM
+  // writes + cy reads — never a cytoscape mutation, never cy.animate.
+  function updateAccentRing() {
+    var el = getAccentRingEl();
+    if (el === null) { return; }
+    if (cy === null || accentSelectedId === null) { hideAccentRing(); return; }
+    var node = cy.getElementById(accentSelectedId);
+    if (node.empty()) { hideAccentRing(); return; }  // node vanished on lazy expand.
+    var pos = node.renderedPosition();
+    // rendered* account for the live zoom; use the larger dimension so the ring
+    // encloses non-square shapes (triangle/diamond/pentagon).
+    var diameter = Math.max(node.renderedWidth(), node.renderedHeight()) + ACCENT_RING_MARGIN * 2;
+    el.style.width = diameter + 'px';
+    el.style.height = diameter + 'px';
+    el.style.left = (pos.x - diameter / 2) + 'px';
+    el.style.top = (pos.y - diameter / 2) + 'px';
+  }
+
+  // Show the accent ring tracking `node`. The pulse class is added only when motion
+  // is allowed (ADR-017 D5); reduced motion => a static ring (visible, no animation).
+  function showAccentRing(node) {
+    var el = getAccentRingEl();
+    if (el === null) { return; }
+    accentSelectedId = node.id();
+    el.classList.toggle('gw-accent-pulse', !reduceMotion);
+    el.hidden = false;
+    updateAccentRing();
+  }
+
+  function hideAccentRing() {
+    var el = getAccentRingEl();
+    if (el === null) { return; }
+    accentSelectedId = null;
+    el.hidden = true;
+    el.classList.remove('gw-accent-pulse');
+  }
+
   // ADR-018 (#89): selection + neighborhood dim. INSTANT class toggles only -
   // never cy.animate / collection.animate (the #88 isolated motion counters must
   // stay 0). applySelection enforces exactly-one-selected: drop any prior
   // selection/dim/hover, select the tapped node EXPLICITLY (synthetic emit('tap')
   // does not run native select), dim everything, then un-dim the node + its 1-hop
-  // closed neighborhood (node + neighbors + connecting edges stay bright).
+  // closed neighborhood (node + neighbors + connecting edges stay bright). ADR-027
+  // D3: ALSO shows the accent ring over the selected node (additive over the
+  // node:selected white border; the DOM ring's CSS pulse never touches cy.animate).
   function applySelection(node) {
     cy.$(':selected').unselect();
     cy.elements().removeClass('gw-dim gw-hover');
     node.select();
     cy.elements().addClass('gw-dim');
     node.closedNeighborhood().removeClass('gw-dim');
+    showAccentRing(node);
   }
 
   function clearSelection() {
     cy.elements().removeClass('gw-dim gw-hover');
     cy.$(':selected').unselect();
+    hideAccentRing();  // ADR-027 D3: drop the accent ring on any clear.
   }
 
   // ADR-023 D4: apply the current labelMode to every live node. Called from the
@@ -522,6 +602,7 @@
 
   function initGraph() {
     if (cy !== null) { cy.destroy(); cy = null; }
+    hideAccentRing();  // ADR-027 D3: a full re-init starts with no selection ring.
     var elements = takePendingElements();
 
     var edgeCount = 0;
@@ -563,6 +644,12 @@
     cy.on('dbltap', 'node', function (evt) {
       window.bridge.send({ type: 'nodeExpand', id: evt.target.id() });
     });
+    // ADR-027 D3: keep the accent ring glued to the tracked node during gestures /
+    // re-layouts. render covers pan/zoom and the graphUpdate redraw (if the tracked
+    // node vanished, updateAccentRing hides the ring). position covers a node move.
+    // These attach ONCE per cy instance (initGraph destroys + recreates cy).
+    cy.on('render pan zoom', updateAccentRing);
+    cy.on('position', 'node', updateAccentRing);
 
     cy.fit();
     cy.one('render', sendLoaded);

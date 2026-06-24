@@ -355,6 +355,21 @@ public static class BrandTokens
     /// <summary>LIGHT diff Unchecked hue — #5A6473 (see <see cref="GraphDiffAddedLightHex"/>).</summary>
     public const string GraphDiffUncheckedLightHex = "#5A6473";
 
+    /// <summary>DARK graph decorative accent — brand purple #8B7BFF (ADR-027 D4 / WP3; the
+    /// canvas-layer mirror of the chrome <see cref="AccentHex"/>). Drives the selection accent
+    /// halo/pulse DOM ring in graph.js (THEME.dark.accent / index.html --gw-accent). A LARGE
+    /// DECORATIVE non-text graphical object, redundant with the white node:selected border + the
+    /// neighbourhood dim — not the sole selection indicator, so not gated by a hard WCAG ratio
+    /// (opacity chosen to read clearly on the dark canvas #1b1f27). Wire carries only the variant
+    /// string; this is the documented C# source the JS THEME.dark.accent mirrors.</summary>
+    public const string GraphAccentHex = "#8B7BFF";
+
+    /// <summary>LIGHT graph decorative accent — brand purple #6A5CFF (ADR-027 D4 / WP3; the
+    /// canvas-layer mirror of the chrome <see cref="AccentLightHex"/>). THEME.light.accent /
+    /// index.html --gw-accent under the light variant; opacity chosen to read on the light canvas
+    /// #F5F6F8. See <see cref="GraphAccentHex"/>.</summary>
+    public const string GraphAccentLightHex = "#6A5CFF";
+
     /// <summary><see cref="PageBackgroundHex"/> as a brush.</summary>
     public static readonly ImmutableSolidColorBrush PageBackground = new(Color.Parse(PageBackgroundHex));
 
