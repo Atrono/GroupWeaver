@@ -207,6 +207,7 @@ const LIGHT_DIFF_LINE = {
 // fills that must mirror the themed canvas, ADR-026 D5).
 const LIGHT_CHROME_VARS = {
   '--gw-canvas-bg': LIGHT_CANVAS,  // the light canvas bg (#F5F6F8) reaches the body via this var
+  '--gw-canvas-grid': 'rgba(0, 0, 0, 0.045)',  // #168 decorative dot-grid tint flips to the light value
   '--gw-chrome-bg': 'rgba(255, 255, 255, 0.92)',
   '--gw-sev-error': '#D63A4A',
   '--gw-sev-warning': '#BD7C00',
@@ -1833,7 +1834,19 @@ async function lightThemeProbe(browser, indexHtml, screenshotDir) {
     assert(sameColor(lightVars[name], want),
       `light chrome var ${name}: rendered '${lightVars[name]}' != ${want} (applyChromeVariant(CHROME.light) drift / theme handler missed it?)`);
   }
-  phase('light-theme: computed canvas styles + :root chrome vars verified vs LIGHT_* (ADR-026 D5)');
+  // -- #168: the decorative dot-grid is actually WIRED into the #cy stage (not just a declared
+  //    :root var). The themed dot COLOUR is pinned by the --gw-canvas-grid chrome var above; here
+  //    we pin that #cy consumes it as a 24px radial-gradient texture so removing the stage
+  //    background-image (orphaning the var) fails the bundle. Structure is theme-invariant. --
+  const cyStage = await page.evaluate(() => {
+    const cs = getComputedStyle(document.getElementById('cy'));
+    return { image: cs.backgroundImage, size: cs.backgroundSize };
+  });
+  assert(/radial-gradient/i.test(cyStage.image),
+    `#168 dot-grid: #cy background-image '${cyStage.image}' is not a radial-gradient (stage texture dropped / var orphaned?)`);
+  assert(/^24px\s+24px$/.test(cyStage.size.trim()),
+    `#168 dot-grid: #cy background-size '${cyStage.size}' != '24px 24px' (grid pitch drift?)`);
+  phase('light-theme: computed canvas styles + :root chrome vars + #cy dot-grid verified vs LIGHT_* (ADR-026 D5, #168)');
 
   // -- screenshot: the light frame the ui-verifier judges --
   await page.screenshot({ path: join(screenshotDir, 'graph-light.png') });
@@ -1894,6 +1907,7 @@ async function lightThemeProbe(browser, indexHtml, screenshotDir) {
   // :root chrome vars restored to the DARK defaults (index.html :root literals).
   const DARK_CHROME_VARS = {
     '--gw-canvas-bg': '#1b1f27',
+    '--gw-canvas-grid': 'rgba(255, 255, 255, 0.04)',  // #168 dot-grid tint restores to the dark value
     '--gw-chrome-bg': 'rgba(22, 26, 33, 0.92)',
     '--gw-sev-error': SEVERITY.error,
     '--gw-sev-warning': SEVERITY.warning,
