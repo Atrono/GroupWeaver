@@ -1360,6 +1360,152 @@ async function issuesAllClearProbe(browser, indexHtml) {
 }
 
 // ---------------------------------------------------------------------------
+// Fresh-page MINIMAP DEGENERATE probe (WP3d / #146): the minimap must STAY hidden
+// (no broken/empty thumbnail) on an EMPTY graph (zero nodes -> cy.nodes().empty()
+// guard in refreshMinimap -> hideMinimap), and a SMALL (single-node) graph must
+// still render a clean thumbnail with no broken img / decode error. The degenerate
+// `!(bb.w>0)||!(bb.h>0)` guard exists for a zero-extent bbox, but a live rendered
+// node always has a non-zero bbox (its D=44 diameter), so the single-node case
+// exercises the small-graph SHOWN path, and the empty case the HIDDEN path. The main
+// run always loads the ~200-node demo (minimap shown), so these cases need a hand-
+// built fixture -
+// its OWN page/context/channel (modeled on issuesAllClearProbe), so its accounting is
+// independent of the main run's zero-jsError audit (and it must itself be jsError-
+// free). hideMinimap sets #minimap [hidden] AND background-image:none, so a hidden
+// minimap never shows a stale/broken img. Harness morals: every wait is a bridge-
+// message promise (MESSAGE_TIMEOUT_MS), only primitives leave page.evaluate, the bare
+// protocol awaits fall under the global watchdog, no sleeps.
+// ---------------------------------------------------------------------------
+async function minimapDegenerateProbe(browser, indexHtml) {
+  const probeMessages = [];
+  const probePending = new Map();
+  const probeWaiters = new Map();
+
+  function onProbeMessage(text) {
+    const msg = JSON.parse(text);
+    probeMessages.push(msg);
+    const waiter = probeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!probePending.has(msg.type)) {
+      probePending.set(msg.type, []);
+    }
+    probePending.get(msg.type).push(msg);
+  }
+
+  function awaitProbeMessage(type, context) {
+    const queued = probePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = probeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = probeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (minimap-degenerate: ${context}); probe messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!probeWaiters.has(type)) {
+        probeWaiters.set(type, []);
+      }
+      probeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: minimap-degenerate probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  page.on('pageerror', (err) => onProbeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onProbeMessage);
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitProbeMessage('ready', 'minimap-degenerate bundle startup after goto');
+
+  // Helper: read the minimap hidden-state + background-image as primitives.
+  const minimapState = () => page.evaluate(() => {
+    const mm = document.getElementById('minimap');
+    return {
+      present: !!mm,
+      hidden: mm ? mm.hasAttribute('hidden') : null,
+      bgImage: mm ? getComputedStyle(mm).backgroundImage : null,
+    };
+  });
+
+  // Before any graph: #minimap ships with the [hidden] attribute, so it must be
+  // hidden from the very first paint (no thumbnail yet, never a broken img).
+  const atStart = await minimapState();
+  assert(atStart.present,
+    'WP3d minimap-degenerate: #minimap must exist in the shipped bundle');
+  assert(atStart.hidden === true,
+    `WP3d minimap-degenerate: #minimap must be [hidden] before any graph render (index.html ships it hidden), got hidden=${atStart.hidden}`);
+
+  // (a) SINGLE-NODE graph: a rendered node has a non-zero boundingBox (its diameter
+  // D=44), so it is NOT degenerate - refreshMinimap shows the minimap with a valid
+  // thumbnail (no broken img, jsError-free). This pins the small-graph render path: a
+  // one-node graph still produces a clean data:image/png thumbnail, never a broken img
+  // or a decode error. (The TRULY-hidden case - zero rendered extent - is the empty
+  // graph in (b); cy.nodes().boundingBox() never collapses to 0 for a live node.)
+  const SOLO = 'CN=Solo,OU=Degenerate,DC=groupweaver,DC=invalid';
+  for (const chunk of toChunks([{ id: SOLO, label: 'Solo', kind: 'GlobalGroup', x: 0, y: 0 }], [])) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitProbeMessage('loaded', 'minimap-degenerate single-node graphCommit -> first render');
+  const solo = await minimapState();
+  assert(solo.hidden === false,
+    `WP3d minimap-degenerate: a single-node graph has a non-zero bbox (node diameter), so #minimap must be SHOWN with a valid thumbnail (NOT degenerate), got hidden=${solo.hidden}`);
+  assert(solo.bgImage && solo.bgImage !== 'none' && /data:image\/png/i.test(solo.bgImage),
+    `WP3d minimap-degenerate: a single-node graph must produce a valid data:image/png thumbnail (no broken img, no decode error), got '${(solo.bgImage || '').slice(0, 48)}'`);
+  phase('WP3d minimap-degenerate: single-node graph shows a valid thumbnail (small-graph path is clean)');
+
+  // (b) EMPTY graph: graphUpdate to zero nodes -> cy.nodes().empty() -> hideMinimap
+  // ([hidden] + background-image:none, no broken/stale img). This is the canonical
+  // "minimap stays hidden / no broken img" case.
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+  await awaitProbeMessage('loaded', 'minimap-degenerate empty graphUpdate -> re-render');
+  const empty = await minimapState();
+  assert(empty.hidden === true,
+    `WP3d minimap-degenerate: an EMPTY graph must keep #minimap [hidden] (refreshMinimap's cy.nodes().empty() guard), got hidden=${empty.hidden}`);
+  assert(empty.bgImage === 'none',
+    `WP3d minimap-degenerate: an empty/hidden minimap must carry NO thumbnail (background-image:none), got '${(empty.bgImage || '').slice(0, 48)}'`);
+  phase('WP3d minimap-degenerate: empty graph keeps #minimap hidden + no thumbnail');
+
+  // This phase is itself jsError-free on its own channel (no broken img => no decode
+  // error; the degenerate/empty guards run clean).
+  const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
+  assert(probeJsErrors.length === 0,
+    `minimap-degenerate probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
+
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
 // Fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b): the graph canvas follows the
 // app theme over a {type:'theme', variant:'dark'|'light'} wire command (the wire
 // carries ONLY the variant string - no token values cross the bridge; graph.js
@@ -4281,6 +4427,184 @@ async function main() {
       `#87 (#4): the re-keyed node must move INTO the ${REKEYED_KIND} bucket (before ${legendBefore[REKEYED_KIND]}, after ${refreshed.legendCount[REKEYED_KIND]})`);
     phase(`legend: counts refresh on lazy-expand (External ${legendBefore.External} -> ${refreshed.legendCount.External}, self-correction)`);
 
+    // --- WP3d (#146): graph minimap ------------------------------------------
+    // The bottom-LEFT minimap overlay: a downscaled cy.png thumbnail of the WHOLE
+    // graph (background-image, re-png'd ONLY on graph/theme change) + a live
+    // #minimap-viewport rect (the single per-frame DOM write) + click/drag-to-pan.
+    // graph.js owns the module (MINIMAP_W=200/MINIMAP_H=140/MINIMAP_COARSE_THRESHOLD
+    // =1500/SCALE 0.5|0.15); index.html owns the #minimap (pointer-events:auto,
+    // hidden by default) + #minimap-viewport markup. This block runs LAST on the
+    // main page, AFTER every dark screenshot (graph-overview/selection/controls/
+    // focus/cycle/expanded), so pin (5)'s {theme:'light'} re-png never touches the
+    // byte-identical dark baseline; it restores dark before the run continues. The
+    // minimap thumbnail is NOT part of any pinned screenshot baseline (it post-dates
+    // the captures). MINIMAP_W/H mirror the index.html literals - pinned here too so
+    // an index.html/graph.js size drift fails. Harness morals hold: primitives only
+    // out of evaluate, no sleeps, watchdog-bounded.
+    const MINIMAP_W = 200;   // mirror of #minimap width (index.html) / graph.js MINIMAP_W
+    const MINIMAP_H = 140;   // mirror of #minimap height (index.html) / graph.js MINIMAP_H
+
+    // (1) #minimap exists, is SHOWN (not [hidden]) after the non-empty render, sits
+    // bottom-LEFT (its left < viewport center-x AND its top > center-y),
+    // pointer-events:auto (it is interactive, unlike the pointer-events:none legend),
+    // mirrors the pinned 200x140 size, and does NOT overlap #legend (top-left) or
+    // #controls (bottom-right) by bounding rect. One round-trip pulls all three boxes.
+    const overlayBoxes = await page.evaluate(() => {
+      const rectOf = (id) => {
+        const el = document.getElementById(id);
+        if (!el) { return null; }
+        const b = el.getBoundingClientRect();
+        return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height };
+      };
+      const mm = document.getElementById('minimap');
+      return {
+        present: !!mm,
+        hidden: mm ? mm.hasAttribute('hidden') : null,
+        pointerEvents: mm ? getComputedStyle(mm).pointerEvents : null,
+        minimap: rectOf('minimap'),
+        legend: rectOf('legend'),
+        controls: rectOf('controls'),
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+      };
+    });
+    assert(overlayBoxes.present,
+      'WP3d minimap: #minimap must exist in the shipped bundle');
+    assert(overlayBoxes.hidden === false,
+      `WP3d minimap: #minimap must NOT be [hidden] after a non-empty graph render (refreshMinimap shows it), got hidden=${overlayBoxes.hidden}`);
+    assert(overlayBoxes.pointerEvents === 'auto',
+      `WP3d minimap: #minimap must be pointer-events:auto (it is click/drag interactive), got '${overlayBoxes.pointerEvents}'`);
+    const mmBox = overlayBoxes.minimap;
+    // #minimap is content-box (no box-sizing override) with a 1px border, so its
+    // border-box getBoundingClientRect is the 200x140 CONTENT plus 2px (1px each
+    // side). MINIMAP_W/H pin the CONTENT size that graph.js maps the thumbnail into;
+    // the rendered border-box is MINIMAP_W+2 x MINIMAP_H+2.
+    const MINIMAP_BORDER = 1;
+    const mmBorderBoxW = MINIMAP_W + 2 * MINIMAP_BORDER;
+    const mmBorderBoxH = MINIMAP_H + 2 * MINIMAP_BORDER;
+    assert(Math.abs(mmBox.width - mmBorderBoxW) < 1 && Math.abs(mmBox.height - mmBorderBoxH) < 1,
+      `WP3d minimap: #minimap border-box must be ${mmBorderBoxW}x${mmBorderBoxH} (${MINIMAP_W}x${MINIMAP_H} content + ${MINIMAP_BORDER}px border each side; index.html/graph.js MINIMAP_W/H), got ${mmBox.width}x${mmBox.height}`);
+    assert(mmBox.left < overlayBoxes.innerWidth / 2,
+      `WP3d minimap: #minimap must sit on the LEFT half (bottom-left corner): box.left ${mmBox.left} >= innerWidth/2 ${overlayBoxes.innerWidth / 2}`);
+    assert(mmBox.top > overlayBoxes.innerHeight / 2,
+      `WP3d minimap: #minimap must sit on the BOTTOM half (bottom-left corner): box.top ${mmBox.top} <= innerHeight/2 ${overlayBoxes.innerHeight / 2}`);
+    // No-overlap by AABB: two rects are disjoint iff one is fully left/right/above/
+    // below the other. #legend (top-left) and #controls (bottom-right) must each be
+    // disjoint from #minimap (bottom-left) so the three overlays never collide.
+    const disjoint = (a, b) =>
+      a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+    assert(disjoint(mmBox, overlayBoxes.legend),
+      `WP3d minimap: #minimap (bottom-left) must NOT overlap #legend (top-left): minimap ${JSON.stringify(mmBox)} vs legend ${JSON.stringify(overlayBoxes.legend)}`);
+    assert(disjoint(mmBox, overlayBoxes.controls),
+      `WP3d minimap: #minimap (bottom-left) must NOT overlap #controls (bottom-right): minimap ${JSON.stringify(mmBox)} vs controls ${JSON.stringify(overlayBoxes.controls)}`);
+    phase('WP3d minimap: bottom-left, 200x140, pointer-events:auto, disjoint from legend + controls');
+
+    // (2) thumbnail present: #minimap computed background-image is a non-'none'
+    // data:image/png URI once the graph renders (refreshMinimap set cy.png base64uri).
+    const bgImageDark = await page.evaluate(
+      () => getComputedStyle(document.getElementById('minimap')).backgroundImage);
+    assert(bgImageDark && bgImageDark !== 'none' && /data:image\/png/i.test(bgImageDark),
+      `WP3d minimap: #minimap background-image must be a non-'none' data:image/png URI thumbnail after render, got '${(bgImageDark || '').slice(0, 64)}...'`);
+    phase('WP3d minimap: thumbnail background-image is a data:image/png URI');
+
+    // (3) #minimap-viewport tracks the camera: capture the rect's left/top/width/
+    // height, then zoom + pan to a DIFFERENT camera (driving cy directly, then firing
+    // the 'render' event the rect listens on), and assert at least one of the four
+    // changed. The rect is the only per-frame DOM write (cy.on('render pan zoom')).
+    const vpBefore = await page.evaluate(() => {
+      const vp = document.getElementById('minimap-viewport');
+      if (!vp) { return null; }
+      const s = vp.style;
+      return { present: true, left: s.left, top: s.top, width: s.width, height: s.height };
+    });
+    assert(vpBefore && vpBefore.present,
+      'WP3d minimap: #minimap-viewport must exist inside #minimap');
+    await page.evaluate(() => {
+      const cy = window.__cy;
+      // Move to a clearly different camera (zoom in, pan), then emit 'render' so the
+      // bundle's cy.on('render pan zoom') handler repositions the viewport rect.
+      cy.zoom(cy.zoom() * 2 + 0.5);
+      cy.pan({ x: cy.pan().x + 137, y: cy.pan().y - 91 });
+      cy.emit('render');
+    });
+    const vpAfter = await page.evaluate(() => {
+      const s = document.getElementById('minimap-viewport').style;
+      return { left: s.left, top: s.top, width: s.width, height: s.height };
+    });
+    const vpChanged = vpAfter.left !== vpBefore.left || vpAfter.top !== vpBefore.top
+      || vpAfter.width !== vpBefore.width || vpAfter.height !== vpBefore.height;
+    assert(vpChanged,
+      `WP3d minimap: #minimap-viewport rect must track the camera (left/top/width/height) on render/pan/zoom - none changed after a zoom+pan. before ${JSON.stringify(vpBefore)} after ${JSON.stringify(vpAfter)}`);
+    phase('WP3d minimap: #minimap-viewport rect tracks the live camera on pan/zoom');
+
+    // (4) click-to-pan: record cy.pan(), dispatch a real DOM mousedown at an
+    // off-center #minimap pixel (the element's own client coords + an offset), and
+    // assert (a) cy.pan() changed (minimapPanTo -> cy.center) AND (b) zero NEW bridge
+    // messages of type nodeClick/focused/select (a minimap pan is coarse navigation,
+    // NOT a node tap or a focus frame - it must stay bridge-silent). Snapshot the
+    // main-channel message list length first so only messages provoked by THIS click
+    // are inspected.
+    const beforeMsgCount = allMessages.length;
+    const panBefore = await page.evaluate(() => ({ x: window.__cy.pan().x, y: window.__cy.pan().y }));
+    await page.evaluate(() => {
+      const el = document.getElementById('minimap');
+      const r = el.getBoundingClientRect();
+      // An off-center point well inside the box (not the exact centre, so cy.center
+      // actually moves the camera): ~30% in from the top-left of the minimap.
+      const cx = r.left + r.width * 0.3;
+      const cy = r.top + r.height * 0.3;
+      el.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, cancelable: true, view: window,
+        clientX: cx, clientY: cy, button: 0,
+      }));
+    });
+    const panAfter = await page.evaluate(() => ({ x: window.__cy.pan().x, y: window.__cy.pan().y }));
+    const panMoved = Math.abs(panAfter.x - panBefore.x) > 1e-6 || Math.abs(panAfter.y - panBefore.y) > 1e-6;
+    assert(panMoved,
+      `WP3d minimap: a mousedown at an off-center #minimap pixel must pan the main view (minimapPanTo -> cy.center). pan before ${JSON.stringify(panBefore)} after ${JSON.stringify(panAfter)}`);
+    const newMsgs = allMessages.slice(beforeMsgCount);
+    const chattyMsgs = newMsgs.filter((m) => m.type === 'nodeClick' || m.type === 'focused' || m.type === 'select');
+    assert(chattyMsgs.length === 0,
+      `WP3d minimap: click-to-pan must be bridge-silent (coarse navigation, not a tap/focus) - zero nodeClick/focused/select. got ${JSON.stringify(chattyMsgs)}`);
+    phase('WP3d minimap: click-to-pan moves the camera AND emits no nodeClick/focused/select');
+
+    // (5) theme re-png: the thumbnail is re-rasterized to the recolored canvas on a
+    // {theme} command (the handler calls refreshMinimap after cy.style). Capture the
+    // current DARK thumbnail data-URI, flip to light (with the ping/pong restyle
+    // barrier - theme is fire-and-forget), assert the new data-URI DIFFERS (light
+    // canvas bg + hues), then flip back to dark and assert the restored thumbnail
+    // differs from the light one (the re-png round-trips). The MAIN dark graph
+    // screenshots are already captured above, so this never disturbs the byte-
+    // identical dark baseline; the minimap thumbnail is not part of it.
+    let mmPingSeq = 0;
+    const setMinimapVariant = async (variant) => {
+      await page.evaluate((v) => window.bridge.dispatch({ type: 'theme', variant: v }), variant);
+      mmPingSeq += 1;
+      await page.evaluate((seq) => window.bridge.dispatch({ type: 'ping', seq }), mmPingSeq);
+      const pong = await awaitMessage('pong', `WP3d minimap restyle barrier after {variant:'${variant}'}`);
+      assert(pong.seq === mmPingSeq,
+        `WP3d minimap restyle barrier: pong.seq ${pong.seq} != ${mmPingSeq} (out-of-order command handling?)`);
+    };
+    const mmBgNow = () => page.evaluate(
+      () => getComputedStyle(document.getElementById('minimap')).backgroundImage);
+    const darkThumb = await mmBgNow();
+    assert(darkThumb && /data:image\/png/i.test(darkThumb),
+      `WP3d minimap: dark thumbnail must be a data:image/png URI before the theme flip, got '${(darkThumb || '').slice(0, 48)}...'`);
+    await setMinimapVariant('light');
+    const lightThumb = await mmBgNow();
+    assert(lightThumb && /data:image\/png/i.test(lightThumb),
+      `WP3d minimap: light thumbnail must still be a data:image/png URI after {theme:'light'}, got '${(lightThumb || '').slice(0, 48)}...'`);
+    assert(lightThumb !== darkThumb,
+      'WP3d minimap: the {theme:\'light\'} re-png must produce a DIFFERENT thumbnail data-URI than dark (refreshMinimap re-rasterizes to the light canvas) - they are byte-identical, the theme handler did not re-png the minimap');
+    // Restore dark and prove the re-png round-trips (the restored thumbnail differs
+    // from the light one). This also leaves the main page back on the byte-identical
+    // dark canvas for the PNG-export round-trip / final audit / downstream probes.
+    await setMinimapVariant('dark');
+    const darkThumb2 = await mmBgNow();
+    assert(darkThumb2 && /data:image\/png/i.test(darkThumb2) && darkThumb2 !== lightThumb,
+      `WP3d minimap: restoring {theme:'dark'} must re-png back to a dark thumbnail DIFFERENT from the light one (round-trip) - got ${darkThumb2 === lightThumb ? 'byte-identical to light' : 'a non-PNG URI'}`);
+    phase('WP3d minimap: theme flip re-pngs the thumbnail (dark -> light differs, dark restored)');
+
     // --- PNG export round-trip (AP 4.1, ADR-013) -----------------------------
     // Dispatch the new {type:'exportPng'} command and await the {type:'pngExported',
     // data:<base64>, width, height} reply. cy.png({output:'base64'}) returns a BARE
@@ -4349,6 +4673,16 @@ async function main() {
     await issuesAllClearProbe(browser, indexHtml);
     phase('issues-all-clear probe (fresh page: zero-flagged toggle is inert, "No issues")');
 
+    // --- fresh-page MINIMAP DEGENERATE probe (WP3d / #146) -------------------
+    // After the audit and the other probes, on its OWN page/context/channel. The demo
+    // run always loads the ~200-node graph (minimap shown), so the HIDDEN case (an
+    // EMPTY graph must keep #minimap [hidden] with NO thumbnail) and the small-graph
+    // SHOWN case (a single-node graph still renders a clean thumbnail, no broken img)
+    // need a hand-built fixture. Independent of the main run's zero-jsError audit (and
+    // itself jsError-free).
+    await minimapDegenerateProbe(browser, indexHtml);
+    phase('minimap-degenerate probe (fresh page: empty keeps #minimap hidden; single-node shows a clean thumbnail)');
+
     // --- fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b) -------------------
     // After the audit and the other probes, on its OWN page/context/channel. Loads a
     // hand-built dataset, dispatches {type:'theme',variant:'light'}, awaits the live
@@ -4376,6 +4710,7 @@ async function main() {
       + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
       + `control cluster + find (name/DN/no-match) + zoom/fit + labels toggle + keyboard verified (ADR-023), `
       + `issues-only filter (toggle on/off, keep flagged+roll-up, hide clean, survive graphUpdate, reveal-on-select, all-clear inert) verified (WP3b #142), `
+      + `minimap (bottom-left/disjoint, thumbnail, viewport-tracks-camera, click-to-pan silent, theme re-png, empty+degenerate hidden) verified (WP3d #146), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `8 screenshots -> ${screenshotDir}`);
   } finally {

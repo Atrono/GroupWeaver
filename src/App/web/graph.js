@@ -253,6 +253,154 @@
     el.classList.remove('gw-accent-pulse');
   }
 
+  // WP3d (#146): the graph minimap. A downscaled thumbnail of the WHOLE graph (a single
+  // cy.png snapshot set as the #minimap background-image, refreshed ONLY on graph/theme
+  // change — NEVER per frame) plus a live viewport rectangle (#minimap-viewport) and
+  // click/drag-to-pan. The viewport rect is the ONLY per-frame work and it is a single
+  // DOM write (like the accent ring), so the software-rendering floor is safe.
+  //
+  // The thumbnail is a PNG, not a second live cytoscape instance: cy.png({full:true})
+  // rasterizes the whole graph once. To stay smooth on the 5000-node/6499-edge
+  // software-rendering spike (RESULTS-software-rendering.md), the snapshot SCALE is gated
+  // on node count like the F7 EDGE_HIDE_THRESHOLD: above MINIMAP_COARSE_THRESHOLD nodes
+  // a coarser scale keeps the one-off rasterize cheap (a thumbnail never needs node
+  // detail). The cy.png "full" extent maps 1:1 to cy.elements().boundingBox(), so the
+  // SAME bbox maps the live cy.extent() viewport into thumbnail pixels for the rect, and
+  // a minimap click maps back to a model point for cy.pan()/center().
+  var MINIMAP_W = 200;              // must match #minimap width in index.html
+  var MINIMAP_H = 140;              // must match #minimap height in index.html
+  // Snapshot scale: small graphs get a crisp thumbnail; large graphs a coarse one so the
+  // one-off cy.png stays cheap under software rendering (the thumbnail is downscaled to
+  // ~200x140 anyway, so node-level crispness past this size buys nothing).
+  var MINIMAP_COARSE_THRESHOLD = 1500;   // node count; aligned with the F7 edge gate magnitude
+  var MINIMAP_SCALE_FINE = 0.5;
+  var MINIMAP_SCALE_COARSE = 0.15;
+  var minimapEl = null;            // cached #minimap (lazily, once)
+  var minimapViewportEl = null;    // cached #minimap-viewport (lazily, once)
+  // The full-graph model bounding box captured at the LAST thumbnail render, and the
+  // thumbnail's pixel size — both fixed until the next re-png. The viewport rect + the
+  // click-to-pan inverse map are computed against these (NOT a live boundingBox() per
+  // frame), so a pan/zoom never recomputes the O(V) bbox.
+  var minimapBbox = null;          // { x1, y1, w, h } in model coords, or null when hidden
+  var minimapImgW = 0;             // rendered thumbnail width inside #minimap (px)
+  var minimapImgH = 0;             // rendered thumbnail height inside #minimap (px)
+  var minimapOffX = 0;             // left offset of the centered thumbnail inside #minimap (px)
+  var minimapOffY = 0;             // top offset of the centered thumbnail inside #minimap (px)
+
+  function getMinimapEl() {
+    if (minimapEl === null) { minimapEl = document.getElementById('minimap'); }
+    return minimapEl;
+  }
+  function getMinimapViewportEl() {
+    if (minimapViewportEl === null) { minimapViewportEl = document.getElementById('minimap-viewport'); }
+    return minimapViewportEl;
+  }
+
+  function hideMinimap() {
+    var el = getMinimapEl();
+    if (el === null) { return; }
+    el.hidden = true;
+    el.style.backgroundImage = 'none';
+    minimapBbox = null;
+  }
+
+  // (Re)rasterize the whole graph into the minimap background. Called ONLY on a graph
+  // change (sendLoaded) and on a theme change (so the thumbnail matches the recolored
+  // canvas) — never per frame. Empty graph => hide (never a broken/empty img). Computes
+  // the centered "contain" placement of the thumbnail inside #minimap and caches the
+  // full-graph model bbox so the per-frame viewport rect + click-to-pan can map without
+  // recomputing boundingBox().
+  function refreshMinimap() {
+    var el = getMinimapEl();
+    if (el === null) { return; }
+    if (cy === null || cy.nodes().empty()) { hideMinimap(); return; }
+    var bb = cy.elements().boundingBox();
+    if (!(bb.w > 0) || !(bb.h > 0)) { hideMinimap(); return; }   // degenerate (single point)
+    var scale = cy.nodes().length > MINIMAP_COARSE_THRESHOLD ? MINIMAP_SCALE_COARSE : MINIMAP_SCALE_FINE;
+    var bg = (CHROME[currentVariant] || CHROME.dark)['--gw-canvas-bg'];
+    var png = cy.png({ output: 'base64uri', full: true, scale: scale, bg: bg });
+    el.style.backgroundImage = 'url("' + png + '")';
+    minimapBbox = { x1: bb.x1, y1: bb.y1, w: bb.w, h: bb.h };
+    // "contain" placement: the thumbnail fills #minimap preserving the graph aspect ratio.
+    var fit = Math.min(MINIMAP_W / bb.w, MINIMAP_H / bb.h);
+    minimapImgW = bb.w * fit;
+    minimapImgH = bb.h * fit;
+    minimapOffX = (MINIMAP_W - minimapImgW) / 2;
+    minimapOffY = (MINIMAP_H - minimapImgH) / 2;
+    el.hidden = false;
+    updateMinimapViewport();
+  }
+
+  // Reposition the viewport rectangle from the live cy.extent() (the viewport's model
+  // rect) into thumbnail pixels, clamped to the thumbnail box. The ONLY per-frame work:
+  // pure cy.extent() read + a few style writes on ONE div (no boundingBox, no png).
+  function updateMinimapViewport() {
+    var rect = getMinimapViewportEl();
+    if (rect === null || minimapBbox === null || cy === null) { return; }
+    var ext = cy.extent();   // { x1, y1, x2, y2, w, h } in model coords
+    var bb = minimapBbox;
+    var sx = minimapImgW / bb.w;
+    var sy = minimapImgH / bb.h;
+    var left = minimapOffX + (ext.x1 - bb.x1) * sx;
+    var top = minimapOffY + (ext.y1 - bb.y1) * sy;
+    var w = (ext.x2 - ext.x1) * sx;
+    var h = (ext.y2 - ext.y1) * sy;
+    // Clamp to the thumbnail so a zoomed-out viewport (larger than the graph) does not
+    // overflow the minimap box.
+    var x0 = Math.max(minimapOffX, left);
+    var y0 = Math.max(minimapOffY, top);
+    var x1 = Math.min(minimapOffX + minimapImgW, left + w);
+    var y1 = Math.min(minimapOffY + minimapImgH, top + h);
+    rect.style.left = x0 + 'px';
+    rect.style.top = y0 + 'px';
+    rect.style.width = Math.max(0, x1 - x0) + 'px';
+    rect.style.height = Math.max(0, y1 - y0) + 'px';
+  }
+
+  // Map a minimap-local pixel point (relative to #minimap's top-left) to a model
+  // coordinate and CENTER the main view there. Inverse of the viewport-rect mapping.
+  // Clicks outside the thumbnail area (the centered letterbox margins) are ignored.
+  // Instant (no cy.animate): a click/drag needs to track the pointer every move, so an
+  // eased camera would fight the drag — a minimap pan is coarse navigation, not a focus
+  // frame (the ADR-017 easing belongs to Find/focus, not here). zoom is left untouched.
+  function minimapPanTo(px, py) {
+    if (cy === null || minimapBbox === null) { return; }
+    var bb = minimapBbox;
+    var ix = px - minimapOffX;
+    var iy = py - minimapOffY;
+    if (ix < 0 || iy < 0 || ix > minimapImgW || iy > minimapImgH) { return; }
+    var mx = bb.x1 + (ix / minimapImgW) * bb.w;
+    var my = bb.y1 + (iy / minimapImgH) * bb.h;
+    cy.center({ position: { x: mx, y: my } });
+  }
+
+  // Bind the minimap pointer interactions ONCE (the element is static; cy is what gets
+  // recreated). Click + drag pan; pointer capture keeps the drag alive past the box edge.
+  function wireMinimap() {
+    var el = getMinimapEl();
+    if (el === null) { return; }
+    var dragging = false;
+    function localPoint(e) {
+      var r = el.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    function pan(e) {
+      var p = localPoint(e);
+      minimapPanTo(p.x, p.y);
+    }
+    el.addEventListener('mousedown', function (e) {
+      if (cy === null || minimapBbox === null) { return; }
+      e.preventDefault();
+      dragging = true;
+      pan(e);
+    });
+    document.addEventListener('mousemove', function (e) {
+      if (!dragging) { return; }
+      pan(e);
+    });
+    document.addEventListener('mouseup', function () { dragging = false; });
+  }
+
   // ADR-018 (#89): selection + neighborhood dim. INSTANT class toggles only -
   // never cy.animate / collection.animate (the #88 isolated motion counters must
   // stay 0). applySelection enforces exactly-one-selected: drop any prior
@@ -460,6 +608,7 @@
     applyLabelMode();  // ADR-023 D4: re-assert label mode across a graphUpdate.
     applyIssuesFilter();  // WP3b (#142): re-assert issues-only across a graphUpdate.
     syncIssuesButton();   // WP3b: refresh the toggle (incl. all-clear) per build.
+    refreshMinimap();     // WP3d (#146): (re)rasterize the thumbnail on any graph change.
   }
 
   // ADR-026 WP1b: build the full cytoscape style array from a theme token table `t`
@@ -703,6 +852,7 @@
   function initGraph() {
     if (cy !== null) { cy.destroy(); cy = null; }
     hideAccentRing();  // ADR-027 D3: a full re-init starts with no selection ring.
+    hideMinimap();     // WP3d (#146): clear the old thumbnail before the new graph renders.
     var elements = takePendingElements();
 
     var edgeCount = 0;
@@ -750,6 +900,10 @@
     // These attach ONCE per cy instance (initGraph destroys + recreates cy).
     cy.on('render pan zoom', updateAccentRing);
     cy.on('position', 'node', updateAccentRing);
+    // WP3d (#146): keep the minimap viewport rect synced to the live camera. The ONLY
+    // per-frame minimap work — a single div repositioned from cy.extent() (no png, no
+    // boundingBox). Attaches ONCE per cy instance (initGraph recreates cy).
+    cy.on('render pan zoom', updateMinimapViewport);
 
     cy.fit();
     cy.one('render', sendLoaded);
@@ -924,7 +1078,13 @@
           // No bridge reply (fire-and-forget) — the C# side does not await a confirmation.
           currentVariant = (cmd.variant === 'light') ? 'light' : 'dark';
           applyChromeVariant(currentVariant);
-          if (cy !== null) { cy.style(buildStyle(THEME[currentVariant])); }
+          if (cy !== null) {
+            cy.style(buildStyle(THEME[currentVariant]));
+            // WP3d (#146): re-png the minimap thumbnail so it matches the recolored
+            // canvas (new node hues + the variant's --gw-canvas-bg). Re-png ONLY here
+            // and on graph change — not per frame. No-op (hide) on an empty graph.
+            refreshMinimap();
+          }
           break;
         case 'ping':
           window.bridge.send({ type: 'pong', seq: cmd.seq });
@@ -1255,6 +1415,7 @@
   }
 
   wireControls();
+  wireMinimap();  // WP3d (#146): bind the minimap click/drag-to-pan once (cy-independent).
 
   // ADR-026 WP1b: index.html ships DARK chrome var defaults on :root (so the bundle is
   // byte-identical pre-theme-command), but assert them from the JS table too so the
