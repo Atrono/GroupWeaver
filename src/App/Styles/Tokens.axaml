@@ -26,6 +26,24 @@
       <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#B0B5BD" />
       <!-- Ghost-button pointer-over wash (App.axaml). -->
       <SolidColorBrush x:Key="GhostHoverBrush" Color="#14FFFFFF" />
+
+      <!-- ADR-026 D6 (WP2): the brand-purple accent. Decorative accent (DEMO badge text /
+           focus rings) is the lighter Frame-1 hue; the primary-button FILL is the deeper
+           accent-2 whose WHITE text clears 4.5:1 across rest/hover/pressed (mirrors
+           BrandTokens.Accent* — values + ratios documented there + ADR-026 D6). -->
+      <SolidColorBrush x:Key="AccentBrush" Color="#8B7BFF" />
+      <SolidColorBrush x:Key="AccentSoftBrush" Color="#298B7BFF" />
+      <SolidColorBrush x:Key="AccentLineBrush" Color="#808B7BFF" />
+      <SolidColorBrush x:Key="AccentFillBrush" Color="#6B5BDF" />
+      <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#5F4FD0" />
+      <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#5B4BC8" />
+      <!-- DEMO badge ink: deepened/lightened off the raw accent to clear 4.5:1 on the soft
+           pill (the label is readable text — 1.4.3 applies; ADR-021 ToTextBrush precedent).
+           Dark pill is dark ⇒ a LIGHTER purple (5.51:1 on the blended pill). -->
+      <SolidColorBrush x:Key="DemoBadgeTextBrush" Color="#A99BFF" />
+      <!-- Always-on Read-only pill (Frame-1 green-soft pill + green ink @5.93:1 on the pill). -->
+      <SolidColorBrush x:Key="ReadOnlyPillTextBrush" Color="#46C98A" />
+      <SolidColorBrush x:Key="ReadOnlyPillBackgroundBrush" Color="#2646C98A" />
     </ResourceDictionary>
 
     <!-- Light (ADR-026 D3, Frame 4: re-derived, translucent BLACK over the light page) -->
@@ -35,6 +53,20 @@
       <SolidColorBrush x:Key="CardBorderBrush" Color="#1A000000" />
       <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#5A636E" />
       <SolidColorBrush x:Key="GhostHoverBrush" Color="#0D000000" />
+
+      <!-- ADR-026 D6 (WP2): Frame-4 brand purple (decorative + accessible fill). -->
+      <SolidColorBrush x:Key="AccentBrush" Color="#6A5CFF" />
+      <SolidColorBrush x:Key="AccentSoftBrush" Color="#1F6A5CFF" />
+      <SolidColorBrush x:Key="AccentLineBrush" Color="#806A5CFF" />
+      <SolidColorBrush x:Key="AccentFillBrush" Color="#5547E6" />
+      <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#4A3CC8" />
+      <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#4537C0" />
+      <!-- DEMO badge ink: light pill is light ⇒ a DARKER purple (5.62:1 on the blended pill). -->
+      <SolidColorBrush x:Key="DemoBadgeTextBrush" Color="#4A3CC8" />
+      <!-- Read-only ink deepened to a forest green: the Frame #1F9D57 fails at 2.65:1 on the
+           blended light pill; #0B6B36 clears it at 5.03:1 (and 5.70:1 on the raw page). -->
+      <SolidColorBrush x:Key="ReadOnlyPillTextBrush" Color="#0B6B36" />
+      <SolidColorBrush x:Key="ReadOnlyPillBackgroundBrush" Color="#1F1F9D57" />
     </ResourceDictionary>
 
   </ResourceDictionary.ThemeDictionaries>

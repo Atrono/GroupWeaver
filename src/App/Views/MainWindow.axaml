@@ -74,33 +74,76 @@
          !IsFocusMode. The WebView2-missing banner above stays visible regardless (a
          missing-runtime warning must never be suppressed). -->
     <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#33808080"
-            Padding="8,4"
+            Padding="10,5"
             IsVisible="{Binding !IsFocusMode}">
-      <!-- ADR-022 addendum: the Focus toggle (the entry point D2 specified but the first cut
-           omitted) sits to the LEFT of Settings, so Settings stays rightmost. It binds DIRECTLY
-           to ShellViewModel.ToggleFocusModeCommand (focus mode is shell chrome — it hides this
-           very strip) and shows only on the workspace step (IsWorkspaceStep), keeping the
-           Connect/RootPicker strips byte-identical. -->
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-        <!-- ADR-026 D4: app-chrome theme toggle, LEFT of Focus so Settings stays rightmost.
-             Shown on every step (unlike Focus, which is workspace-only) — the theme is shell
-             chrome. Glyph swaps sun/moon via ShellViewModel.ThemeGlyph. -->
-        <Button Name="ThemeToggleButton" Padding="10,4"
-                Command="{Binding ToggleThemeCommand}"
-                ToolTip.Tip="Toggle light / dark theme">
-          <TextBlock Text="{Binding ThemeGlyph}" />
-        </Button>
-        <Button Name="FocusModeButton" Padding="10,4"
-                IsVisible="{Binding IsWorkspaceStep}"
-                Command="{Binding ToggleFocusModeCommand}"
-                ToolTip.Tip="Focus mode — hide panels for presentation (F · Esc to exit)">
-          <TextBlock Text="⛶ Focus" />
-        </Button>
-        <Button HorizontalAlignment="Right" Padding="10,4"
-                Command="{Binding OpenSettingsCommand}">
-          <TextBlock Text="⚙ Settings" />
-        </Button>
-      </StackPanel>
+      <!-- ADR-026 D6 (WP2): the strip reads as the redesign's title strip — LEFT-aligned status
+           badges (the always-on Read-only lock pill + the demo-gated DEMO badge, with a minimal
+           "GW" brand mark) coexist with the RIGHT-aligned theme/Focus/Settings buttons via a
+           three-column grid (Auto | * | Auto). The middle * spacer keeps Settings rightmost. -->
+      <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+
+        <!-- LEFT: brand mark + status badges. -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+
+          <!-- Minimal "GW" brand mark (the redesign's gradient-tile wordmark, flattened to the
+               accent fill so it reads in both themes). Decorative — IsHitTestVisible=False. -->
+          <Border Width="20" Height="20" CornerRadius="5" IsHitTestVisible="False"
+                  Background="{DynamicResource AccentFillBrush}"
+                  VerticalAlignment="Center">
+            <TextBlock Text="GW" FontSize="9" FontWeight="Bold" Foreground="#FFFFFF"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+
+          <!-- Read-only lock pill — ALWAYS visible (the product is read-only by design). Green-soft
+               pill, green ink, lock glyph + "Read-only" (ADR-026 D6). Theme-aware via tokens. -->
+          <Border CornerRadius="6" Padding="9,3" VerticalAlignment="Center"
+                  Background="{DynamicResource ReadOnlyPillBackgroundBrush}"
+                  ToolTip.Tip="GroupWeaver never writes to Active Directory.">
+            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+              <TextBlock Text="🔒" FontSize="11" VerticalAlignment="Center"
+                         Foreground="{DynamicResource ReadOnlyPillTextBrush}" />
+              <TextBlock Text="Read-only" FontSize="11" FontWeight="SemiBold"
+                         VerticalAlignment="Center"
+                         Foreground="{DynamicResource ReadOnlyPillTextBrush}" />
+            </StackPanel>
+          </Border>
+
+          <!-- DEMO badge — visible ONLY in demo mode (ADR-026 D6). Accent ink on an accent-soft
+               pill, letter-spaced mono, mirroring the redesign's title-strip badge. -->
+          <Border CornerRadius="6" Padding="6,2" VerticalAlignment="Center"
+                  IsVisible="{Binding IsDemoMode}"
+                  Background="{DynamicResource AccentSoftBrush}">
+            <TextBlock Text="DEMO" FontSize="10" FontWeight="Bold" LetterSpacing="0.6"
+                       FontFamily="{StaticResource FontFamilyMono}"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource DemoBadgeTextBrush}" />
+          </Border>
+
+        </StackPanel>
+
+        <!-- RIGHT: theme / Focus / Settings (unchanged order; Settings stays rightmost).
+             ADR-022 addendum: the Focus toggle sits to the LEFT of Settings; it binds DIRECTLY to
+             ShellViewModel.ToggleFocusModeCommand and shows only on the workspace step
+             (IsWorkspaceStep). ADR-026 D4: the theme toggle shows on every step. -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Spacing="8" VerticalAlignment="Center">
+          <Button Name="ThemeToggleButton" Padding="10,4"
+                  Command="{Binding ToggleThemeCommand}"
+                  ToolTip.Tip="Toggle light / dark theme">
+            <TextBlock Text="{Binding ThemeGlyph}" />
+          </Button>
+          <Button Name="FocusModeButton" Padding="10,4"
+                  IsVisible="{Binding IsWorkspaceStep}"
+                  Command="{Binding ToggleFocusModeCommand}"
+                  ToolTip.Tip="Focus mode — hide panels for presentation (F · Esc to exit)">
+            <TextBlock Text="⛶ Focus" />
+          </Button>
+          <Button HorizontalAlignment="Right" Padding="10,4"
+                  Command="{Binding OpenSettingsCommand}">
+            <TextBlock Text="⚙ Settings" />
+          </Button>
+        </StackPanel>
+      </Grid>
     </Border>
 
     <!-- #122 (ADR-025): the step content sits over an always-attached, hidden, zero-size

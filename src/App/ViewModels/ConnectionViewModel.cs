@@ -15,7 +15,7 @@ namespace GroupWeaver.App.ViewModels;
 public sealed partial class ConnectionViewModel : ObservableObject
 {
     private readonly Func<bool, IDirectoryProvider> _providerFactory;
-    private readonly Action<IDirectoryProvider, DirectoryConnection> _onConnected;
+    private readonly Action<IDirectoryProvider, DirectoryConnection, bool> _onConnected;
 
     /// <summary>True while a connect attempt is in flight; disables both commands.</summary>
     [ObservableProperty]
@@ -29,7 +29,7 @@ public sealed partial class ConnectionViewModel : ObservableObject
 
     public ConnectionViewModel(
         Func<bool, IDirectoryProvider> providerFactory,
-        Action<IDirectoryProvider, DirectoryConnection> onConnected)
+        Action<IDirectoryProvider, DirectoryConnection, bool> onConnected)
     {
         _providerFactory = providerFactory;
         _onConnected = onConnected;
@@ -60,7 +60,10 @@ public sealed partial class ConnectionViewModel : ObservableObject
         {
             IDirectoryProvider provider = _providerFactory(demo);
             DirectoryConnection connection = await provider.ConnectAsync();
-            _onConnected(provider, connection);
+            // ADR-026 D6 (WP2): carry the demo flag to the shell so the top-strip DEMO badge has an
+            // honest source. Covers BOTH the Connect-screen "Demo mode" button and the CLI --demo
+            // (which also routes through ConnectDemoCommand → ConnectCoreAsync(demo:true)).
+            _onConnected(provider, connection, demo);
         }
         catch (DirectoryUnavailableException ex)
         {

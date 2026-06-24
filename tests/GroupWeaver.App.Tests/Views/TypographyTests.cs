@@ -162,7 +162,7 @@ public sealed class TypographyTests
     {
         var vm = new ConnectionViewModel(
             _ => new StubDirectoryProvider(Task.FromResult(new DirectoryConnection("stub", 0))),
-            (_, _) => { });
+            (_, _, _) => { });
 
         var view = new ConnectionView { DataContext = vm };
         var window = new Window { Content = view, Width = 1280, Height = 720 };
