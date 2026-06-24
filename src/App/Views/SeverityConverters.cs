@@ -42,6 +42,30 @@ public static class SeverityConverters
     public static readonly IValueConverter ToGlyph =
         new FuncValueConverter<RuleSeverity, string>(GlyphFor);
 
+    /// <summary>WP4 (#148) audit chip → its FILL: a finding chip uses its class's max-severity
+    /// overlay color (in lock-step with the sidebar glyph + graph halo); the green "No findings"
+    /// pass chip uses <see cref="BrandTokens.NamingOk"/> — the success green that is deliberately
+    /// outside the severity palette (a clean DN is not a finding).</summary>
+    public static readonly IValueConverter ChipToBrush =
+        new FuncValueConverter<AuditChip, IBrush>(chip =>
+            chip is { HasFindings: true } ? BrushFor(chip.Severity) : BrandTokens.NamingOk);
+
+    /// <summary>WP4 (#148) audit chip → its ON-CHIP ink: a finding chip routes through the
+    /// per-hue <see cref="ToTextBrush"/> WCAG re-tone (red→white, amber/light-blue→dark ink);
+    /// the green pass chip carries DARK ink (<see cref="BrandTokens.OnLightText"/> #1b1f27) —
+    /// white on the <see cref="BrandTokens.NamingOk"/> green #2EA043 is only 3.37:1 (FAILS 1.4.3,
+    /// the same white-on-light-fill trap ADR-021 §2 fixed for amber/light-blue); dark ink clears
+    /// it at 4.89:1.</summary>
+    public static readonly IValueConverter ChipToTextBrush =
+        new FuncValueConverter<AuditChip, IBrush>(chip =>
+            chip is { HasFindings: true } ? TextBrushFor(chip.Severity) : BrandTokens.OnLightText);
+
+    /// <summary>WP4 (#148) audit chip → its label text: a finding chip appends its count
+    /// ("Nesting 1"); the pass chip shows just "No findings".</summary>
+    public static readonly IValueConverter ChipToLabel =
+        new FuncValueConverter<AuditChip, string>(chip =>
+            chip is { HasFindings: true } ? $"{chip.Label} {chip.Count}" : chip!.Label);
+
     /// <summary>
     /// Counts the <see cref="ViolationRowModel"/> rows of one severity. Used in a
     /// <c>MultiBinding</c> whose values are <c>[Violations, Violations.Count]</c> — value[0]

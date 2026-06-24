@@ -37,6 +37,31 @@
       <SelectableTextBlock Classes="dn-strong" Text="{Binding Dn}"
                            TextWrapping="Wrap" />
 
+      <!-- WP4 (#148) audit-state chips: one chip per finding-bearing rule class
+           (max severity + count), or a single green "No findings" chip when clean.
+           ENGINE-SOURCED from the RuleReport (RuleId/Severity only) - NO attribute
+           data crosses here, so the whitelist baseline below stays intact. Empty
+           (collapses) when the panel was built without a report (Plan/Gap) or for a
+           frontier DN - graceful, no chips. -->
+      <ItemsControl ItemsSource="{Binding AuditChips}"
+                    IsVisible="{Binding AuditChips.Count}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:AuditChip">
+            <Border CornerRadius="6" Padding="8,4" Margin="0,0,6,6"
+                    Background="{Binding Converter={x:Static views:SeverityConverters.ChipToBrush}}">
+              <TextBlock Text="{Binding Converter={x:Static views:SeverityConverters.ChipToLabel}}"
+                         Foreground="{Binding Converter={x:Static views:SeverityConverters.ChipToTextBrush}}"
+                         FontSize="11" FontWeight="SemiBold" />
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
       <!-- Load-state honesty (ADR-007 D3), derived from snapshot state alone. -->
       <TextBlock Classes="secondary"
                  Text="This object is not loaded yet. Double-click it in the graph or press Refresh to resolve it."
@@ -65,6 +90,21 @@
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
+
+      <!-- WP4 (#148) privacy-baseline note: a quiet, theme-aware caption on the #91
+           card chrome stating exactly how many whitelisted attributes are shown and that
+           everything else is withheld by the privacy baseline. N = Rows.Count (the verbatim
+           D2 mirror of the provider-filtered Attributes - the count actually shown for THIS
+           object). Shown only when attributes are present (Rows.Count > 0), so the
+           not-loaded / unresolvable / no-attributes states never carry it. -->
+      <Border IsVisible="{Binding Rows.Count}"
+              Background="{DynamicResource CardBackgroundBrush}"
+              BorderBrush="{DynamicResource CardBorderBrush}"
+              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}"
+              Padding="10,8" Margin="0,4,0,0">
+        <TextBlock Classes="secondary" TextWrapping="Wrap"
+                   Text="{Binding Rows.Count, StringFormat='Showing {0} whitelisted attributes — all others are hidden by the privacy baseline.'}" />
+      </Border>
 
       <!-- Terminus hairline (#92): a faint top-border rule closing the content stack
            so the under-fill below a short panel reads as deliberate empty space, not
