@@ -84,6 +84,16 @@ public sealed record DetailPanelModel
     public required IReadOnlyList<AuditChip> AuditChips { get; init; }
 
     /// <summary>
+    /// The WP4 (#148) privacy-baseline caption shown under the attribute rows when any
+    /// are present — grammatically pluralized on <see cref="Rows"/> count so a single
+    /// whitelisted attribute reads "1 whitelisted attribute" (redesign-fidelity fix; the
+    /// view binds this instead of a count-only <c>StringFormat</c> that was always plural).
+    /// </summary>
+    public string PrivacyNote =>
+        $"Showing {Rows.Count} whitelisted attribute{(Rows.Count == 1 ? "" : "s")} — "
+        + "all others are hidden by the privacy baseline.";
+
+    /// <summary>
     /// Projects <paramref name="dn"/> from <paramref name="snapshot"/> — a pure,
     /// synchronous snapshot read: never calls a provider, never touches the busy
     /// gate (ADR-007 D1). Returns <c>null</c> iff <paramref name="dn"/> is
