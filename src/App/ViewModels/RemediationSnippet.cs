@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 
+using GroupWeaver.Core.Plan;
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.ViewModels;
@@ -183,5 +184,5 @@ public static class RemediationSnippet
     /// DN, name, or rule message can never break out of its single `#`-comment line in the snippet.
     /// Identity on genuine RFC-4514 DNs and display names (which carry no bare control chars).</summary>
     private static string Clean(string text) =>
-        string.IsNullOrEmpty(text) ? text : new string(text.Where(c => !char.IsControl(c)).ToArray());
+        string.IsNullOrEmpty(text) ? text : new string(text.Where(c => !PlanText.IsUnsafe(c)).ToArray());
 }
