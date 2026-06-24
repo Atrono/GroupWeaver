@@ -42,6 +42,16 @@ public static class SeverityConverters
     public static readonly IValueConverter ToGlyph =
         new FuncValueConverter<RuleSeverity, string>(GlyphFor);
 
+    /// <summary>WP5c (#154) health-ring fill → its DECORATIVE band-coded <see cref="Color"/> by the
+    /// <see cref="AuditSummary.Band"/> string: Excellent/Good → green (<see cref="BrandTokens.NamingOkHex"/>),
+    /// Fair → amber (<see cref="BrandTokens.WarningHex"/>), Poor → red (<see cref="BrandTokens.ErrorHex"/>).
+    /// COLOR IS NOT THE SOLE CHANNEL (WCAG 1.4.1): the always-present "{Score} / 100" + band text in
+    /// the ring carries the meaning; the ring fill is a redundant emphasis cue. Returns a
+    /// <see cref="Color"/> (not a brush) — it drives a <c>ConicGradientBrush</c> GradientStop. Reuses
+    /// the severity hues so the dashboard reads in the app's existing traffic-light vocabulary.</summary>
+    public static readonly IValueConverter BandToRingColor =
+        new FuncValueConverter<string, Color>(BandRingColorFor);
+
     /// <summary>WP4 (#148) audit chip → its FILL: a finding chip uses its class's max-severity
     /// overlay color (in lock-step with the sidebar glyph + graph halo); the green "No findings"
     /// pass chip uses <see cref="BrandTokens.NamingOk"/> — the success green that is deliberately
@@ -99,6 +109,17 @@ public static class SeverityConverters
         RuleSeverity.Error => BrandTokens.OnDarkText,
         RuleSeverity.Warning => BrandTokens.OnLightText,
         _ => BrandTokens.OnLightText,
+    };
+
+    // The health-ring band → its decorative fill hue (WP5c). Excellent/Good are healthy (green),
+    // Fair is amber, Poor (and any unknown band string) is red. The band string is the pinned
+    // AuditSummary.BandFor output ("Excellent"/"Good"/"Fair"/"Poor").
+    private static Color BandRingColorFor(string? band) => band switch
+    {
+        "Excellent" => BrandTokens.NamingOk.Color,
+        "Good" => BrandTokens.NamingOk.Color,
+        "Fair" => BrandTokens.Warning.Color,
+        _ => BrandTokens.Error.Color,
     };
 
     private static string GlyphFor(RuleSeverity severity) => severity switch

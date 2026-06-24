@@ -200,6 +200,56 @@ public sealed class SeverityConvertersTests
         Assert.DoesNotContain(passColor, severityColors);
     }
 
+    // === WP5c (#154) health-ring band → decorative ring Color =================================
+
+    /// <summary>
+    /// <see cref="SeverityConverters.BandToRingColor"/> maps the <see cref="AuditSummary.Band"/>
+    /// string to its DECORATIVE ring hue, reusing the existing traffic-light vocabulary:
+    /// Excellent/Good → the success green (<see cref="BrandTokens.NamingOk"/>), Fair → amber
+    /// (<see cref="BrandTokens.Warning"/>), Poor → red (<see cref="BrandTokens.Error"/>). The
+    /// converter returns a <see cref="Color"/> (not a brush) — it drives a <c>ConicGradientBrush</c>
+    /// GradientStop — so the assertions compare against the <c>.Color</c> of each token. Color is
+    /// NOT the sole channel (WCAG 1.4.1): the always-present "{Score} / 100" + band text carries
+    /// the meaning; this only pins the redundant emphasis hue.
+    /// </summary>
+    [Theory]
+    [InlineData("Excellent")]
+    [InlineData("Good")]
+    public void BandToRingColor_HealthyBands_AreTheSuccessGreen(string band)
+    {
+        Assert.Equal(BrandTokens.NamingOk.Color, RingColor(band));
+    }
+
+    [Fact]
+    public void BandToRingColor_Fair_IsAmberWarning()
+    {
+        Assert.Equal(BrandTokens.Warning.Color, RingColor("Fair"));
+    }
+
+    [Fact]
+    public void BandToRingColor_Poor_IsRedError()
+    {
+        Assert.Equal(BrandTokens.Error.Color, RingColor("Poor"));
+    }
+
+    /// <summary>An unknown / unexpected band string fails CLOSED to the red Error hue — the ring
+    /// never silently goes healthy-green on a band the converter does not recognize.</summary>
+    [Theory]
+    [InlineData("Mediocre")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void BandToRingColor_UnknownBand_FailsClosedToError(string? band)
+    {
+        Assert.Equal(BrandTokens.Error.Color, RingColor(band));
+    }
+
+    /// <summary>Invoke the band→ring-color converter through its binding seam exactly as XAML does.
+    /// It yields a bare <see cref="Color"/> (the <c>ConicGradientBrush</c> GradientStop target),
+    /// not an <see cref="IBrush"/>.</summary>
+    private static Color RingColor(string? band) =>
+        Assert.IsType<Color>(SeverityConverters.BandToRingColor.Convert(
+            band, typeof(Color), null, CultureInfo.InvariantCulture));
+
     /// <summary>Invoke the chip FILL converter through its binding seam exactly as XAML does.</summary>
     private static ISolidColorBrush ChipBrush(AuditChip chip) =>
         Assert.IsAssignableFrom<ISolidColorBrush>(SeverityConverters.ChipToBrush.Convert(

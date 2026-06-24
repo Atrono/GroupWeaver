@@ -293,3 +293,41 @@ has no renderer, so GraphHost shows its placeholder — the right-hand chrome is
       findings (HasFindings false) [I — GapModeTests]
 - [ ] No AD-write affordance anywhere in Gap mode; the borrowed Ist is read-only (ADR-015 D3)
       [I — design rule / CLAUDE.md]
+
+### Audit screen (WP5 / #152, health band — WP5c / #154)
+
+`audit-view` is captured by an `AuditViewModel` seeded with the demo default-ruleset roll-up
+(the AP 3.2 baseline: 4 error / 3 warning / 12 info; score "Fair"), rendered through the
+`AuditView` DataTemplate. The audit step is a sibling shell step reached from the Workspace
+(WP5b nav seam); it owns NO graph renderer (no GraphHost airspace region). WP5c is the health
+band + categories pane; the findings TABLE is WP5d and bulk triage + status filters are WP5e
+(not on screen yet). Judge in BOTH theme variants.
+
+- [ ] Header: "Audit · {RootDn}" title; Back ("← Back") + "Show in graph" buttons present at the
+      bottom, legible, with tooltips; no clipped/overlapping controls at both sizes [S:audit-view]
+- [ ] Health ring: a band-coded conic ring filled to the score (green Excellent/Good · amber Fair
+      · red Poor — reusing the severity hues) with the ALWAYS-PRESENT "{Score} / 100" + band text
+      inside it carrying the meaning (WCAG 1.4.1 — colour is not the sole channel); the ring fill
+      fraction visibly tracks the score; the ring carries an AutomationProperties.Name like
+      "Directory health {Score} of 100, {Band}" [S:audit-view] [T:AuditViewModel — RingFraction /
+      band-colour mapping / HealthAutomationName]
+- [ ] Four count tiles (Critical / Warnings / Passing / Rule classes): each a card with the big
+      count + a text label + a colored accent (left-border + dot) from the severity palette
+      (Critical=Error red, Warnings=Warning amber, Passing=NamingOk green, Rule classes=neutral);
+      the Warnings tile carries a muted "+ n info" sub-count; the demo counts read 4 / 3 / 24 / 6
+      (Critical / Warnings / Passing / rule classes — the tile counts ALL enabled rule blocks, so it
+      reads 6 even though the categories pane lists only the 5 finding-bearing classes) [S:audit-view]
+- [ ] Tile + category text contrast: the count + label use the normal card foreground on the card
+      surface (NOT light text on a light fill) and clear ≥ 4.5:1 in BOTH themes; the colour lives
+      only in the accent border/dot (the non-text channel) [S:audit-view — both variants]
+- [ ] Categories pane: a read-only list of the rule classes that produced findings, one row each
+      = max-severity dot (colour) + the class display name + count, in canonical rule order
+      (nesting → naming rules → circular → empty-group); the demo lists Nesting / Naming / Circular
+      / Empty groups with their counts; all-clear shows "No rule violations found." [S:audit-view]
+      [T:AuditViewModel — Categories order/labels/counts/dot severity]
+- [ ] Unchecked caveat: when unexpanded areas remain, a tinted info block (the rail's treatment +
+      wording) reading "Unexpanded areas are unchecked — the score covers checked objects only."
+      so the score never implies a clean bill over unexpanded subtrees; hidden when nothing is
+      unchecked [S:audit-view] [T:AuditViewModel — UncheckedPresent gating]
+- [ ] No AD-write affordance; the view binds only AuditSummary roll-up scalars + ByRuleClass (no
+      AD attributes); read-only product [I — design rule / CLAUDE.md]
