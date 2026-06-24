@@ -9,11 +9,13 @@ conventions. Where security-path tools like BloodHound or Adalanche show attack
 paths, GroupWeaver shows structural cleanliness and convention adherence — a
 governance perspective, not a security one.
 
-![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape, nesting drawn as edges, with a legend and in-graph find / zoom / labels controls](docs/media/graph-explore.png)
+![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape, nesting drawn as edges, with a legend top-left, a minimap bottom-left, and a Ctrl+K command palette plus issues-only / fit / labels controls bottom-right](docs/media/graph-explore.png)
 
 *Exploring the bundled demo directory in demo mode: object kinds (user, global /
 domain-local / universal group, OU, computer, external) are distinct by both color
-and shape, nesting is drawn as directed edges, and a legend sits top-left.*
+and shape, nesting is drawn as directed edges. A legend sits top-left, a minimap
+bottom-left, and a Ctrl+K command palette with an "issues-only" filter, fit, and
+label controls bottom-right.*
 
 ![Gap analysis — a proposed plan diffed against the live structure: added reads green, removed reads red-orange and dashed, unexpanded-and-unchecked reads gray and dotted, on the union graph](docs/media/gap-analysis.png)
 
