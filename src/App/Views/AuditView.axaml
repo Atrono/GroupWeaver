@@ -1,0 +1,73 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:GroupWeaver.App.ViewModels"
+             x:Class="GroupWeaver.App.Views.AuditView"
+             x:DataType="vm:AuditViewModel">
+
+  <!-- Audit step (WP5 / #152): a TABLE view (v1) — it owns NO graph renderer, so there is no
+       GraphHost airspace region here at all (unlike Workspace/Plan/Gap). This WP5b slice is a
+       minimal-but-real placeholder binding the live AuditSummary numbers; the rich health ring /
+       tiles / table land in WP5c-f. Theme-aware via DynamicResource tokens (both variants). -->
+  <Border Padding="24" Background="{DynamicResource PageBackgroundBrush}">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" MaxWidth="640" HorizontalAlignment="Left">
+
+      <!-- 1. Header: "Audit · {RootDn}". -->
+      <TextBlock Grid.Row="0" Text="{Binding Title}" Classes="heading" />
+
+      <!-- 2. Health band placeholder: the score + qualitative band on a card. -->
+      <Border Grid.Row="1" Margin="0,16,0,0" Padding="16"
+              Background="{DynamicResource CardBackgroundBrush}"
+              BorderBrush="{DynamicResource CardBorderBrush}"
+              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
+        <StackPanel Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+            <TextBlock Name="ScoreText" Text="{Binding Score}"
+                       FontSize="40" FontWeight="Bold" />
+            <TextBlock Text="/ 100" FontSize="16" Opacity="0.6" VerticalAlignment="Bottom"
+                       Margin="0,0,0,6" />
+            <TextBlock Name="BandText" Text="{Binding Band}"
+                       FontSize="16" FontWeight="SemiBold" VerticalAlignment="Bottom"
+                       Margin="8,0,0,8" />
+          </StackPanel>
+
+          <!-- The four counts as plain text (WP5c replaces these with the tile grid). -->
+          <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,4,0,0">
+            <TextBlock>
+              <Run Text="Critical:" FontWeight="SemiBold" />
+              <Run Name="CriticalRun" Text="{Binding Critical}" />
+            </TextBlock>
+            <TextBlock>
+              <Run Text="Warnings:" FontWeight="SemiBold" />
+              <Run Name="WarningsRun" Text="{Binding Warnings}" />
+            </TextBlock>
+            <TextBlock>
+              <Run Text="Passing:" FontWeight="SemiBold" />
+              <Run Name="PassingRun" Text="{Binding Passing}" />
+            </TextBlock>
+            <TextBlock>
+              <Run Text="Rule classes:" FontWeight="SemiBold" />
+              <Run Name="RuleClassesRun" Text="{Binding RuleClasses}" />
+            </TextBlock>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- 3. Reserved for the WP5c-f rich health ring / tiles / table. -->
+      <TextBlock Grid.Row="2" Margin="0,16,0,0"
+                 Text="The detailed audit table arrives in a later slice."
+                 Classes="secondary" TextWrapping="Wrap" VerticalAlignment="Top" />
+
+      <!-- 4. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
+        <Button Name="BackButton" Content="← Back"
+                ToolTip.Tip="Return to the explored structure"
+                Command="{Binding BackCommand}" />
+        <Button Name="ShowInGraphButton" Content="Show in graph"
+                ToolTip.Tip="Return to the graph view of the explored structure"
+                Command="{Binding ShowInGraphCommand}" />
+      </StackPanel>
+
+    </Grid>
+  </Border>
+
+</UserControl>

@@ -141,6 +141,14 @@
               <Button Name="ExportGraphImageButton" Content="Export image" Margin="4"
                       ToolTip.Tip="Save the current graph as a PNG image"
                       Command="{Binding ExportGraphImageCommand}" />
+              <!-- Audit (WP5 / #152): switch into the audit step to see the dashboard health
+                   roll-up over the loaded scope. Placed LAST in the right-aligned WrapPanel so it
+                   never disturbs the pinned Reload-scope→Refresh adjacency. CanExecute arms once
+                   the shell installs the switch callback AND a load has completed (Snapshot
+                   non-null). -->
+              <Button Name="AuditButton" Content="Audit" Margin="4"
+                      ToolTip.Tip="Audit this scope — health score and findings summary"
+                      Command="{Binding AuditCommand}" />
 
             </WrapPanel>
 

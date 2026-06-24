@@ -39,6 +39,10 @@
       <views:GapView />
     </DataTemplate>
 
+    <DataTemplate DataType="vm:AuditViewModel">
+      <views:AuditView />
+    </DataTemplate>
+
   </Window.DataTemplates>
 
   <DockPanel>
