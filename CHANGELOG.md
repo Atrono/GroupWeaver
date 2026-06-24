@@ -4,6 +4,36 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-24
+
+Fourth feature release — a full **UX redesign** (the 2026-06 initiative), implemented
+as themeable design tokens plus targeted new surfaces. Still **read-only by
+construction** — no code path writes to Active Directory.
+
+### Added
+- **Light / dark theme** — a one-switch `ThemeVariant` theme across the app chrome AND
+  the WebView graph canvas, persisted in `ui-state.json`; dark stays byte-identical to
+  before, light is WCAG-checked (ADR-026).
+- **Window-chrome polish** — a DEMO badge (in demo mode), an always-on Read-only lock
+  pill, and the redesign's brand-purple accent on primary actions (ADR-026 D6).
+- **Graph polish** — a selection accent halo/pulse, an **"Issues only"** filter, a
+  **Ctrl+K command palette** (find nodes + quick actions), and a **minimap** with
+  click-to-pan. Per-kind node shapes are kept (the colourblind-redundant channel; ADR-027).
+- **Detail-panel audit chips** — per-object AGDLP / Naming / Nesting state from the rule
+  report, plus a "hidden by the privacy baseline" note.
+- **Audit screen** — a dedicated view with a directory-health score + Critical / Warning
+  / Passing / rule-class tiles, a sortable findings table (table⇄graph toggle), and bulk
+  **Acknowledge / Suppress** that write reversible global-ignore entries to your ruleset
+  (never to AD; ADR-028), each finding carrying a plain-language fix and a **copy-only**
+  PowerShell remediation snippet (GroupWeaver never runs it).
+- **Raw JSONC rule editor** — a new "Advanced" tab beside the structured editors with a
+  line-number gutter, live validation, a **live finding-count + diff-from-default**
+  preview over the demo dataset, all gated by the existing loader.
+
+### Changed
+- The graph/app palette is now theme-resolved; the validation error bands wrap long
+  messages and use WCAG-AA error ink in both themes.
+
 ## [0.3.1] - 2026-06-23
 
 Back-navigation polish. Returning from Plan or Gap mode to the previous graph now

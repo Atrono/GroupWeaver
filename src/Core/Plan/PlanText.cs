@@ -13,7 +13,11 @@ namespace GroupWeaver.Core.Plan;
 /// single-quote breakout). The ASCII apostrophe U+0027 is NOT unsafe — it is the safe
 /// doubled case in <see cref="PlanScriptExporter"/>'s single-quoted literal.
 /// </summary>
-internal static class PlanText
+// Public so the App-layer audit remediation snippet (RemediationSnippet.Clean, WP5f)
+// shares this ONE predicate too: both PowerShell-emitting paths weave directory/user
+// strings into text, and #77's lesson is that every such site must route through a
+// single definition, never a divergent local copy (the guard-predicate-drift class).
+public static class PlanText
 {
     /// <summary>True if <paramref name="c"/> is unsafe in a plan token.</summary>
     public static bool IsUnsafe(char c) =>
