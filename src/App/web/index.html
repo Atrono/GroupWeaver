@@ -221,6 +221,42 @@
     @media (prefers-reduced-motion: reduce) {
       #gw-accent-ring.gw-accent-pulse { animation: none; }
     }
+    /* WP3d (#146): the graph minimap. Bottom-LEFT (legend owns top-left, #controls
+       bottom-right). A downscaled thumbnail of the WHOLE graph (a cy.png snapshot set
+       as background-image by the bundle script, refreshed only on graph/theme change)
+       plus a live viewport rectangle (#minimap-viewport, the only per-frame DOM write).
+       INTERACTIVE (click/drag-to-pan), so pointer-events:auto is scoped to this box —
+       like #controls — leaving graph pan/tap below unaffected. Chrome from the same
+       --gw-* vars (themes for free). Hidden by default ([hidden]) and on an empty graph
+       so a broken/empty thumbnail never shows; the bundle script toggles it. */
+    #minimap {
+      position: fixed; left: 12px; bottom: 12px; z-index: 10;
+      pointer-events: auto;
+      width: 200px; height: 140px;
+      background-color: var(--gw-canvas-bg);
+      background-repeat: no-repeat;
+      background-position: center center;
+      background-size: contain;
+      border: 1px solid var(--gw-chrome-border);
+      border-radius: 8px;
+      box-shadow: var(--gw-chrome-shadow);
+      overflow: hidden;
+      cursor: crosshair;
+    }
+    #minimap[hidden] { display: none; }
+    /* The live viewport rectangle: a single positioned div the bundle script moves on
+       every render/pan/zoom (one element — software-rendering-floor safe, like the
+       accent ring). Accent-tinted outline so it reads on both themes. */
+    #minimap-viewport {
+      position: absolute; top: 0; left: 0; width: 0; height: 0;
+      box-sizing: border-box;
+      border: 1.5px solid var(--gw-accent);
+      /* theme-honest fill: derive from --gw-accent so light (#6A5CFF) and dark
+         (#8B7BFF) match their own border rather than a hardcoded dark hue. */
+      background: color-mix(in srgb, var(--gw-accent) 12%, transparent);
+      border-radius: 2px;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -293,6 +329,12 @@
       <div><span class="edge-sample"></span><span class="edge-arrow">&rarr;</span>is member of</div>
       <div><span class="edge-sample contains"></span>contains</div>
     </div>
+  </div>
+  <!-- WP3d (#146): the graph minimap. Thumbnail bg + live viewport rect are set by the
+       bundle script (one cy.png on graph/theme change; the rect is the only per-frame
+       update). Hidden until a non-empty graph renders. Click/drag pans the main view. -->
+  <div id="minimap" hidden>
+    <div id="minimap-viewport"></div>
   </div>
   <!-- ADR-023: interactive control cluster (find + camera + label gate override). -->
   <div id="controls">
