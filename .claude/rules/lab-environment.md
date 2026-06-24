@@ -117,3 +117,11 @@
   5.1 — ASCII-only (`->` / `<-` / `-`, never `→`/`←`/`—`). A UTF-8 BOM also fixes it, but
   the Edit tool strips it next edit, so ASCII is the durable choice. (`.cs`/`.md` are
   unaffected — Roslyn and the markdown renderer read UTF-8 regardless of BOM.)
+- **`web/index.html` comment text is matched by substring tripwires (found session 32, #168):**
+  `WebBundleTests.Index_ReferencesBridgeBeforeGraph` asserts
+  `index.html.IndexOf("bridge.js") < IndexOf("graph.js")` (graph.js uses `window.bridge` at load).
+  It's a plain substring scan, so writing the literal `graph.js`/`bridge.js` in a `<head>` comment
+  (e.g. "mirrored in graph.js CHROME") creates an earlier match and FAILS the ordering check even
+  though the `<script>` tags are correctly ordered. Keep bundle-script *filenames* out of
+  index.html comments — paraphrase ("the bundle script's CHROME table"). The graph-bundle gate
+  (`verify.mjs`) does NOT catch it; only the C# `WebBundleTests` does.

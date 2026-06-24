@@ -96,6 +96,7 @@
   var CHROME = {
     dark: {
       '--gw-canvas-bg': '#1b1f27',
+      '--gw-canvas-grid': 'rgba(255, 255, 255, 0.04)',  // #168 decorative dot-grid tint (index.html #cy mirror)
       '--gw-chrome-bg': 'rgba(22, 26, 33, 0.92)',
       '--gw-chrome-border': 'rgba(255, 255, 255, 0.06)',
       '--gw-chrome-shadow': '0 4px 16px rgba(0, 0, 0, 0.35)',
@@ -121,6 +122,7 @@
     },
     light: {
       '--gw-canvas-bg': '#F5F6F8',
+      '--gw-canvas-grid': 'rgba(0, 0, 0, 0.045)',  // #168 decorative dot-grid tint (light: faint dark dot, mock frame 4)
       '--gw-chrome-bg': 'rgba(255, 255, 255, 0.92)',
       '--gw-chrome-border': 'rgba(0, 0, 0, 0.10)',
       '--gw-chrome-shadow': '0 4px 16px rgba(0, 0, 0, 0.14)',
