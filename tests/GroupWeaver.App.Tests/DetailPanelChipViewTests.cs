@@ -19,10 +19,11 @@ namespace GroupWeaver.App.Tests;
 /// <summary>
 /// Pins the WP4 (#148) detail-panel VIEW additions inside the <c>DetailPanelRegion</c> seam:
 /// the audit-chip <c>ItemsControl</c> (one chip per finding-bearing class, collapsing when the
-/// chip list is empty) and the privacy-baseline note ("Showing {N} whitelisted attributes …",
-/// N = <c>Rows.Count</c>, gated to <c>Rows.Count &gt; 0</c>). The chip TEXT and the note TEXT
-/// live only in axaml, so these are the view-realization facts that pin the binding source and
-/// the visibility gate; the structured projection is pinned in <c>DetailPanelAuditChipTests</c>
+/// chip list is empty) and the privacy-baseline note (the <c>DetailPanelModel.PrivacyNote</c>
+/// property — grammatically pluralized on <c>Rows.Count</c> — gated to <c>Rows.Count &gt; 0</c>).
+/// The chip TEXT lives only in axaml and the note binds <c>PrivacyNote</c>, so these are the
+/// view-realization facts that pin the binding source and the visibility gate; the structured
+/// projection is pinned in <c>DetailPanelAuditChipTests</c>
 /// and the converter output in <c>SeverityConvertersTests</c>.
 ///
 /// Rendered over the REAL DemoProvider (so the workspace holds a genuine RuleReport — the
@@ -93,16 +94,36 @@ public sealed class DetailPanelChipViewTests
         Assert.NotNull(model);
         Assert.True(model.Rows.Count > 0); // guard: this DN actually has whitelisted attributes
 
-        // The note's binding source IS Rows.Count: the realized note text carries exactly that
-        // number and the privacy-baseline wording (StringFormat lives in axaml, so this pins it).
+        // The note binds the model's PrivacyNote (the single source — grammatically pluralized on
+        // Rows.Count); the realized text carries it verbatim. The view no longer hardcodes a
+        // count-only StringFormat that always read plural.
+        Assert.Contains("hidden by the privacy baseline", model.PrivacyNote, StringComparison.Ordinal);
         var region = Region(view, "DetailPanelRegion");
         Assert.Contains(
             region.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible),
-            t => t.Text is { } s
-                && s.Contains($"Showing {model.Rows.Count} whitelisted attributes", StringComparison.Ordinal)
-                && s.Contains("hidden by the privacy baseline", StringComparison.Ordinal));
+            t => t.Text is { } s && s.Contains(model.PrivacyNote, StringComparison.Ordinal));
 
         window.Close();
+    }
+
+    [Fact]
+    public void PrivacyNote_IsSingular_ForExactlyOneAttribute_PluralOtherwise()
+    {
+        static DetailPanelModel WithRows(int n) => new()
+        {
+            Dn = "CN=x" + GroupSuffix,
+            Kind = AdObjectKind.GlobalGroup,
+            Name = "x",
+            SamAccountName = null,
+            State = DetailPanelState.Loaded,
+            Rows = Enumerable.Range(0, n).Select(i => new DetailRow($"k{i}", $"v{i}")).ToList(),
+            AuditChips = [],
+        };
+
+        Assert.Equal(
+            "Showing 1 whitelisted attribute — all others are hidden by the privacy baseline.",
+            WithRows(1).PrivacyNote);
+        Assert.StartsWith("Showing 4 whitelisted attributes —", WithRows(4).PrivacyNote);
     }
 
     [AvaloniaFact]

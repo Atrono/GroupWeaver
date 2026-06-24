@@ -103,7 +103,7 @@
               BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}"
               Padding="10,8" Margin="0,4,0,0">
         <TextBlock Classes="secondary" TextWrapping="Wrap"
-                   Text="{Binding Rows.Count, StringFormat='Showing {0} whitelisted attributes — all others are hidden by the privacy baseline.'}" />
+                   Text="{Binding PrivacyNote}" />
       </Border>
 
       <!-- Terminus hairline (#92): a faint top-border rule closing the content stack
