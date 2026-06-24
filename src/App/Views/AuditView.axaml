@@ -5,6 +5,32 @@
              x:Class="GroupWeaver.App.Views.AuditView"
              x:DataType="vm:AuditViewModel">
 
+  <UserControl.Styles>
+    <!-- WP5d segmented Table | Graph control: two flush buttons reading as one pill. The active
+         segment carries the card-tint fill + a stronger border; the inactive is ghost. -->
+    <Style Selector="Button.segment">
+      <Setter Property="Padding" Value="14,6" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.segment-active">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SecondaryForegroundBrush}" />
+    </Style>
+
+    <!-- WP5d sortable column header: a flat, ghost button hosting the eyebrow label + caret. -->
+    <Style Selector="Button.colhead">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
   <!-- Audit step (WP5 / #152): the audit dashboard. WP5c (#154) fleshes the WP5b placeholder out
        into the real health band — a band-coded health RING + a four-tile count row across the top,
        a categories pane below. It owns NO graph renderer (no GraphHost airspace region, unlike
@@ -12,7 +38,7 @@
        Theme-aware via DynamicResource tokens (both variants); all text >= 4.5:1 on the card surface
        in both themes (the colored accents/dots are the non-text channel, WCAG 1.4.1). -->
   <Border Padding="24" Background="{DynamicResource PageBackgroundBrush}">
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
       <!-- 1. Header: "Audit · {RootDn}". -->
       <TextBlock Grid.Row="0" Text="{Binding Title}" Classes="heading" />
@@ -206,8 +232,190 @@
         </Grid>
       </Border>
 
-      <!-- 4. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
-      <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
+      <!-- 4. Findings table region (WP5d / #156): a Table | Graph segmented toggle + a multi-select
+           selection bar over a pure-Avalonia (no DataGrid) findings table. The table is a header
+           Grid + a ListBox whose row template shares the SAME ColumnDefinitions string as the header
+           (one shared definition => header/body columns align without a DataGrid). "Graph" routes to
+           ShowInGraphCommand (v1 has no in-audit renderer); "Table" is the always-active in-audit
+           pane (pressed style). Theme-aware via DynamicResource; severity colour is the redundant
+           glyph+colour channel (SeverityConverters), all text >= 4.5:1 on the card surface both themes. -->
+      <Border Grid.Row="3" Margin="0,16,0,0" Padding="16"
+              Background="{DynamicResource CardBackgroundBrush}"
+              BorderBrush="{DynamicResource CardBorderBrush}"
+              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
+        <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+          <!-- Table | Graph segmented toggle. Table = the active in-audit pane (pressed). Graph =
+               an action that returns to the workspace graph (no in-audit renderer in v1). -->
+          <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="0" HorizontalAlignment="Left">
+            <Button Name="TableSegment" Content="Table"
+                    Classes="segment segment-active"
+                    ToolTip.Tip="Findings table (this view)" />
+            <Button Name="GraphSegment" Content="Graph"
+                    Classes="segment"
+                    ToolTip.Tip="Return to the graph view of the explored structure"
+                    Command="{Binding ShowInGraphCommand}" />
+          </StackPanel>
+
+          <!-- Selection bar (WP5d): "{n} selected" + Clear. No Acknowledge/Suppress yet (WP5e) —
+               no dead buttons. Visible only when >= 1 finding is selected. -->
+          <Border Grid.Row="1" Margin="0,12,0,0" Padding="10,6"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{DynamicResource CardBorderBrush}"
+                  BorderThickness="1" CornerRadius="6"
+                  IsVisible="{Binding HasSelection}">
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+              <TextBlock Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"
+                         FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+              <Button Content="Clear" Padding="8,2" FontSize="12"
+                      Command="{Binding ClearSelectionCommand}"
+                      ToolTip.Tip="Deselect all findings" />
+            </StackPanel>
+          </Border>
+
+          <!-- Header row. Shares the column track string with the body row template below; the
+               sortable headers are flat buttons firing SortCommand with their AuditSortColumn, and
+               their caret (via AuditTableConverters.SortCaret) marks the active sort + direction. -->
+          <Grid Grid.Row="2" Margin="0,12,0,6"
+                ColumnDefinitions="32,28,*,1.4*,Auto,Auto"
+                IsVisible="{Binding HasFindings}">
+            <!-- Select all / none. -->
+            <CheckBox Grid.Column="0" VerticalAlignment="Center" Margin="0"
+                      IsChecked="{Binding AllSelected, Mode=OneWay}"
+                      Command="{Binding ToggleSelectAllCommand}"
+                      ToolTip.Tip="Select all / none" />
+            <!-- Severity (sortable). -->
+            <Button Grid.Column="1" Classes="colhead" Padding="0"
+                    Command="{Binding SortCommand}"
+                    CommandParameter="{x:Static vm:AuditSortColumn.Severity}"
+                    ToolTip.Tip="Sort by severity">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Classes="eyebrow" Text="SEV" />
+                <TextBlock Classes="eyebrow">
+                  <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static views:AuditTableConverters.SortCaret}"
+                                  ConverterParameter="{x:Static vm:AuditSortColumn.Severity}">
+                      <Binding Path="SortColumn" />
+                      <Binding Path="SortDescending" />
+                    </MultiBinding>
+                  </TextBlock.Text>
+                </TextBlock>
+              </StackPanel>
+            </Button>
+            <!-- Message (not sortable — free-text). -->
+            <TextBlock Grid.Column="2" Classes="eyebrow" Text="MESSAGE" VerticalAlignment="Center" />
+            <!-- Object (sortable). -->
+            <Button Grid.Column="3" Classes="colhead" HorizontalAlignment="Left" Padding="0"
+                    Command="{Binding SortCommand}"
+                    CommandParameter="{x:Static vm:AuditSortColumn.ObjectName}"
+                    ToolTip.Tip="Sort by object name">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Classes="eyebrow" Text="OBJECT" />
+                <TextBlock Classes="eyebrow">
+                  <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static views:AuditTableConverters.SortCaret}"
+                                  ConverterParameter="{x:Static vm:AuditSortColumn.ObjectName}">
+                      <Binding Path="SortColumn" />
+                      <Binding Path="SortDescending" />
+                    </MultiBinding>
+                  </TextBlock.Text>
+                </TextBlock>
+              </StackPanel>
+            </Button>
+            <!-- Rule class (sortable). -->
+            <Button Grid.Column="4" Classes="colhead" HorizontalAlignment="Left" Padding="0"
+                    Margin="12,0,0,0" MinWidth="120"
+                    Command="{Binding SortCommand}"
+                    CommandParameter="{x:Static vm:AuditSortColumn.RuleClass}"
+                    ToolTip.Tip="Sort by rule class">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Classes="eyebrow" Text="RULE" />
+                <TextBlock Classes="eyebrow">
+                  <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static views:AuditTableConverters.SortCaret}"
+                                  ConverterParameter="{x:Static vm:AuditSortColumn.RuleClass}">
+                      <Binding Path="SortColumn" />
+                      <Binding Path="SortDescending" />
+                    </MultiBinding>
+                  </TextBlock.Text>
+                </TextBlock>
+              </StackPanel>
+            </Button>
+            <!-- Status (fixed "Open" in v1). -->
+            <TextBlock Grid.Column="5" Classes="eyebrow" Text="STATUS"
+                       Margin="12,0,0,0" MinWidth="56" VerticalAlignment="Center" />
+          </Grid>
+
+          <!-- Body rows. The ListBox gives the selection affordance + scrolling; each row template
+               reuses the SAME column track string as the header so the columns line up (the no-
+               DataGrid alignment technique). A row checkbox drives IsSelected; clicking the row
+               selects it in the list (the future detail-pane anchor). -->
+          <ListBox Grid.Row="3" Name="FindingsList"
+                   Background="Transparent"
+                   ItemsSource="{Binding Findings}"
+                   IsVisible="{Binding HasFindings}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:AuditFindingRowModel">
+                <Grid ColumnDefinitions="32,28,*,1.4*,Auto,Auto" Height="36">
+
+                  <!-- Select. -->
+                  <CheckBox Grid.Column="0" VerticalAlignment="Center" Margin="0"
+                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                            ToolTip.Tip="Select this finding" />
+
+                  <!-- Severity glyph: colored square + redundant letter (E/W/i) — the colourblind-
+                       safe channel beside the colour, one SeverityConverters palette. -->
+                  <Border Grid.Column="1" Width="20" Height="20" CornerRadius="3"
+                          VerticalAlignment="Center" HorizontalAlignment="Left"
+                          Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                    <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                               Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                               FontSize="12" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+
+                  <!-- Message. -->
+                  <TextBlock Grid.Column="2" Text="{Binding Message}"
+                             VerticalAlignment="Center" Margin="4,0,8,0"
+                             TextTrimming="CharacterEllipsis"
+                             ToolTip.Tip="{Binding Message}" />
+
+                  <!-- Object (resolved name; tooltip shows the DN). -->
+                  <TextBlock Grid.Column="3" Text="{Binding ObjectName}"
+                             VerticalAlignment="Center" Margin="0,0,8,0"
+                             TextTrimming="CharacterEllipsis"
+                             ToolTip.Tip="{Binding PrimaryDn}" />
+
+                  <!-- Rule class. -->
+                  <TextBlock Grid.Column="4" Text="{Binding RuleClass}"
+                             VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="120"
+                             Classes="secondary" />
+
+                  <!-- Status (neutral "Open" pill). -->
+                  <Border Grid.Column="5" Margin="12,0,0,0" MinWidth="56"
+                          Padding="8,2" CornerRadius="10" VerticalAlignment="Center"
+                          Background="{DynamicResource CardBackgroundBrush}"
+                          BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                    <TextBlock Text="{Binding Status}" FontSize="11"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryForegroundBrush}" />
+                  </Border>
+
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <!-- All-clear: no finding at all. -->
+          <TextBlock Grid.Row="3" Text="No findings to list."
+                     IsVisible="{Binding !HasFindings}"
+                     Classes="secondary" VerticalAlignment="Top" Margin="0,12,0,0" />
+
+        </Grid>
+      </Border>
+
+      <!-- 5. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
+      <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
         <Button Name="BackButton" Content="← Back"
                 ToolTip.Tip="Return to the explored structure"
                 Command="{Binding BackCommand}" />
