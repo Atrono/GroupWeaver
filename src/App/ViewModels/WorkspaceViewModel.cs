@@ -356,9 +356,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         Violations.Clear();
         foreach (var violation in value.Violations)
         {
-            var subject = Snapshot is not null && Snapshot.TryGetObject(violation.PrimaryDn, out var obj)
-                ? obj!.Name
-                : violation.PrimaryDn;
+            var subject = SubjectNameResolver.Resolve(Snapshot, violation.PrimaryDn);
             Violations.Add(new ViolationRowModel(
                 violation.Severity, violation.Message, subject, violation.PrimaryDn));
         }
@@ -707,8 +705,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <c>Name</c>, an absent DN falls back to the DN itself (never a provider call, so
     /// export stays read-only toward AD). Core stays App-free (ADR-013 §2 / F4): it takes
     /// this delegate, never the snapshot.</summary>
-    private string ResolveSubjectName(string dn) =>
-        Snapshot is not null && Snapshot.TryGetObject(dn, out var obj) ? obj!.Name : dn;
+    private string ResolveSubjectName(string dn) => SubjectNameResolver.Resolve(Snapshot, dn);
 
     /// <summary>Builds the HTML report header from this workspace's identity (ADR-013 §2):
     /// root DN/name + connection summary, with <see cref="DateTimeOffset.Now"/> as the
