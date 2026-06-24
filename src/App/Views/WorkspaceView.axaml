@@ -127,7 +127,10 @@
               <Button Name="ReloadScopeButton" Content="Reload scope" Margin="4"
                       ToolTip.Tip="Reload the whole scope from the directory"
                       Command="{Binding ReloadScopeCommand}" />
-              <Button Name="RefreshButton" Content="Refresh" Margin="4"
+              <!-- WP4 (#148): the detail panel's primary CTA ("Expand members" in the
+                   redesign) - re-fetch the selected node's members. Adopts the WP2 brand
+                   accent (Classes="accent", deferred from WP2); command/behaviour unchanged. -->
+              <Button Name="RefreshButton" Content="Refresh" Classes="accent" Margin="4"
                       ToolTip.Tip="Re-fetch members of the selected node"
                       Command="{Binding RefreshCommand}" />
               <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG

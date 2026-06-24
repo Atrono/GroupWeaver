@@ -334,7 +334,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <see cref="DetailPanelModel.Build"/> choke point — never calls the provider,
     /// never checks or takes the busy gate (ADR-007 D1).</summary>
     private void RecomputeDetailPanel() =>
-        DetailPanel = Snapshot is null ? null : DetailPanelModel.Build(Snapshot, SelectedDn);
+        DetailPanel = Snapshot is null ? null : DetailPanelModel.Build(Snapshot, SelectedDn, Report);
 
     /// <summary>Re-projects <see cref="Report"/>'s findings into <see cref="Violations"/>
     /// (ADR-010 §5): canonical report order, unshuffled (ADR-009); the subject name is

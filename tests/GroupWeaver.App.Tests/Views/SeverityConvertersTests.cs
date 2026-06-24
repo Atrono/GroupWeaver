@@ -2,6 +2,7 @@ using System.Globalization;
 
 using Avalonia.Media;
 
+using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
 using GroupWeaver.Core.Rules;
 
@@ -132,6 +133,87 @@ public sealed class SeverityConvertersTests
 
         Assert.Equal(3, glyphs.Distinct().Count());
     }
+
+    // --- WP4 (#148) audit-chip converters: ChipToBrush / ChipToTextBrush / ChipToLabel ---
+
+    /// <summary>A FINDING chip routes through the SAME severity palette as the sidebar glyph
+    /// (lock-step, ADR-010): its FILL is the class's max-severity overlay color, its INK the
+    /// per-hue WCAG re-tone (Error → white, Warning/Info → dark page-bg ink), and its label
+    /// appends the count ("Nesting 1"). Pins all three chip converters at once for each
+    /// severity, derived from the SAME BrandTokens the severity converters use — a finding
+    /// chip must never diverge from the glyph palette.</summary>
+    [Theory]
+    [InlineData(RuleSeverity.Error, ErrorHex, "#FFFFFF")]
+    [InlineData(RuleSeverity.Warning, WarningHex, "#1b1f27")]
+    [InlineData(RuleSeverity.Info, InfoHex, "#1b1f27")]
+    public void FindingChip_UsesTheSeverityFill_ThePerHueInk_AndAppendsItsCount(
+        RuleSeverity severity, string fillHex, string inkHex)
+    {
+        var chip = new AuditChip("Nesting", severity, Count: 3, HasFindings: true);
+
+        Assert.Equal(Color.Parse(fillHex), ChipBrush(chip).Color);
+        Assert.Equal(Color.Parse(inkHex), ChipTextBrush(chip).Color);
+        Assert.Equal("Nesting 3", ChipLabel(chip)); // a finding chip shows "Label Count"
+    }
+
+    /// <summary>The finding-chip FILL is wired to the consolidated BrandTokens severity tokens —
+    /// the SAME source as <see cref="SeverityConverters.ToBrush"/>, so the chip and the glyph
+    /// can never drift apart (compares resolved Color values, a projection, never brush
+    /// identity).</summary>
+    [Theory]
+    [InlineData(RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Info)]
+    public void FindingChipFill_IsWiredToTheSameBrandTokensAsTheGlyph(RuleSeverity severity)
+    {
+        var chip = new AuditChip("Empty group", severity, Count: 1, HasFindings: true);
+        var glyphFill = Assert.IsAssignableFrom<ISolidColorBrush>(Brush(severity)).Color;
+
+        Assert.Equal(glyphFill, ChipBrush(chip).Color);
+    }
+
+    /// <summary>The PASS chip ("No findings", <c>HasFindings:false</c>): a deliberately
+    /// OFF-palette success — <see cref="BrandTokens.NamingOk"/> green fill with DARK ink
+    /// (<see cref="BrandTokens.OnLightText"/> #1b1f27, which clears WCAG 1.4.3 at 4.89:1 on the
+    /// NamingOk green #2EA043; white ink FAILED at 3.37:1 — the same white-on-light-fill trap the
+    /// ADR-021 §2 on-light-fill pattern fixed for amber/light-blue) — and its label is the bare
+    /// text with NO count appended (Count 0 is meaningless on a clean DN).</summary>
+    [Fact]
+    public void PassChip_IsBrandTokensGreen_WithDarkInk_AndNoCountInItsLabel()
+    {
+        var chip = new AuditChip("No findings", RuleSeverity.Info, Count: 0, HasFindings: false);
+
+        Assert.Equal(BrandTokens.NamingOk.Color, ChipBrush(chip).Color);       // success green, not a severity hue
+        Assert.Equal(BrandTokens.OnLightText.Color, ChipTextBrush(chip).Color); // dark ink #1b1f27 (4.89:1; white failed 3.37:1)
+        Assert.Equal("No findings", ChipLabel(chip));                           // no count — bare label
+    }
+
+    /// <summary>The pass chip's green FILL is OUTSIDE the severity palette — it must collide with
+    /// none of Error/Warning/Info (a clean DN is not a finding; the color must not read as one).</summary>
+    [Fact]
+    public void PassChipFill_IsDistinctFromEverySeverityColor()
+    {
+        var passColor = ChipBrush(new AuditChip("No findings", RuleSeverity.Info, 0, HasFindings: false)).Color;
+        var severityColors = new[] { RuleSeverity.Error, RuleSeverity.Warning, RuleSeverity.Info }
+            .Select(s => Assert.IsAssignableFrom<ISolidColorBrush>(Brush(s)).Color);
+
+        Assert.DoesNotContain(passColor, severityColors);
+    }
+
+    /// <summary>Invoke the chip FILL converter through its binding seam exactly as XAML does.</summary>
+    private static ISolidColorBrush ChipBrush(AuditChip chip) =>
+        Assert.IsAssignableFrom<ISolidColorBrush>(SeverityConverters.ChipToBrush.Convert(
+            chip, typeof(IBrush), null, CultureInfo.InvariantCulture));
+
+    /// <summary>Invoke the chip INK converter through its binding seam.</summary>
+    private static ISolidColorBrush ChipTextBrush(AuditChip chip) =>
+        Assert.IsAssignableFrom<ISolidColorBrush>(SeverityConverters.ChipToTextBrush.Convert(
+            chip, typeof(IBrush), null, CultureInfo.InvariantCulture));
+
+    /// <summary>Invoke the chip LABEL converter through its binding seam.</summary>
+    private static string ChipLabel(AuditChip chip) =>
+        Assert.IsType<string>(SeverityConverters.ChipToLabel.Convert(
+            chip, typeof(string), null, CultureInfo.InvariantCulture));
 
     /// <summary>Invoke the brush converter through its binding seam exactly as XAML does.</summary>
     private static object? Brush(RuleSeverity severity) =>
