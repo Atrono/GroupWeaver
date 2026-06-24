@@ -201,6 +201,20 @@ public static class BrandTokens
     /// fills themselves stay unchanged.</summary>
     public const string NodeLiftRingHex = "#8A93A3";
 
+    /// <summary>DARK validation-error MESSAGE ink — light red #FF8A8E (WP6a). The settings
+    /// validation bands tint their background with the error red at low alpha (#22D13438), which
+    /// composites over the dark page #1b1f27 to a deep muted red #332229; the raw <see cref="ErrorHex"/>
+    /// #D13438 reads only 3.04:1 on it (1.4.3 FAIL — the message is readable text). A LIGHTER red
+    /// keeps the error semantic and clears the floor: #FF8A8E reads 6.62:1 on #332229. (ADR-021
+    /// per-context-ink pattern, like <see cref="OnLightTextHex"/>/<see cref="DemoBadgeTextHex"/>.)</summary>
+    public const string ValidationErrorTextHex = "#FF8A8E";
+
+    /// <summary>LIGHT validation-error MESSAGE ink — deep red #A4262C (WP6a). The error-tinted band
+    /// #22D13438 composites over the light page #ECEEF1 to a pale pink #E8D5D8; the raw #D13438 reads
+    /// only 3.51:1 on it (1.4.3 FAIL). A DEEPER red reads: #A4262C reads 5.17:1 on #E8D5D8 — still
+    /// unmistakably the error red. See <see cref="ValidationErrorTextHex"/>.</summary>
+    public const string ValidationErrorTextLightHex = "#A4262C";
+
     // --- Accent (ADR-026 D6, WP2: the redesign's brand purple). Theme-aware, like the WP1a chrome
     // roles. TWO distinct purples per variant, by use: a DECORATIVE accent (DEMO badge text,
     // selection/focus rings) — the lighter Frame-1/Frame-4 hue — and an ACCESSIBLE primary-button

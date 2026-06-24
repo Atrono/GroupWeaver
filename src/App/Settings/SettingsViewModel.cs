@@ -90,6 +90,78 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _runningOnDefaultBecauseInvalid;
 
+    /// <summary>The raw JSONC the Advanced tab edits (WP6a). UNTRUSTED text: it
+    /// only ever flows through <see cref="RulesetLoader.Load"/> (the JSONC parser,
+    /// <c>UnmappedMemberHandling.Disallow</c>) — never executed, formatted, or
+    /// interpolated; its errors render as plain text (#45). On change it is
+    /// re-validated into <see cref="RawEditorErrors"/>; it is only ever made
+    /// effective by an explicit <see cref="ApplyRaw"/> through the single gate.</summary>
+    [ObservableProperty]
+    private string _rawEditorText = string.Empty;
+
+    /// <summary>The live, side-effect-free validation findings for
+    /// <see cref="RawEditorText"/> (separate from the structured-tab gate's
+    /// <see cref="ValidationErrors"/>). Empty ⇒ the raw text loads cleanly.</summary>
+    public ObservableCollection<RulesetValidationError> RawEditorErrors { get; } = [];
+
+    /// <summary>True when <see cref="RawEditorText"/> currently loads cleanly —
+    /// drives the Advanced tab's "valid" affordance.</summary>
+    [ObservableProperty]
+    private bool _rawEditorValid;
+
+    /// <summary>Re-validates the raw editor text on every keystroke (the loader is
+    /// cheap — ADR-009; a full re-Load is ms): never-throw <see cref="RulesetLoader.Load"/>,
+    /// errors surfaced verbatim, no apply/persist. Auto-invoked by the generated
+    /// <c>OnRawEditorTextChanged</c> partial.</summary>
+    partial void OnRawEditorTextChanged(string value)
+    {
+        var result = RulesetLoader.Load(value);
+        RawEditorErrors.Clear();
+        foreach (var error in result.Errors)
+        {
+            RawEditorErrors.Add(error);
+        }
+
+        RawEditorValid = result.Success;
+    }
+
+    /// <summary>Seeds <see cref="RawEditorText"/> from the CURRENT structured mirror
+    /// state: <c>Serialize(BuildRuleset())</c> — the camelCase JSONC of what the other
+    /// tabs hold (WP6a). The Advanced-tab "Load current" action and every whole-mirror
+    /// replace call this so the raw view starts/stays in lock-step with the structured
+    /// editors.</summary>
+    [RelayCommand]
+    public void SeedRawEditor() => RawEditorText = RulesetSerializer.Serialize(BuildRuleset());
+
+    /// <summary>Applies the raw JSONC through the SINGLE gate (WP6a). Parses
+    /// <see cref="RawEditorText"/> via <see cref="RulesetLoader.Load"/>; on SUCCESS the
+    /// loader-re-parsed ruleset becomes effective — the structured mirror is re-seeded
+    /// from it (whole-file replace, ADR-008 — the tabs stay consistent) and
+    /// <see cref="RulesetApplied"/> fires (live re-thread, like Import + footer Apply).
+    /// On FAILURE the loader's errors surface in <see cref="RawEditorErrors"/> and NOTHING
+    /// is applied or persisted (no partial write). Returns true on success.</summary>
+    public bool ApplyRaw()
+    {
+        var result = RulesetLoader.Load(RawEditorText);
+        if (!result.Success)
+        {
+            RawEditorErrors.Clear();
+            foreach (var error in result.Errors)
+            {
+                RawEditorErrors.Add(error);
+            }
+
+            RawEditorValid = false;
+            return false;
+        }
+
+        Seed(result.Ruleset);
+        RunningOnDefaultBecauseInvalid = false;
+        RawEditorValid = true;
+        RulesetApplied?.Invoke(result.Ruleset);
+        return true;
+    }
+
     /// <summary>Raised once on a successful Save/Apply with the gate-re-parsed
     /// ruleset — the shell re-threads it into the live workspace (Apply = live;
     /// Save = live + persist). A refused gate never raises it.</summary>
@@ -210,6 +282,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>The footer Save button (AP 3.3 / S8): live re-thread + atomic persist.</summary>
     [RelayCommand]
     private void SaveAction() => Save();
+
+    /// <summary>The Advanced-tab "Apply JSONC" button (WP6a): parse the raw editor text
+    /// through the gate and, on success, make it the effective ruleset (a relay command
+    /// needs a void return, so this wraps the bool-returning <see cref="ApplyRaw"/>).</summary>
+    [RelayCommand]
+    private void ApplyRawAction() => ApplyRaw();
 
     /// <summary>Replaces the WHOLE mirror tree from <paramref name="text"/> (ADR-008
     /// whole-file precedence — no merge) IF it loads cleanly: on success the mirror is
@@ -352,6 +430,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         Rules.Add(RuleRowEditor.ForSimple(RuleIds.EmptyGroup, "Empty groups", EmptyGroup));
 
         ValidationErrors.Clear();
+
+        // Keep the Advanced (JSONC) tab in lock-step with every whole-mirror replace
+        // (Open/Import/Reset/ApplyRaw): the raw text re-seeds to the canonical
+        // Serialize(BuildRuleset()) form so the structured and raw views never disagree.
+        SeedRawEditor();
     }
 
     /// <summary>The headless default for the file-dialog seam when no real picker is

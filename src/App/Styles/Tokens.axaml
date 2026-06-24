@@ -44,6 +44,12 @@
       <!-- Always-on Read-only pill (Frame-1 green-soft pill + green ink @5.93:1 on the pill). -->
       <SolidColorBrush x:Key="ReadOnlyPillTextBrush" Color="#46C98A" />
       <SolidColorBrush x:Key="ReadOnlyPillBackgroundBrush" Color="#2646C98A" />
+
+      <!-- WP6a: validation-error MESSAGE ink for the settings bands. The #22D13438 band tint
+           composites over the dark page to #332229; the raw error red #D13438 reads only 3.04:1 on
+           it. A lighter red (#FF8A8E, BrandTokens.ValidationErrorTextHex) reads 6.62:1 — keeps the
+           error semantic, clears 1.4.3. (Mirrors BrandTokens; reviewer enforces parity.) -->
+      <SolidColorBrush x:Key="ValidationErrorTextBrush" Color="#FF8A8E" />
     </ResourceDictionary>
 
     <!-- Light (ADR-026 D3, Frame 4: re-derived, translucent BLACK over the light page) -->
@@ -67,6 +73,11 @@
            blended light pill; #0B6B36 clears it at 5.03:1 (and 5.70:1 on the raw page). -->
       <SolidColorBrush x:Key="ReadOnlyPillTextBrush" Color="#0B6B36" />
       <SolidColorBrush x:Key="ReadOnlyPillBackgroundBrush" Color="#1F1F9D57" />
+
+      <!-- WP6a: the #22D13438 band tint composites over the light page to a pale pink #E8D5D8; the
+           raw error red reads only 3.51:1. A deeper red (#A4262C, BrandTokens.ValidationErrorTextLightHex)
+           reads 5.17:1 — still unmistakably the error red, clears 1.4.3. -->
+      <SolidColorBrush x:Key="ValidationErrorTextBrush" Color="#A4262C" />
     </ResourceDictionary>
 
   </ResourceDictionary.ThemeDictionaries>
