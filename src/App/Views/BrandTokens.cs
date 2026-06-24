@@ -215,6 +215,19 @@ public static class BrandTokens
     /// unmistakably the error red. See <see cref="ValidationErrorTextHex"/>.</summary>
     public const string ValidationErrorTextLightHex = "#A4262C";
 
+    /// <summary>DARK preview-caution ink — the WP6b "vs default · +n criticals" delta when the edited
+    /// ruleset produces MORE findings than the default. The severity amber <see cref="WarningHex"/>
+    /// #F7A30B on the dark preview card (~#2C2F37) reads ~6.5:1 — clears 1.4.3; the signed delta text
+    /// is the redundant non-color channel. Value = #F7A30B (the same amber, kept distinct from the
+    /// light variant which must deepen).</summary>
+    public const string PreviewCautionTextHex = "#F7A30B";
+
+    /// <summary>LIGHT preview-caution ink — deepened amber #7A4F00 (WP6b). The light preview card
+    /// surface renders ~#E3E5E8; the amber #F7A30B is far below the floor there and #8A5A00 lands at
+    /// only 4.65:1 (at the edge), so #7A4F00 reads ~5.4:1 for headroom — still unmistakably a caution
+    /// amber. See <see cref="PreviewCautionTextHex"/>.</summary>
+    public const string PreviewCautionTextLightHex = "#7A4F00";
+
     // --- Accent (ADR-026 D6, WP2: the redesign's brand purple). Theme-aware, like the WP1a chrome
     // roles. TWO distinct purples per variant, by use: a DECORATIVE accent (DEMO badge text,
     // selection/focus rings) — the lighter Frame-1/Frame-4 hue — and an ACCESSIBLE primary-button

@@ -11,7 +11,29 @@
         MinWidth="720" MinHeight="520"
         Background="{DynamicResource PageBackgroundBrush}">
 
+  <Window.Styles>
+    <!-- WP6b: the demo-preview signed delta (+3 / -1 / 0). Neutral (equal/fewer than default)
+         reads in the secondary chrome ink; the .caution class (more than default) re-tones to the
+         theme-aware caution amber. Color is REDUNDANT — the signed text always carries meaning. -->
+    <Style Selector="TextBlock.previewDelta">
+      <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}" />
+    </Style>
+    <Style Selector="TextBlock.previewDelta.caution">
+      <Setter Property="Foreground" Value="{DynamicResource PreviewCautionTextBrush}" />
+    </Style>
+  </Window.Styles>
+
   <Window.Resources>
+
+    <!-- WP6b: one demo-preview delta chip — "{Label} {+n/-n/0}", the value re-toned via
+         Classes.caution (more-than-default). Reused by the per-severity and per-rule-class rows. -->
+    <DataTemplate x:Key="PreviewDeltaTemplate" x:DataType="settings:PreviewDelta">
+      <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,0,12,0" VerticalAlignment="Center">
+        <TextBlock Text="{Binding Label}" Opacity="0.75" VerticalAlignment="Center" />
+        <TextBlock Classes="previewDelta" Classes.caution="{Binding IsCaution}"
+                   Text="{Binding DisplayValue}" FontWeight="SemiBold" VerticalAlignment="Center" />
+      </StackPanel>
+    </DataTemplate>
 
     <!-- Shared severity-selector item template (AP 3.3 / S6): the E/W/i glyph in the
          pinned SeverityConverters palette (#D13438/#F7A30B/#4FA3E3) + the name label.
@@ -706,6 +728,97 @@
                   CornerRadius="4" Padding="10,6">
             <TextBlock Text="Valid JSONC — Apply JSONC to make it the effective ruleset."
                        Foreground="{DynamicResource ReadOnlyPillTextBrush}" />
+          </Border>
+
+          <!-- Live demo preview (WP6b / #164): the currently-VALID edited ruleset evaluated over
+               the EMBEDDED DEMO snapshot (never the live directory; pure in-memory, writes nothing)
+               via RuleEngine.Evaluate + AuditSummary.Compute, joined against the default ruleset's
+               demo counts. Shows the total + per-severity counts and the signed diff-from-default
+               (per-severity + per-rule-class). The signed delta TEXT (+3 / -1 / 0) always carries
+               the meaning; the caution re-tone (more-than-default) is a redundant color cue. The
+               card is hidden unless HasPreview; the "unavailable" line covers a failed demo load. -->
+          <Border DockPanel.Dock="Top" Margin="0,0,0,8"
+                  IsVisible="{Binding HasPreview}"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                  CornerRadius="4" Padding="10,8">
+            <StackPanel Spacing="6">
+              <TextBlock Text="Demo preview (this ruleset over the built-in demo directory)"
+                         FontWeight="SemiBold" Opacity="0.85" />
+
+              <!-- Live counts: total + per-severity squares (the pinned E/W/i palette). -->
+              <StackPanel Orientation="Horizontal" Spacing="14">
+                <TextBlock VerticalAlignment="Center"
+                           Text="{Binding Preview.Total, StringFormat='{}{0} findings'}"
+                           FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                  <Border Width="16" Height="16" CornerRadius="3" Background="{x:Static views:BrandTokens.Error}">
+                    <TextBlock Text="E" Foreground="{x:Static views:BrandTokens.OnDarkText}"
+                               FontSize="10" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <TextBlock Text="{Binding Preview.Critical}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                  <Border Width="16" Height="16" CornerRadius="3" Background="{x:Static views:BrandTokens.Warning}">
+                    <TextBlock Text="W" Foreground="{x:Static views:BrandTokens.OnLightText}"
+                               FontSize="10" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <TextBlock Text="{Binding Preview.Warning}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                  <Border Width="16" Height="16" CornerRadius="3" Background="{x:Static views:BrandTokens.Info}">
+                    <TextBlock Text="i" Foreground="{x:Static views:BrandTokens.OnLightText}"
+                               FontSize="10" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <TextBlock Text="{Binding Preview.Info}" VerticalAlignment="Center" />
+                </StackPanel>
+              </StackPanel>
+
+              <!-- Diff-from-default: per-severity signed deltas (always shown, even 0). Each signed
+                   value re-tones via Classes.caution (more-than-default = amber) — a redundant cue
+                   over the always-present sign. -->
+              <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="vs default:" Opacity="0.6" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ContentControl Content="{Binding Preview.TotalDelta}" ContentTemplate="{StaticResource PreviewDeltaTemplate}" />
+                <ContentControl Content="{Binding Preview.CriticalDelta}" ContentTemplate="{StaticResource PreviewDeltaTemplate}" />
+                <ContentControl Content="{Binding Preview.WarningDelta}" ContentTemplate="{StaticResource PreviewDeltaTemplate}" />
+                <ContentControl Content="{Binding Preview.InfoDelta}" ContentTemplate="{StaticResource PreviewDeltaTemplate}" />
+              </WrapPanel>
+
+              <!-- Per-rule-class deltas: only changed classes (e.g. "nesting +2 · naming-gg -1").
+                   Hidden when the edited ruleset matches the default per class (empty list). -->
+              <WrapPanel Orientation="Horizontal"
+                         IsVisible="{Binding Preview.RuleClassDeltas.Count}">
+                <TextBlock Text="by rule:" Opacity="0.6" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ItemsControl ItemsSource="{Binding Preview.RuleClassDeltas}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="settings:PreviewDelta">
+                      <ContentControl Content="{Binding}" ContentTemplate="{StaticResource PreviewDeltaTemplate}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </WrapPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- Demo preview unavailable (rare): the embedded demo dataset could not be loaded, so
+               no preview can be shown. The editor stays fully usable — the preview is an affordance,
+               not a gate. -->
+          <Border DockPanel.Dock="Top" Margin="0,0,0,8"
+                  IsVisible="{Binding PreviewUnavailable}"
+                  Background="{DynamicResource CardBackgroundBrush}"
+                  BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+                  CornerRadius="4" Padding="10,6">
+            <TextBlock Text="Demo preview unavailable (the built-in demo directory could not be loaded)."
+                       Opacity="0.7" TextWrapping="Wrap" />
           </Border>
 
           <!-- Editor surface + line-number gutter. The gutter (a single right-aligned
