@@ -1202,6 +1202,164 @@ async function accentRingDropProbe(browser, indexHtml) {
 }
 
 // ---------------------------------------------------------------------------
+// Fresh-page ISSUES-ONLY ALL-CLEAR probe (WP3b / #142): the "Issues only" toggle
+// is INERT when no node carries a finding. graph.js' controlToggleIssues guards on
+// anyIssues() (sev||below over cy.nodes()): with zero flagged nodes a click must
+// NOT flip issuesOnly (turning ON would hide the whole graph -> blank canvas), and
+// syncIssuesButton surfaces the inert "No issues" label with aria-pressed=false.
+// The main demo run always has 19 findings (flagged nodes present), so this
+// zero-flagged case needs a HAND-BUILT fixture - its OWN page/context/channel
+// (modeled on accentRingDropProbe / diffRenderTripwire) so its accounting is
+// independent of the main run's zero-jsError audit (and it must itself be
+// jsError-free). Harness morals hold: every wait is a bridge-message promise
+// (MESSAGE_TIMEOUT_MS), only primitives leave page.evaluate, the bare protocol
+// awaits fall under the global watchdog, no sleeps.
+// ---------------------------------------------------------------------------
+async function issuesAllClearProbe(browser, indexHtml) {
+  const probeMessages = [];
+  const probePending = new Map();
+  const probeWaiters = new Map();
+
+  function onProbeMessage(text) {
+    const msg = JSON.parse(text);
+    probeMessages.push(msg);
+    const waiter = probeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!probePending.has(msg.type)) {
+      probePending.set(msg.type, []);
+    }
+    probePending.get(msg.type).push(msg);
+  }
+
+  function awaitProbeMessage(type, context) {
+    const queued = probePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = probeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = probeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (issues-all-clear: ${context}); probe messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!probeWaiters.has(type)) {
+        probeWaiters.set(type, []);
+      }
+      probeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: issues-all-clear probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  page.on('pageerror', (err) => onProbeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onProbeMessage);
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitProbeMessage('ready', 'issues-all-clear bundle startup after goto');
+
+  // Hand-built ZERO-FLAGGED dataset (comma-DNs - getElementById only, ADR-004 D5):
+  // not one node carries `sev` or `below`, so nodeHasIssue is false everywhere and
+  // anyIssues() returns false -> the toggle is inert. Tiny on purpose (the demo
+  // floors are the main phase's).
+  const A = 'CN=Clean A,OU=AllClear,DC=groupweaver,DC=invalid';
+  const B = 'CN=Clean B,OU=AllClear,DC=groupweaver,DC=invalid';
+  const nodes = [
+    { id: A, label: 'Clean A', kind: 'GlobalGroup', x: 0, y: 0 },
+    { id: B, label: 'Clean B', kind: 'DomainLocalGroup', x: 160, y: 0 },
+  ];
+  const edges = [
+    { id: 'edge:all-clear', s: A, t: B, rel: 'member' },
+  ];
+  for (const chunk of toChunks(nodes, edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitProbeMessage('loaded', 'issues-all-clear graphCommit -> first render');
+
+  // After the commit, sendLoaded -> syncIssuesButton sees anyIssues()===false and
+  // surfaces the inert "No issues" label (aria-pressed false), with every node
+  // visible (the filter never engaged).
+  const beforeClick = await page.evaluate(() => {
+    const btn = document.getElementById('issues-btn');
+    const nodes = window.__cy.nodes();
+    let allVisible = true;
+    nodes.forEach((n) => { if (!n.visible()) { allVisible = false; } });
+    return {
+      present: !!btn,
+      ariaPressed: btn ? btn.getAttribute('aria-pressed') : null,
+      text: btn ? btn.textContent.trim() : null,
+      allVisible,
+      nodeCount: nodes.length,
+    };
+  });
+  assert(beforeClick.present,
+    'WP3b all-clear: #issues-btn must exist in the shipped bundle');
+  assert(beforeClick.ariaPressed === 'false' && beforeClick.text === 'No issues',
+    `WP3b all-clear: with zero flagged nodes #issues-btn must read "No issues" / aria-pressed=false after load (syncIssuesButton all-clear branch): ${JSON.stringify(beforeClick)}`);
+  assert(beforeClick.allVisible && beforeClick.nodeCount === nodes.length,
+    `WP3b all-clear: every node must be visible before the click (filter never engaged): ${JSON.stringify(beforeClick)}`);
+
+  // Clicking the toggle on a zero-flagged graph is a NO-OP: issuesOnly never flips
+  // (the anyIssues() guard short-circuits), every node stays visible, and the label
+  // stays "No issues" / aria-pressed=false (never "Issues: on", never a blank canvas).
+  await page.click('#issues-btn', { timeout: MESSAGE_TIMEOUT_MS });
+  const afterClick = await page.evaluate(() => {
+    const btn = document.getElementById('issues-btn');
+    const nodes = window.__cy.nodes();
+    let allVisible = true;
+    let anyHidden = 0;
+    nodes.forEach((n) => { if (!n.visible()) { allVisible = false; anyHidden += 1; } });
+    return {
+      ariaPressed: btn.getAttribute('aria-pressed'),
+      text: btn.textContent.trim(),
+      allVisible,
+      anyHidden,
+    };
+  });
+  assert(afterClick.ariaPressed === 'false' && afterClick.text === 'No issues',
+    `WP3b all-clear: clicking #issues-btn with zero findings must STAY inert ("No issues" / aria-pressed=false - the anyIssues() guard blocks the flip, never "Issues: on"): ${JSON.stringify(afterClick)}`);
+  assert(afterClick.allVisible && afterClick.anyHidden === 0,
+    `WP3b all-clear: a no-op toggle must leave EVERY node visible (never a blank canvas): ${afterClick.anyHidden} hidden`);
+  phase('WP3b: issues-only toggle is inert on a zero-flagged fixture ("No issues", all visible)');
+
+  // This phase is itself jsError-free on its own channel.
+  const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
+  assert(probeJsErrors.length === 0,
+    `issues-all-clear probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
+
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
 // Fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b): the graph canvas follows the
 // app theme over a {type:'theme', variant:'dark'|'light'} wire command (the wire
 // carries ONLY the variant string - no token values cross the bridge; graph.js
@@ -2972,6 +3130,240 @@ async function main() {
       `ADR-023 (5): toggling back to 'auto' must REMOVE gw-labels-all from every node, ${labelsOff.anyHaveClass} still carry it`);
     phase('ADR-023 (5) Labels toggle back to auto removes the class');
 
+    // =========================================================================
+    // WP3b (#142): the "Issues only" graph filter (#issues-btn). Placed right
+    // after the Labels toggle - the same control-cluster phase, with the camera
+    // at the canonical fit and a CLEAN selection (the labels block restored it,
+    // asserted). Subjects are derived from the rendered fixture (the demo
+    // baseline has 19 findings -> flagged nodes present): a flagged sev-only DN,
+    // a roll-up (below) DN, and a CLEAN node (neither sev nor below). ids/labels/
+    // predicate read VERBATIM from the shipped src/App/web/index.html + graph.js:
+    //   #issues-btn (after #labels-btn in #controls), aria-pressed, label
+    //   "Issues only" (off) / "Issues: on" (on); nodeHasIssue(n) = sev||below;
+    //   applyIssuesFilter hides clean nodes (.hide() => display:none), keeps
+    //   sev||below; controlToggleIssues guards on anyIssues(); revealIfHiddenByFilter
+    //   clears the filter when Find/select targets a hidden node. The all-clear
+    //   guard (zero-flagged) is the SEPARATE issuesAllClearProbe (the demo run can
+    //   never reach zero findings).
+
+    // (1) #issues-btn renders: present, visible, INSIDE #controls (after #labels-btn),
+    // starts the 'off' state (aria-pressed=false, label "Issues only").
+    const issuesDom = await page.evaluate(() => {
+      const btn = document.getElementById('issues-btn');
+      if (!btn) { return { present: false }; }
+      const box = btn.getBoundingClientRect();
+      const cs = getComputedStyle(btn);
+      const inControls = !!btn.closest('#controls');
+      // The shipped order is #labels-btn then #issues-btn in the same controls-row.
+      const labelsBtn = document.getElementById('labels-btn');
+      const afterLabels = !!(labelsBtn
+        && (labelsBtn.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING));
+      return {
+        present: true,
+        width: box.width, height: box.height,
+        display: cs.display, visibility: cs.visibility,
+        inControls, afterLabels,
+        ariaPressed: btn.getAttribute('aria-pressed'),
+        text: btn.textContent.trim(),
+      };
+    });
+    assert(issuesDom.present,
+      'WP3b (1): #issues-btn must exist in the shipped bundle (issues-only toggle missing)');
+    assert(issuesDom.width > 0 && issuesDom.height > 0 && issuesDom.display !== 'none' && issuesDom.visibility !== 'hidden',
+      `WP3b (1): #issues-btn must be visible (non-zero box, display!='none', visibility!='hidden'): ${JSON.stringify(issuesDom)}`);
+    assert(issuesDom.inControls && issuesDom.afterLabels,
+      `WP3b (1): #issues-btn must sit INSIDE #controls, AFTER #labels-btn (shipped order): inControls=${issuesDom.inControls}, afterLabels=${issuesDom.afterLabels}`);
+    assert(issuesDom.ariaPressed === 'false' && issuesDom.text === 'Issues only',
+      `WP3b (1): #issues-btn must start OFF (aria-pressed=false, label "Issues only"): ${JSON.stringify(issuesDom)}`);
+    phase('WP3b (1) #issues-btn renders inside #controls after #labels-btn, starts "Issues only" / off');
+
+    // Subjects from the rendered fixture (never hard-coded - survive baseline drift).
+    // A flagged sev-only node, a roll-up (below) node, and a CLEAN node (the
+    // applyIssuesFilter predicate's two keep-cases + the hide-case).
+    const flaggedSevNode = fixture.nodes.find((x) => x.sev && !x.below);
+    const rollupNode = fixture.nodes.find((x) => x.below && !x.sev);
+    const cleanNode = fixture.nodes.find((x) => !x.sev && !x.below && !x.root && x.id.includes(','));
+    assert(flaggedSevNode !== undefined,
+      'WP3b: demo fixture must contain a sev-only flagged node (the 19-finding baseline)');
+    assert(rollupNode !== undefined,
+      'WP3b: demo fixture must contain a roll-up (below) node for the keep-on-rollup case');
+    assert(cleanNode !== undefined,
+      'WP3b: demo fixture must contain a clean comma-DN node (neither sev nor below) for the hide case');
+
+    // Helper: per-node visibility + the button state in one round-trip. Counts the
+    // visible/hidden split over the flagged-vs-clean partition so the keep/hide
+    // assertions are exact, not sampled. Pure cy reads (.visible()) + DOM reads.
+    const issuesSnapshot = () => page.evaluate((subjects) => {
+      const cy = window.__cy;
+      const btn = document.getElementById('issues-btn');
+      const vis = (id) => cy.getElementById(id).visible();
+      let cleanVisible = 0;
+      let cleanHidden = 0;
+      let flaggedVisible = 0;
+      let flaggedHidden = 0;
+      cy.nodes().forEach((n) => {
+        const flagged = !!n.data('sev') || !!n.data('below');
+        if (flagged) {
+          if (n.visible()) { flaggedVisible += 1; } else { flaggedHidden += 1; }
+        } else if (n.visible()) { cleanVisible += 1; } else { cleanHidden += 1; }
+      });
+      return {
+        ariaPressed: btn.getAttribute('aria-pressed'),
+        text: btn.textContent.trim(),
+        flaggedSevVisible: vis(subjects.flaggedSev),
+        rollupVisible: vis(subjects.rollup),
+        cleanVisible: vis(subjects.clean),
+        cleanVisibleCount: cleanVisible,
+        cleanHiddenCount: cleanHidden,
+        flaggedVisibleCount: flaggedVisible,
+        flaggedHiddenCount: flaggedHidden,
+      };
+    }, { flaggedSev: flaggedSevNode.id, rollup: rollupNode.id, clean: cleanNode.id });
+
+    // (2) Toggle ON: clean nodes hide (.visible()===false), flagged (sev) and
+    // roll-up (below) nodes stay visible; button -> aria-pressed=true / "Issues: on".
+    const beforeIssuesOn = await issuesSnapshot();
+    assert(beforeIssuesOn.cleanVisible && beforeIssuesOn.flaggedSevVisible && beforeIssuesOn.rollupVisible,
+      `WP3b (2): before the toggle every node (clean + flagged + roll-up) must be visible: ${JSON.stringify(beforeIssuesOn)}`);
+    await page.click('#issues-btn', { timeout: MESSAGE_TIMEOUT_MS });
+    const issuesOn = await issuesSnapshot();
+    assert(issuesOn.ariaPressed === 'true' && issuesOn.text === 'Issues: on',
+      `WP3b (2): after one click #issues-btn must be ON (aria-pressed=true, label "Issues: on"): ${JSON.stringify(issuesOn)}`);
+    assert(issuesOn.flaggedSevVisible === true,
+      `WP3b (2): a flagged (sev) node '${flaggedSevNode.id}' must STAY visible under issues-only: ${JSON.stringify(issuesOn)}`);
+    assert(issuesOn.rollupVisible === true,
+      `WP3b (2): a roll-up (below) node '${rollupNode.id}' must STAY visible under issues-only (the path to a finding survives): ${JSON.stringify(issuesOn)}`);
+    assert(issuesOn.cleanVisible === false,
+      `WP3b (2): a clean node '${cleanNode.id}' (neither sev nor below) must be HIDDEN (.visible()===false) under issues-only: ${JSON.stringify(issuesOn)}`);
+    // Whole-partition exactness: NO flagged/roll-up node is hidden, and >= 1 clean
+    // node was hidden (the filter actually engaged, not a no-op).
+    assert(issuesOn.flaggedHiddenCount === 0,
+      `WP3b (2): NO flagged-or-roll-up node may be hidden under issues-only, ${issuesOn.flaggedHiddenCount} were: ${JSON.stringify(issuesOn)}`);
+    assert(issuesOn.cleanHiddenCount >= 1 && issuesOn.cleanVisibleCount === 0,
+      `WP3b (2): EVERY clean node must hide under issues-only (hidden ${issuesOn.cleanHiddenCount} >= 1, still-visible ${issuesOn.cleanVisibleCount} must be 0): ${JSON.stringify(issuesOn)}`);
+    phase(`WP3b (2) Issues:on hides ${issuesOn.cleanHiddenCount} clean nodes, keeps ${issuesOn.flaggedVisibleCount} flagged/roll-up`);
+
+    // (3) Toggle OFF: every node visible again; aria-pressed=false / "Issues only".
+    await page.click('#issues-btn', { timeout: MESSAGE_TIMEOUT_MS });
+    const issuesOff = await issuesSnapshot();
+    assert(issuesOff.ariaPressed === 'false' && issuesOff.text === 'Issues only',
+      `WP3b (3): a second click must return #issues-btn to OFF (aria-pressed=false, "Issues only"): ${JSON.stringify(issuesOff)}`);
+    assert(issuesOff.cleanHiddenCount === 0 && issuesOff.flaggedHiddenCount === 0
+      && issuesOff.cleanVisible && issuesOff.flaggedSevVisible && issuesOff.rollupVisible,
+      `WP3b (3): toggling OFF must make EVERY node visible again (cy.nodes().show()): ${JSON.stringify(issuesOff)}`);
+    phase('WP3b (3) Issues:off restores every node to visible');
+
+    // (4) With the filter ON, a graphUpdate that ADDS a CLEAN node -> that node is
+    // hidden (re-applied via applyIssuesFilter inside sendLoaded), flagged stay
+    // visible. Mirror of the labels-all-survives-graphUpdate assert: re-feed the
+    // fixture + a brand-new clean node, commit with graphUpdate. Turn the filter
+    // back ON first (the run left it OFF after (3)).
+    await page.click('#issues-btn', { timeout: MESSAGE_TIMEOUT_MS });
+    const issuesReOn = await issuesSnapshot();
+    assert(issuesReOn.ariaPressed === 'true' && issuesReOn.text === 'Issues: on',
+      `WP3b (4): re-arming the filter must turn #issues-btn ON before the graphUpdate persistence check: ${JSON.stringify(issuesReOn)}`);
+    // A genuinely-new CLEAN node placed clear of every fixture node (no overlap),
+    // distinct comma-DN. Reuses the maxAbs spacing idiom from the reduced-motion probe.
+    const issuesMaxAbs = fixture.nodes.reduce(
+      (acc, x) => Math.max(acc, Math.abs(x.x), Math.abs(x.y)), 0);
+    const ISSUES_NEW_CLEAN = 'CN=Issues New Clean,OU=IssuesFilter,DC=groupweaver,DC=invalid';
+    const issuesNewNode = {
+      id: ISSUES_NEW_CLEAN, label: 'Issues New Clean', kind: 'User',
+      x: issuesMaxAbs + 211.5, y: -(issuesMaxAbs + 173.25),
+    };
+    const issuesUpdatedNodes = [...fixture.nodes, issuesNewNode];
+    for (const chunk of toChunks(issuesUpdatedNodes, fixture.edges)) {
+      await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+    }
+    await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+    await awaitMessage('loaded', 'WP3b (4): graphUpdate adds a clean node under issues-only');
+    const afterUpdate = await page.evaluate((a) => {
+      const cy = window.__cy;
+      const btn = document.getElementById('issues-btn');
+      return {
+        ariaPressed: btn.getAttribute('aria-pressed'),
+        text: btn.textContent.trim(),
+        newNodeFound: cy.getElementById(a.newId).length === 1,
+        newNodeVisible: cy.getElementById(a.newId).visible(),
+        flaggedSevVisible: cy.getElementById(a.flaggedSev).visible(),
+        rollupVisible: cy.getElementById(a.rollup).visible(),
+      };
+    }, { newId: ISSUES_NEW_CLEAN, flaggedSev: flaggedSevNode.id, rollup: rollupNode.id });
+    assert(afterUpdate.newNodeFound,
+      `WP3b (4): the freshly added node '${ISSUES_NEW_CLEAN}' must be present after the graphUpdate`);
+    assert(afterUpdate.newNodeVisible === false,
+      `WP3b (4): a CLEAN node added via graphUpdate while issues-only is ON must be HIDDEN (applyIssuesFilter re-applied in sendLoaded): visible=${afterUpdate.newNodeVisible}`);
+    assert(afterUpdate.flaggedSevVisible && afterUpdate.rollupVisible,
+      `WP3b (4): flagged + roll-up nodes must STAY visible across the graphUpdate: ${JSON.stringify(afterUpdate)}`);
+    assert(afterUpdate.ariaPressed === 'true' && afterUpdate.text === 'Issues: on',
+      `WP3b (4): #issues-btn must remain ON across the graphUpdate (issuesOnly is module-level state): ${JSON.stringify(afterUpdate)}`);
+    phase('WP3b (4) Issues:on survives graphUpdate - the new clean node hides, flagged stay');
+
+    // (5) Find/select a node hidden by the filter -> revealIfHiddenByFilter clears
+    // the filter (aria-pressed=false), the target becomes visible + selected, and
+    // the existing no-extra-bridge-traffic invariants hold (the {type:'select'}
+    // reverse-sync is fire-and-forget: zero new messages). The filter is still ON
+    // from (4); the clean node added in (4) is the perfect hidden target.
+    const hiddenTarget = ISSUES_NEW_CLEAN;
+    const hiddenBefore = await page.evaluate((id) => ({
+      visible: window.__cy.getElementById(id).visible(),
+      ariaPressed: document.getElementById('issues-btn').getAttribute('aria-pressed'),
+    }), hiddenTarget);
+    assert(hiddenBefore.visible === false && hiddenBefore.ariaPressed === 'true',
+      `WP3b (5): the select target must start HIDDEN with the filter ON: ${JSON.stringify(hiddenBefore)}`);
+    const msgCountBeforeReveal = allMessages.length;
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'select', id }), hiddenTarget);
+    const afterReveal = await page.evaluate((id) => {
+      const cy = window.__cy;
+      const n = cy.getElementById(id);
+      return {
+        ariaPressed: document.getElementById('issues-btn').getAttribute('aria-pressed'),
+        text: document.getElementById('issues-btn').textContent.trim(),
+        targetVisible: n.visible(),
+        targetSelected: n.selected(),
+        selectedCount: cy.nodes(':selected').length,
+        anyHidden: cy.nodes().filter((x) => !x.visible()).length,
+      };
+    }, hiddenTarget);
+    assert(afterReveal.ariaPressed === 'false' && afterReveal.text === 'Issues only',
+      `WP3b (5): selecting a filter-hidden node must CLEAR the filter (revealIfHiddenByFilter -> aria-pressed=false, "Issues only"): ${JSON.stringify(afterReveal)}`);
+    assert(afterReveal.targetVisible === true,
+      `WP3b (5): the reverse-selected hidden node '${hiddenTarget}' must become visible (filter cleared so the jump lands on a visible node): ${JSON.stringify(afterReveal)}`);
+    assert(afterReveal.targetSelected === true && afterReveal.selectedCount === 1,
+      `WP3b (5): the reverse-selected node must be the sole :selected node (applySelection still applies): ${JSON.stringify(afterReveal)}`);
+    assert(afterReveal.anyHidden === 0,
+      `WP3b (5): clearing the filter must make EVERY node visible again, ${afterReveal.anyHidden} still hidden`);
+    // The {type:'select'} reverse-sync is fire-and-forget: it must emit ZERO new
+    // bridge messages (the existing no-extra-traffic invariant for the select command).
+    assert(allMessages.length === msgCountBeforeReveal,
+      `WP3b (5): a reverse {type:'select'} (even one that clears the filter) must produce ZERO new bridge traffic: message count ${msgCountBeforeReveal} -> ${allMessages.length}`);
+    phase('WP3b (5) selecting a filter-hidden node clears the filter, target visible + selected, no extra bridge traffic');
+
+    // Restore the graph to the canonical fixture set + a fully clean state for the
+    // downstream keyboard/dbltap/focus phases: clear the selection, re-feed the
+    // exact fixture (drops the synthetic clean node) with graphUpdate, and refit.
+    // The filter is already OFF (cleared in (5)); the button reads "Issues only".
+    await page.evaluate(() => window.bridge.dispatch({ type: 'select', id: '' }));
+    for (const chunk of toChunks(fixture.nodes, fixture.edges)) {
+      await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+    }
+    await page.evaluate(() => window.bridge.dispatch({ type: 'graphUpdate' }));
+    await awaitMessage('loaded', 'WP3b: restore canonical fixture after the issues-filter block');
+    await page.evaluate(() => { window.__cy.fit(window.__cy.elements(), 80); });
+    const issuesClean = await page.evaluate(() => ({
+      selectedCount: window.__cy.nodes(':selected').length,
+      anyDim: window.__cy.nodes('.gw-dim').length,
+      anyHidden: window.__cy.nodes().filter((x) => !x.visible()).length,
+      issuesAria: document.getElementById('issues-btn').getAttribute('aria-pressed'),
+      nodeCount: window.__cy.nodes().length,
+    }));
+    assert(issuesClean.selectedCount === 0 && issuesClean.anyDim === 0
+      && issuesClean.anyHidden === 0 && issuesClean.issuesAria === 'false'
+      && issuesClean.nodeCount === fixture.nodes.length,
+      `WP3b: the issues-filter block must leave a CLEAN state (no selection/dim/hidden, filter off, canonical node count) for downstream phases: ${JSON.stringify(issuesClean)}`);
+    phase('WP3b issues-filter block verified + clean canonical state restored');
+    // =========================================================================
+
     // (6) Keyboard (web-layer, document keydown - ADR-023 D5). Playwright injects
     // real key events at the browser level, so the document listener fires.
     //   - Ctrl+F focuses #find-input (and preventDefault stops the browser find).
@@ -3547,6 +3939,16 @@ async function main() {
     await accentRingDropProbe(browser, indexHtml);
     phase('accent-ring-drop probe (fresh page: ring hides when tracked node vanishes on graphUpdate)');
 
+    // --- fresh-page ISSUES-ONLY ALL-CLEAR probe (WP3b / #142) ----------------
+    // After the audit and the other probes, on its OWN page/context/channel. The
+    // demo run always has 19 findings (flagged nodes present), so the all-clear
+    // guard - clicking #issues-btn with ZERO flagged nodes must be inert ("No
+    // issues" / aria-pressed=false, every node visible, never a blank canvas) -
+    // needs a hand-built zero-flagged fixture. Independent of the main run's
+    // zero-jsError audit (and itself jsError-free).
+    await issuesAllClearProbe(browser, indexHtml);
+    phase('issues-all-clear probe (fresh page: zero-flagged toggle is inert, "No issues")');
+
     // --- fresh-page LIGHT-THEME probe (ADR-026 D5 / WP1b) -------------------
     // After the audit and the other probes, on its OWN page/context/channel. Loads a
     // hand-built dataset, dispatches {type:'theme',variant:'light'}, awaits the live
@@ -3573,6 +3975,7 @@ async function main() {
       + `reverse select command (tap-identical/empty-clear/unknown-clear/instant) verified (#96), `
       + `busy ring (paint/severity-wins/clear/transient) verified (#94), `
       + `control cluster + find (name/DN/no-match) + zoom/fit + labels toggle + keyboard verified (ADR-023), `
+      + `issues-only filter (toggle on/off, keep flagged+roll-up, hide clean, survive graphUpdate, reveal-on-select, all-clear inert) verified (WP3b #142), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `8 screenshots -> ${screenshotDir}`);
   } finally {

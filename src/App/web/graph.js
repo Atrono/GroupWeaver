@@ -174,6 +174,16 @@
   // after a graphUpdate adds new nodes. Default 'auto'.
   var labelMode = 'auto';
 
+  // WP3b (#142): "Issues only" filter state. When ON, every node WITHOUT a finding
+  // (data('sev')) AND without flagged loaded descendants (data('below')) is hidden
+  // (cytoscape .hide() => display:none); the rest stay shown. A flagged node's loaded
+  // ancestor groups carry `below` (ADR-010 D4 roll-up), so the path to a finding stays
+  // visible and the directory collapses to a navigable issue tree. Module-level (mirror
+  // of labelMode) so applyIssuesFilter() can re-assert it in sendLoaded after a
+  // graphUpdate adds new nodes. Default OFF (false). Canvas-local (ADR-023): the
+  // sev/below fields already cross the wire — no bridge command, no C# change.
+  var issuesOnly = false;
+
   // ADR-017 D5: read ONCE at IIFE init. prefers-reduced-motion:reduce degrades
   // BOTH the F2 eased focus-fit and the F1 enter fade to the instant pre-slice
   // paths (synchronous cy.fit + cy.one('render') for focus; full-opacity add for
@@ -273,6 +283,68 @@
     cy.nodes().toggleClass('gw-labels-all', labelMode === 'all');
   }
 
+  // WP3b (#142): does a node carry a finding or a flagged-descendant roll-up?
+  // The predicate for "keep visible under issues-only". data('below') is emitted
+  // only when > 0 (ADR-010 D2), so its mere presence means flagged descendants.
+  function nodeHasIssue(node) {
+    return !!node.data('sev') || !!node.data('below');
+  }
+
+  // WP3b (#142): are there ANY flagged nodes to filter to? Guards the all-clear
+  // case — toggling issues-only with zero findings would hide the whole graph
+  // (blank canvas), so the toggle is inert when nothing is flagged.
+  function anyIssues() {
+    if (cy === null) { return false; }
+    return cy.nodes().filter(function (n) { return nodeHasIssue(n); }).nonempty();
+  }
+
+  // WP3b (#142): re-assert the current issues-only filter across every live node.
+  // Called from the toggle handler AND sendLoaded() so the mode survives a
+  // graphUpdate (lazy expand) — newly added clean nodes get hidden when the filter
+  // is ON, exactly as labels-all re-applies. OFF => show all. ON => hide every node
+  // WITHOUT sev||below (display:none); connected edges follow cytoscape's
+  // hidden-endpoint behavior, so no dangling edge visual remains. The all-clear
+  // guard lives in the toggle handler (the flag never turns ON with zero issues),
+  // so here ON always implies >=1 flagged node — never a blank canvas.
+  function applyIssuesFilter() {
+    if (!issuesOnly) {
+      cy.nodes().show();
+      return;
+    }
+    cy.nodes().forEach(function (n) {
+      if (nodeHasIssue(n)) { n.show(); } else { n.hide(); }
+    });
+  }
+
+  // WP3b (#142): if the issues-only filter is ON and `node` is currently hidden by
+  // it (a clean node reached via Find or a reverse `select`), clear the filter so
+  // the target becomes visible — the least-surprising behavior (documented in the
+  // button title): a jump always lands on a visible node. Returns nothing; callers
+  // run this BEFORE applySelection/the camera frame. Cheap: cytoscape .visible() is
+  // O(1) per element. No-op when the filter is off or the node is already visible.
+  function revealIfHiddenByFilter(node) {
+    if (issuesOnly && node.nonempty() && !node.visible()) {
+      issuesOnly = false;
+      applyIssuesFilter();
+      syncIssuesButton();
+    }
+  }
+
+  // WP3b (#142): reflect issuesOnly + the all-clear state on the toggle button.
+  // Mirrors the labels-btn pattern (textContent + aria-pressed). When no node is
+  // flagged the button reads "No issues" and stays aria-pressed=false (inert).
+  function syncIssuesButton() {
+    var btn = document.getElementById('issues-btn');
+    if (!btn) { return; }
+    if (cy !== null && !anyIssues()) {
+      btn.textContent = 'No issues';
+      btn.setAttribute('aria-pressed', 'false');
+      return;
+    }
+    btn.textContent = issuesOnly ? 'Issues: on' : 'Issues only';
+    btn.setAttribute('aria-pressed', issuesOnly ? 'true' : 'false');
+  }
+
   // ADR-023 D3: find a node by Name (data('label')) OR DN (id()), case-insensitive,
   // preferring an exact match, else the FIRST substring match (deterministic by
   // cytoscape z-order). Iterates cy.nodes() comparing values (not selector
@@ -360,6 +432,8 @@
     });
     updateLegendCounts();
     applyLabelMode();  // ADR-023 D4: re-assert label mode across a graphUpdate.
+    applyIssuesFilter();  // WP3b (#142): re-assert issues-only across a graphUpdate.
+    syncIssuesButton();   // WP3b: refresh the toggle (incl. all-clear) per build.
   }
 
   // ADR-026 WP1b: build the full cytoscape style array from a theme token table `t`
@@ -795,7 +869,13 @@
           // ONLY (comma-DN safe). No bridge reply (fire-and-forget).
           if (cy === null) { break; }
           var selNode = cmd.id ? cy.getElementById(cmd.id) : cy.collection();
-          if (selNode.nonempty()) { applySelection(selNode); } else { clearSelection(); }
+          if (selNode.nonempty()) {
+            // WP3b (#142): a sidebar/jump reverse-select may target a clean node
+            // hidden by issues-only — clear the filter first so the selection ring
+            // lands on a visible node (same least-surprising rule as Find).
+            revealIfHiddenByFilter(selNode);
+            applySelection(selNode);
+          } else { clearSelection(); }
           break;
         case 'exportPng':
           // ADR-013: cy.png on the live instance. Guard like graphUpdate -
@@ -867,6 +947,10 @@
       return;  // no bridge traffic on a no-match.
     }
     if (noMatchEl) { noMatchEl.hidden = true; }
+    // WP3b (#142): a Find can resolve to a clean node hidden by issues-only —
+    // clear the filter so the target is visible BEFORE selecting/framing it
+    // (least-surprising: a find always lands on a visible node).
+    revealIfHiddenByFilter(node);
     // (a) the SAME message a tap sends — updates .NET SelectedDn + detail panel.
     window.bridge.send({
       type: 'nodeClick',
@@ -895,6 +979,21 @@
     }
   }
 
+  // WP3b (#142): toggle the issues-only filter. All-clear guard: if no node is
+  // flagged, turning ON would hide everything, so the toggle is a no-op and the
+  // button reflects "No issues" (inert). Otherwise flip issuesOnly, re-filter, and
+  // sync the button (mirror of controlToggleLabels).
+  function controlToggleIssues() {
+    if (cy === null) { return; }
+    if (!issuesOnly && !anyIssues()) {
+      syncIssuesButton();  // surface "No issues"; stay OFF (no blank canvas).
+      return;
+    }
+    issuesOnly = !issuesOnly;
+    applyIssuesFilter();
+    syncIssuesButton();
+  }
+
   function wireControls() {
     var findInput = document.getElementById('find-input');
     var noMatchEl = document.getElementById('find-no-match');
@@ -902,11 +1001,13 @@
     var zoomInBtn = document.getElementById('zoom-in-btn');
     var zoomOutBtn = document.getElementById('zoom-out-btn');
     var labelsBtn = document.getElementById('labels-btn');
+    var issuesBtn = document.getElementById('issues-btn');
 
     if (fitBtn) { fitBtn.addEventListener('click', controlFit); }
     if (zoomInBtn) { zoomInBtn.addEventListener('click', function () { controlZoom(1.2); }); }
     if (zoomOutBtn) { zoomOutBtn.addEventListener('click', function () { controlZoom(1 / 1.2); }); }
     if (labelsBtn) { labelsBtn.addEventListener('click', controlToggleLabels); }
+    if (issuesBtn) { issuesBtn.addEventListener('click', controlToggleIssues); }
     if (findInput) {
       findInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
