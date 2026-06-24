@@ -150,6 +150,43 @@
       font-size: 11px; color: var(--gw-no-match); padding: 0 1px;
     }
     #controls .no-match[hidden] { display: none; }
+    /* WP3c (#144): the Ctrl+K command-palette results dropdown. Lives under
+       #find-input inside #controls, themed from the same --gw-* chrome vars (no new
+       token). Hidden by default via the [hidden] attribute (display:none) so the
+       closed/unfiltered state stays byte-identical to the pre-WP3c bundle. */
+    #palette-results {
+      list-style: none; margin: 0; padding: 2px;
+      max-height: 232px; overflow-y: auto;
+      border: 1px solid var(--gw-chrome-border);
+      border-radius: 5px;
+      background: var(--gw-input-bg);
+    }
+    #palette-results[hidden] { display: none; }
+    #palette-results .palette-item {
+      display: flex; flex-direction: column; gap: 1px;
+      padding: 4px 7px; border-radius: 4px; cursor: pointer;
+    }
+    #palette-results .palette-item:hover { background: var(--gw-btn-hover-bg); }
+    /* Highlighted (keyboard-navigated) item: a quiet accent tint + accent left edge,
+       reusing --gw-accent. The white/dark selection border stays cytoscape's job. */
+    #palette-results .palette-item.gw-active {
+      background: var(--gw-btn-hover-bg);
+      box-shadow: inset 2px 0 0 0 var(--gw-accent);
+    }
+    /* WP3c (#144): the active row's --gw-btn-hover-bg tint lifts the background under
+       the otherwise-dim hint (--gw-chrome-title) below the 4.5:1 WCAG 1.4.3 text floor
+       (4.27:1 dark / 4.43:1 light on the composited active-row bg). Bump ONLY the
+       active-row hint to the brighter --gw-chrome-count, which clears the floor with
+       margin (8.44:1 dark / 7.38:1 light); non-active hints already pass and stay dim. */
+    #palette-results .palette-item.gw-active .palette-hint { color: var(--gw-chrome-count); }
+    #palette-results .palette-label {
+      font-size: 12px; color: var(--gw-chrome-label);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #palette-results .palette-hint {
+      font-size: 10px; color: var(--gw-chrome-title);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     /* ADR-027 D3/D4 (WP3): the selection accent halo/pulse. ONE absolutely-positioned
        ring element (the bundle script positions it at the selected node's renderedPosition and
        sizes it to the node + glow margin), drawn ABOVE the canvas (z-index 5, below the
@@ -260,9 +297,13 @@
   <!-- ADR-023: interactive control cluster (find + camera + label gate override). -->
   <div id="controls">
     <div class="controls-row">
-      <input id="find-input" type="text" placeholder="Find a node by name or DN&hellip;"
-             aria-label="Find a node by name or DN" autocomplete="off" spellcheck="false" />
+      <input id="find-input" type="text" placeholder="Search &amp; commands&hellip; Ctrl K"
+             aria-label="Search nodes and commands" autocomplete="off" spellcheck="false"
+             role="combobox" aria-expanded="false" aria-controls="palette-results" />
     </div>
+    <!-- WP3c (#144): command-palette results. Populated/shown/hidden by the bundle
+         script; hidden until the palette is open with results. -->
+    <ul id="palette-results" role="listbox" aria-label="Search results and commands" hidden></ul>
     <div id="find-no-match" class="no-match" hidden>No match</div>
     <div class="controls-row">
       <button id="fit-btn" type="button" title="Fit graph to view (Ctrl+0)">Fit</button>

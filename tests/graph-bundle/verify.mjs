@@ -3456,6 +3456,406 @@ async function main() {
     phase('ADR-023 control cluster verified + clean state restored (graph-controls.png)');
     // =========================================================================
 
+    // =========================================================================
+    // WP3c (#144): the Ctrl+K command palette. Placed right after the ADR-023
+    // control block (clean state restored above) and BEFORE the expand/focus
+    // phases below, mirroring the ADR-023 (4)/(6) find+keyboard idioms it builds
+    // on (the palette reuses #find-input + selectAndFrame/controlFind). ids and
+    // classes are read VERBATIM from the shipped src/App/web (index.html +
+    // graph.js), not guessed:
+    //   #find-input (role=combobox, aria-expanded/aria-controls), #palette-results
+    //   (role=listbox, toggled via the `hidden` ATTRIBUTE - CSS
+    //   `#palette-results[hidden]{display:none}`), rows <li class="palette-item">
+    //   with .palette-label + .palette-hint, highlighted row class .gw-active.
+    //   Quick-action names: "Fit to view" / "Toggle labels" / "Issues only"
+    //   (PALETTE_ACTIONS in graph.js -> controlFit/controlToggleLabels/
+    //   controlToggleIssues). Node Enter => selectAndFrame (the SAME path as Find:
+    //   exactly one nodeClick + applySelection + a LOCAL frame, ZERO 'focused');
+    //   action Enter => its handler, ZERO bridge traffic. The harness drives the
+    //   palette the hang-free way the ADR-023 (4) block established: focus
+    //   #find-input once, set value + dispatch an 'input' event (the bundle opens
+    //   the palette lazily on first input), then DOCUMENT-level page.keyboard.*
+    //   for Arrow/Enter/Esc (never selector-targeted page.fill/press against the
+    //   reflowing #controls box - CI run 27977999334).
+    //
+    // The three pinned action names (must match graph.js PALETTE_ACTIONS verbatim).
+    const PALETTE_FIT = 'Fit to view';
+    const PALETTE_TOGGLE_LABELS = 'Toggle labels';
+    const PALETTE_ISSUES = 'Issues only';
+    const PALETTE_ACTION_NAMES = [PALETTE_FIT, PALETTE_TOGGLE_LABELS, PALETTE_ISSUES];
+
+    // Read the live palette row model: each row's kind (node|action via the
+    // .palette-hint text), label + hint text, gw-active highlight, aria-selected.
+    // Pure DOM reads off #palette-results <li.palette-item> rows.
+    const readPalette = () => page.evaluate(() => {
+      const input = document.getElementById('find-input');
+      const ul = document.getElementById('palette-results');
+      const rows = Array.prototype.map.call(
+        ul ? ul.querySelectorAll('li.palette-item') : [],
+        (li) => ({
+          label: (li.querySelector('.palette-label') || {}).textContent || '',
+          hint: (li.querySelector('.palette-hint') || {}).textContent || '',
+          active: li.classList.contains('gw-active'),
+          ariaSelected: li.getAttribute('aria-selected'),
+        }));
+      return {
+        active: document.activeElement && document.activeElement.id,
+        ulPresent: ul !== null,
+        ulHidden: ul ? ul.hidden : null,
+        ariaExpanded: input ? input.getAttribute('aria-expanded') : null,
+        inputValue: input ? input.value : null,
+        rows,
+      };
+    });
+
+    // Drive a query into the palette the hang-free way (focus once, set value +
+    // dispatch 'input' so the bundle's input listener opens+rebuilds the palette).
+    async function typePalette(query) {
+      await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+      await page.evaluate((q) => {
+        const i = document.getElementById('find-input');
+        i.value = q;
+        i.dispatchEvent(new Event('input', { bubbles: true }));
+      }, query);
+    }
+
+    // The palette markup must exist in the shipped bundle (role=listbox, combobox
+    // wiring on #find-input) and its CSS `[hidden]` rule must collapse it to
+    // display:none. The preceding ADR-023 (6) block ends with a Ctrl+F that — now
+    // that Ctrl+F is a palette OPEN alias (WP3c) — leaves the palette OPEN, so we
+    // first close it deterministically (focus + Esc) to assert the CLOSED contract
+    // from a known baseline (this also re-proves Esc closes ahead of the dedicated
+    // (5) Esc pin). Mirrors the ADR-023 (1) render pin.
+    await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { document.getElementById('find-input').blur(); });
+    const paletteDom = await page.evaluate(() => {
+      const ul = document.getElementById('palette-results');
+      const input = document.getElementById('find-input');
+      return {
+        ulPresent: ul !== null,
+        ulRole: ul ? ul.getAttribute('role') : null,
+        ulHidden: ul ? ul.hidden : null,
+        ulDisplay: ul ? getComputedStyle(ul).display : null,
+        inputRole: input ? input.getAttribute('role') : null,
+        ariaControls: input ? input.getAttribute('aria-controls') : null,
+        ariaExpanded: input ? input.getAttribute('aria-expanded') : null,
+      };
+    });
+    assert(paletteDom.ulPresent && paletteDom.ulRole === 'listbox',
+      `WP3c (0): #palette-results must exist with role=listbox in the shipped bundle: ${JSON.stringify(paletteDom)}`);
+    assert(paletteDom.ulHidden === true && paletteDom.ulDisplay === 'none',
+      `WP3c (0): a CLOSED #palette-results must be hidden (hidden attribute + display:none via the [hidden] CSS rule): ${JSON.stringify(paletteDom)}`);
+    assert(paletteDom.inputRole === 'combobox' && paletteDom.ariaControls === 'palette-results' && paletteDom.ariaExpanded === 'false',
+      `WP3c (0): #find-input must be a combobox wired to #palette-results, aria-expanded=false when closed: ${JSON.stringify(paletteDom)}`);
+    phase('WP3c (0) palette markup present (role=listbox, [hidden] collapses, combobox wiring)');
+
+    // (1) Ctrl+K OPENS: #find-input gains focus, #palette-results un-hides, and
+    // an EMPTY query shows the action rows (no nodes). Blur first so the focus
+    // change is observable. Ctrl+K is the primary opener (Cmd+K alias on mac).
+    await page.evaluate(() => { document.getElementById('find-input').blur(); });
+    await page.keyboard.press('Control+k');
+    const ctrlK = await readPalette();
+    assert(ctrlK.active === 'find-input',
+      `WP3c (1): Ctrl+K must focus #find-input, got '${ctrlK.active}'`);
+    assert(ctrlK.ulHidden === false && ctrlK.ariaExpanded === 'true',
+      `WP3c (1): Ctrl+K must OPEN #palette-results (un-hidden) and set aria-expanded=true: ${JSON.stringify({ ulHidden: ctrlK.ulHidden, ariaExpanded: ctrlK.ariaExpanded })}`);
+    // Empty query => action rows ONLY (every action present, no node rows). A node
+    // row's hint is `Kind · DN`; an action row's hint is the action's secondary
+    // text, never containing the ` · ` node separator - so action rows have NO
+    // ` · ` in their hint and their label equals an action name.
+    const emptyLabels = ctrlK.rows.map((r) => r.label);
+    for (const name of PALETTE_ACTION_NAMES) {
+      assert(emptyLabels.includes(name),
+        `WP3c (1): an empty-query palette must list the action '${name}', got rows ${JSON.stringify(emptyLabels)}`);
+    }
+    assert(ctrlK.rows.every((r) => PALETTE_ACTION_NAMES.includes(r.label)),
+      `WP3c (1): an empty-query palette must show ACTIONS ONLY (no node rows), got ${JSON.stringify(emptyLabels)}`);
+    phase('WP3c (1) Ctrl+K opens + focuses #find-input, empty query shows action rows only');
+
+    // Close it again (Esc) so (2) drives a fresh open via typing.
+    await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.keyboard.press('Escape');
+
+    // (2) Typing lists NODE + ACTION matches. The query "lab" is a substring of the
+    // action name "Toggle labels" AND of the `LAB-` computer node labels in the demo
+    // fixture, so one query yields both row classes. Derived from the fixture (NOT
+    // hard-coded) so it survives label drift: pick a query that is a substring of
+    // some action name AND matches >= 1 fixture node. Among the action names' word
+    // fragments, "lab" (from "labels") is the demo's shared token; assert generically
+    // that the chosen query produces >= 1 node row (with a `Kind · DN` hint) AND the
+    // matching action row.
+    const SHARED_QUERY = 'lab';
+    const sharedActionName = PALETTE_ACTION_NAMES.find((n) => n.toLowerCase().includes(SHARED_QUERY));
+    assert(sharedActionName === PALETTE_TOGGLE_LABELS,
+      `WP3c (2): the shared query '${SHARED_QUERY}' must be a substring of exactly the "${PALETTE_TOGGLE_LABELS}" action name (PALETTE_ACTIONS drift?), resolved '${sharedActionName}'`);
+    const sharedNodeMatches = fixture.nodes.filter((x) =>
+      (x.label || '').toLowerCase().includes(SHARED_QUERY) || x.id.toLowerCase().includes(SHARED_QUERY));
+    assert(sharedNodeMatches.length >= 1,
+      `WP3c (2): the shared query '${SHARED_QUERY}' must match >= 1 fixture node (fixture drift?), matched ${sharedNodeMatches.length}`);
+    await typePalette(SHARED_QUERY);
+    const shared = await readPalette();
+    assert(shared.ulHidden === false && shared.ariaExpanded === 'true',
+      `WP3c (2): typing must keep the palette OPEN: ${JSON.stringify({ ulHidden: shared.ulHidden, ariaExpanded: shared.ariaExpanded })}`);
+    // The action row for "Toggle labels" must be present (label == the action name,
+    // hint has NO ` · ` node separator).
+    const sharedActionRow = shared.rows.find((r) => r.label === PALETTE_TOGGLE_LABELS);
+    assert(sharedActionRow !== undefined && !sharedActionRow.hint.includes(' · '),
+      `WP3c (2): typing '${SHARED_QUERY}' must list the "${PALETTE_TOGGLE_LABELS}" ACTION row (action hint, no node ' · ' separator): rows ${JSON.stringify(shared.rows.map((r) => r.label))}`);
+    // At least one NODE row: label is a fixture node Name whose label/id contains the
+    // query, and the hint is `Kind · DN` (the node-row format from renderPalette).
+    const sharedNodeRow = shared.rows.find((r) =>
+      r.label !== PALETTE_TOGGLE_LABELS
+      && r.hint.includes(' · ')
+      && sharedNodeMatches.some((m) => (m.label || m.id) === r.label));
+    assert(sharedNodeRow !== undefined,
+      `WP3c (2): typing '${SHARED_QUERY}' must list >= 1 NODE row (a matching fixture Name with a 'Kind · DN' hint): rows ${JSON.stringify(shared.rows)}`);
+    // The node-row hint must be exactly `Kind · DN` for the matched fixture node.
+    const sharedNodeFixture = fixture.nodes.find((x) => (x.label || x.id) === sharedNodeRow.label);
+    assert(sharedNodeFixture !== undefined
+      && sharedNodeRow.hint === `${sharedNodeFixture.kind} · ${sharedNodeFixture.id}`,
+      `WP3c (2): the node row's hint must be 'Kind · DN' ('${sharedNodeFixture ? sharedNodeFixture.kind + ' · ' + sharedNodeFixture.id : '??'}'), got '${sharedNodeRow.hint}'`);
+    phase('WP3c (2) typing lists both a NODE row (Kind · DN hint) and the matching ACTION row');
+
+    // (3) Arrow + Enter invokes a NODE. Use a query that matches EXACTLY ONE node
+    // and NO action (so the single result row is that node at index 0), then
+    // ArrowDown (wraps to the sole row) + Enter must run the SAME path as Find:
+    // exactly ONE nodeClick with that DN, the node :selected, zero 'focused'
+    // (mirrors the ADR-023 (4) find-by-name asserts). Subject derived from the
+    // fixture: a non-root node with a unique exact label that contains none of the
+    // action-name substrings (so no action row joins the result set).
+    const actionLower = PALETTE_ACTION_NAMES.map((n) => n.toLowerCase());
+    const labelMatchesAnAction = (s) => actionLower.some((a) => {
+      // share a >=3-char token? cheap: does the label contain any 3-gram of an action name?
+      const t = s.toLowerCase();
+      for (let i = 0; i + 3 <= a.length; i++) {
+        const g = a.slice(i, i + 3).trim();
+        if (g.length === 3 && t.includes(g)) { return true; }
+      }
+      return false;
+    });
+    // The query (the subject's full label) must resolve to EXACTLY ONE row: it must
+    // be an exact label/id of the subject and NOT a substring of ANY OTHER node's
+    // label or id (else those join as substring matches — e.g. the "Computers" OU
+    // label is a substring of every "OU=Computers,..." child DN). Counts the live
+    // matches the bundle's findNodes would see (exact-or-substring over label+id).
+    const matchCountFor = (q) => {
+      const ql = q.toLowerCase();
+      return fixture.nodes.filter((x) =>
+        (x.label || '').toLowerCase().includes(ql) || x.id.toLowerCase().includes(ql)).length;
+    };
+    const paletteNodeSubject = fixture.nodes.find((x) =>
+      !x.root && x.label && x.label.length >= 3
+      && !labelMatchesAnAction(x.label)
+      && matchCountFor(x.label) === 1);
+    assert(paletteNodeSubject !== undefined,
+      'WP3c (3): fixture must contain a non-root node whose full label matches EXACTLY ONE node (not a substring of any other label/DN) and shares no 3-gram with any action name (single-row node palette query)');
+    // Confirm the query yields no action row (so the single row is the node).
+    const subjQ = paletteNodeSubject.label;
+    await typePalette(subjQ);
+    const beforeArrow = await readPalette();
+    assert(beforeArrow.rows.length === 1 && beforeArrow.rows[0].label === paletteNodeSubject.label
+      && beforeArrow.rows[0].hint.includes(' · '),
+      `WP3c (3): an exact unique node query '${subjQ}' must yield EXACTLY ONE node row (no action rows): ${JSON.stringify(beforeArrow.rows)}`);
+    const palFocusedBefore = focusedCount();
+    await page.keyboard.press('ArrowDown');
+    const afterArrow = await readPalette();
+    assert(afterArrow.rows.length === 1 && afterArrow.rows[0].active === true && afterArrow.rows[0].ariaSelected === 'true',
+      `WP3c (3): ArrowDown must highlight the sole node row (gw-active + aria-selected=true): ${JSON.stringify(afterArrow.rows)}`);
+    await page.keyboard.press('Enter');
+    const palNodeClick = await awaitMessage('nodeClick', `WP3c palette Enter on node '${paletteNodeSubject.label}'`);
+    assert(palNodeClick.id === paletteNodeSubject.id,
+      `WP3c (3): Enter on the node row must send ONE nodeClick with that node's id '${paletteNodeSubject.id}', got '${palNodeClick.id}'`);
+    const palNodeState = await page.evaluate((id) => {
+      const cy = window.__cy;
+      const n = cy.getElementById(id);
+      return {
+        selected: n.selected(),
+        selectedCount: cy.nodes(':selected').length,
+        selfDim: n.hasClass('gw-dim'),
+        paletteHidden: document.getElementById('palette-results').hidden,
+      };
+    }, paletteNodeSubject.id);
+    assert(palNodeState.selected && palNodeState.selectedCount === 1 && !palNodeState.selfDim,
+      `WP3c (3): the palette-selected node '${paletteNodeSubject.id}' must be the SOLE :selected node, self un-dimmed (selectAndFrame -> applySelection): ${JSON.stringify(palNodeState)}`);
+    assert(focusedCount() === palFocusedBefore,
+      `WP3c (3): a palette NODE invoke must emit ZERO 'focused' (selectAndFrame frames LOCALLY, never focusOn): tally ${palFocusedBefore} -> ${focusedCount()}`);
+    const palExtraClicks = (pendingByType.get('nodeClick') || []).length;
+    assert(palExtraClicks === 0,
+      `WP3c (3): a palette NODE invoke must send EXACTLY ONE nodeClick, found ${palExtraClicks} extra queued`);
+    assert(palNodeState.paletteHidden === true,
+      `WP3c (3): invoking a row must CLOSE the palette (#palette-results hidden), got hidden=${palNodeState.paletteHidden}`);
+    phase(`WP3c (3) Arrow+Enter invokes the NODE row '${paletteNodeSubject.id}' (one nodeClick, selected, zero focused)`);
+
+    // Clear the selection the node invoke left, so the action invoke below starts
+    // from a clean canvas (a background tap clears selection/dim; the palette is
+    // already closed).
+    await page.evaluate(() => { window.__cy.emit('tap', { target: window.__cy }); });
+
+    // (4) Arrow + Enter invokes an ACTION (bridge-silent). Type "labels" so the
+    // sole-or-first matching row is the "Toggle labels" action; navigate to it and
+    // Enter. The gw-labels-all class must TOGGLE on (every node) AND zero new bridge
+    // messages may be produced (the action path is bridge-silent). Then "issues" =>
+    // #issues-btn aria-pressed flips, and "fit" => the camera fits (controlFit).
+    // "labels" matches ONLY the Toggle-labels action among the three names AND no
+    // demo node label (verified: no fixture label contains "labels"), so it is the
+    // sole row and is auto-highlighted at index 0 - ArrowDown wraps back to it.
+    const ACTION_QUERY_LABELS = 'labels';
+    assert(PALETTE_ACTION_NAMES.filter((n) => n.toLowerCase().includes(ACTION_QUERY_LABELS)).length === 1,
+      `WP3c (4): the query '${ACTION_QUERY_LABELS}' must match exactly ONE action name, matched ${PALETTE_ACTION_NAMES.filter((n) => n.toLowerCase().includes(ACTION_QUERY_LABELS)).length}`);
+    assert(!fixture.nodes.some((x) =>
+      (x.label || '').toLowerCase().includes(ACTION_QUERY_LABELS) || x.id.toLowerCase().includes(ACTION_QUERY_LABELS)),
+      `WP3c (4): the query '${ACTION_QUERY_LABELS}' must match NO fixture node (so the sole row is the action)`);
+    const labelsAllBefore = await page.evaluate(() => window.__cy.nodes('.gw-labels-all').length);
+    assert(labelsAllBefore === 0,
+      `WP3c (4): precondition - no node may carry gw-labels-all before the Toggle-labels action, got ${labelsAllBefore}`);
+    const msgCountBeforeLabelsAction = allMessages.length;
+    await typePalette(ACTION_QUERY_LABELS);
+    const labelsRows = await readPalette();
+    assert(labelsRows.rows.length === 1 && labelsRows.rows[0].label === PALETTE_TOGGLE_LABELS,
+      `WP3c (4): the query '${ACTION_QUERY_LABELS}' must yield exactly the "${PALETTE_TOGGLE_LABELS}" action row: ${JSON.stringify(labelsRows.rows)}`);
+    await page.keyboard.press('ArrowDown');
+    const labelsHi = await readPalette();
+    assert(labelsHi.rows[0] && labelsHi.rows[0].active === true,
+      `WP3c (4): ArrowDown must highlight the "${PALETTE_TOGGLE_LABELS}" row: ${JSON.stringify(labelsHi.rows)}`);
+    await page.keyboard.press('Enter');
+    const labelsActionState = await page.evaluate(() => {
+      const cy = window.__cy;
+      const nodes = cy.nodes();
+      let all = true;
+      nodes.forEach((n) => { if (!n.hasClass('gw-labels-all')) { all = false; } });
+      return {
+        nodeCount: nodes.length,
+        allHaveClass: all,
+        anyHaveClass: cy.nodes('.gw-labels-all').length,
+        btnAria: document.getElementById('labels-btn').getAttribute('aria-pressed'),
+        paletteHidden: document.getElementById('palette-results').hidden,
+      };
+    });
+    assert(labelsActionState.allHaveClass && labelsActionState.anyHaveClass === labelsActionState.nodeCount,
+      `WP3c (4): the Toggle-labels ACTION must add gw-labels-all to EVERY node (controlToggleLabels): ${JSON.stringify(labelsActionState)}`);
+    assert(labelsActionState.btnAria === 'true',
+      `WP3c (4): the Toggle-labels action must flip #labels-btn aria-pressed=true (same handler as the button): got '${labelsActionState.btnAria}'`);
+    assert(labelsActionState.paletteHidden === true,
+      `WP3c (4): invoking the action must CLOSE the palette, got hidden=${labelsActionState.paletteHidden}`);
+    assert(allMessages.length === msgCountBeforeLabelsAction,
+      `WP3c (4): a palette ACTION invoke must be BRIDGE-SILENT (zero new messages): count ${msgCountBeforeLabelsAction} -> ${allMessages.length}`);
+    phase('WP3c (4) Arrow+Enter on Toggle-labels toggles gw-labels-all, bridge-silent');
+
+    // (4b) Optional extra: "issues" => the Issues-only action flips #issues-btn
+    // aria-pressed (the demo fixture has flagged nodes so the all-clear guard does
+    // NOT block the toggle), bridge-silent. "issues" matches only that action name
+    // and no fixture node.
+    const ACTION_QUERY_ISSUES = 'issues';
+    assert(PALETTE_ACTION_NAMES.filter((n) => n.toLowerCase().includes(ACTION_QUERY_ISSUES)).length === 1
+      && !fixture.nodes.some((x) =>
+        (x.label || '').toLowerCase().includes(ACTION_QUERY_ISSUES) || x.id.toLowerCase().includes(ACTION_QUERY_ISSUES)),
+      `WP3c (4b): the query '${ACTION_QUERY_ISSUES}' must match exactly the Issues-only action and no fixture node`);
+    const issuesAriaBefore = await page.evaluate(() => document.getElementById('issues-btn').getAttribute('aria-pressed'));
+    const msgCountBeforeIssuesAction = allMessages.length;
+    await typePalette(ACTION_QUERY_ISSUES);
+    const issuesRows = await readPalette();
+    assert(issuesRows.rows.length === 1 && issuesRows.rows[0].label === PALETTE_ISSUES,
+      `WP3c (4b): the query '${ACTION_QUERY_ISSUES}' must yield exactly the "${PALETTE_ISSUES}" action row: ${JSON.stringify(issuesRows.rows)}`);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    const issuesActionState = await page.evaluate(() => ({
+      btnAria: document.getElementById('issues-btn').getAttribute('aria-pressed'),
+      paletteHidden: document.getElementById('palette-results').hidden,
+    }));
+    assert(issuesActionState.btnAria !== issuesAriaBefore,
+      `WP3c (4b): the Issues-only action must FLIP #issues-btn aria-pressed (was '${issuesAriaBefore}', now '${issuesActionState.btnAria}')`);
+    assert(allMessages.length === msgCountBeforeIssuesAction,
+      `WP3c (4b): the Issues-only action invoke must be BRIDGE-SILENT: count ${msgCountBeforeIssuesAction} -> ${allMessages.length}`);
+    phase('WP3c (4b) Issues-only action flips #issues-btn aria-pressed, bridge-silent');
+
+    // (4c) Optional extra: "fit" => the Fit-to-view action fits the camera
+    // (controlFit), bridge-silent and zero 'focused'. Pre-zoom so Fit visibly moves
+    // the camera. "fit" matches only the Fit-to-view action and no fixture node.
+    const ACTION_QUERY_FIT = 'fit';
+    assert(PALETTE_ACTION_NAMES.filter((n) => n.toLowerCase().includes(ACTION_QUERY_FIT)).length === 1
+      && !fixture.nodes.some((x) =>
+        (x.label || '').toLowerCase().includes(ACTION_QUERY_FIT) || x.id.toLowerCase().includes(ACTION_QUERY_FIT)),
+      `WP3c (4c): the query '${ACTION_QUERY_FIT}' must match exactly the Fit-to-view action and no fixture node`);
+    await page.evaluate(() => { window.__cy.zoom(window.__cy.zoom() * 3); });
+    const preFitAction = await page.evaluate(() => window.__cy.zoom());
+    const focusedBeforeFitAction = focusedCount();
+    const msgCountBeforeFitAction = allMessages.length;
+    await typePalette(ACTION_QUERY_FIT);
+    const fitRows = await readPalette();
+    assert(fitRows.rows.length === 1 && fitRows.rows[0].label === PALETTE_FIT,
+      `WP3c (4c): the query '${ACTION_QUERY_FIT}' must yield exactly the "${PALETTE_FIT}" action row: ${JSON.stringify(fitRows.rows)}`);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    const postFitAction = await page.evaluate(() => ({
+      zoom: window.__cy.zoom(),
+      paletteHidden: document.getElementById('palette-results').hidden,
+    }));
+    assert(Math.abs(postFitAction.zoom - preFitAction) > 1e-6,
+      `WP3c (4c): the Fit-to-view action must CHANGE the camera (controlFit): cy.zoom ${preFitAction} -> ${postFitAction.zoom} unchanged`);
+    assert(focusedCount() === focusedBeforeFitAction,
+      `WP3c (4c): the Fit-to-view action must be bridge-silent (no 'focused'): tally ${focusedBeforeFitAction} -> ${focusedCount()}`);
+    assert(allMessages.length === msgCountBeforeFitAction,
+      `WP3c (4c): the Fit-to-view action must produce ZERO bridge traffic: count ${msgCountBeforeFitAction} -> ${allMessages.length}`);
+    phase('WP3c (4c) Fit-to-view action fits the camera, bridge-silent + zero focused');
+
+    // (5) Esc CLOSES the palette AND clears the input value (the existing find-Esc
+    // behavior, extended to hide the dropdown). Open with a query first, then Esc.
+    await typePalette(SHARED_QUERY);
+    const beforeEsc = await readPalette();
+    assert(beforeEsc.ulHidden === false && beforeEsc.inputValue === SHARED_QUERY,
+      `WP3c (5): precondition - the palette must be OPEN with the query before Esc: ${JSON.stringify({ ulHidden: beforeEsc.ulHidden, inputValue: beforeEsc.inputValue })}`);
+    await page.keyboard.press('Escape');
+    const afterEsc = await readPalette();
+    assert(afterEsc.ulHidden === true && afterEsc.ariaExpanded === 'false',
+      `WP3c (5): Esc must HIDE #palette-results (and aria-expanded=false): ${JSON.stringify({ ulHidden: afterEsc.ulHidden, ariaExpanded: afterEsc.ariaExpanded })}`);
+    assert(afterEsc.inputValue === '',
+      `WP3c (5): Esc must CLEAR the #find-input value (existing find-Esc behavior), got '${afterEsc.inputValue}'`);
+    phase('WP3c (5) Esc closes the palette + clears the input value');
+
+    // (6) Ctrl+F ALIAS still opens + focuses the palette (extends the ADR-023 (6)
+    // Ctrl+F focus assert: it must ALSO un-hide #palette-results now). Blur first.
+    await page.evaluate(() => { document.getElementById('find-input').blur(); });
+    await page.keyboard.press('Control+f');
+    const ctrlFAlias = await readPalette();
+    assert(ctrlFAlias.active === 'find-input',
+      `WP3c (6): Ctrl+F (alias) must keep focusing #find-input, got '${ctrlFAlias.active}'`);
+    assert(ctrlFAlias.ulHidden === false && ctrlFAlias.ariaExpanded === 'true',
+      `WP3c (6): Ctrl+F (alias) must ALSO OPEN #palette-results (un-hidden, aria-expanded=true), not just focus: ${JSON.stringify({ ulHidden: ctrlFAlias.ulHidden, ariaExpanded: ctrlFAlias.ariaExpanded })}`);
+    phase('WP3c (6) Ctrl+F alias opens + focuses the palette');
+
+    // Restore a clean state for the downstream dbltap/focus phases: Esc to clear+
+    // close the palette, toggle labels + issues back OFF (the (4)/(4b) actions left
+    // them ON), background-tap to clear selection, and refit.
+    await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { document.getElementById('find-input').blur(); });
+    const palCleanup = await page.evaluate(() => {
+      // Toggle labels-all OFF if on (controlToggleLabels via the button click).
+      if (window.__cy.nodes('.gw-labels-all').length > 0) { document.getElementById('labels-btn').click(); }
+      // Toggle issues-only OFF if on.
+      if (document.getElementById('issues-btn').getAttribute('aria-pressed') === 'true') {
+        document.getElementById('issues-btn').click();
+      }
+      window.__cy.emit('tap', { target: window.__cy });
+      window.__cy.fit(window.__cy.elements(), 80);
+      return {
+        selectedCount: window.__cy.nodes(':selected').length,
+        anyDim: window.__cy.nodes('.gw-dim').length,
+        anyLabelsAll: window.__cy.nodes('.gw-labels-all').length,
+        issuesAria: document.getElementById('issues-btn').getAttribute('aria-pressed'),
+        anyHidden: window.__cy.nodes().filter((x) => !x.visible()).length,
+        paletteHidden: document.getElementById('palette-results').hidden,
+        inputValue: document.getElementById('find-input').value,
+      };
+    });
+    assert(palCleanup.selectedCount === 0 && palCleanup.anyDim === 0 && palCleanup.anyLabelsAll === 0
+      && palCleanup.issuesAria === 'false' && palCleanup.anyHidden === 0
+      && palCleanup.paletteHidden === true && palCleanup.inputValue === '',
+      `WP3c: the palette block must leave a CLEAN state for downstream phases (no selection/dim/labels-all, issues off, palette closed, input empty): ${JSON.stringify(palCleanup)}`);
+    phase('WP3c command palette verified + clean state restored');
+    // =========================================================================
+
     // --- expand protocol (dbltap -> nodeExpand, AP 2.3's wire) ----------------
     // Braces matter: emit() returns the cytoscape collection - returning it makes
     // Playwright serialize a huge cyclic object graph (renderer caches included),
