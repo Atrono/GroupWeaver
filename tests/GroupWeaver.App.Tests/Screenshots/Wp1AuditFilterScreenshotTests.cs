@@ -77,16 +77,16 @@ public sealed class Wp1AuditFilterScreenshotTests
         // errors, every one Open -> a meaningful active-filter frame.
         var errorChip = audit.SeverityChips.Single(c => c.Severity == RuleSeverity.Error);
         var openChip = audit.StatusChips.Single(c => c.Label == "Open");
-        var nestingChip = audit.RuleClassChips.Single(
-            c => string.Equals((string)c.Key, RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
+        var nestingRow = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
 
         audit.ToggleFilterCommand.Execute(errorChip);
         audit.ToggleFilterCommand.Execute(openChip);
-        audit.ToggleFilterCommand.Execute(nestingChip);
+        audit.ToggleCategoryCommand.Execute(nestingRow);
         Dispatcher.UIThread.RunJobs();
 
-        // The frame must show: an active chip per axis, the "Clear filters" button, the filtered summary.
-        Assert.True(errorChip.IsActive && openChip.IsActive && nestingChip.IsActive);
+        // The frame must show: an active facet per axis, the "Clear filters" button, the filtered summary.
+        Assert.True(errorChip.IsActive && openChip.IsActive && nestingRow.IsActive);
         Assert.True(audit.IsFiltered, "filters must be active for the active-state screenshot");
         Assert.False(audit.HasNoMatches, "the chosen combo must still match (non-empty visible set)");
         Assert.Equal(3, audit.VisibleCount); // the 3 nesting errors
@@ -124,14 +124,14 @@ public sealed class Wp1AuditFilterScreenshotTests
         // Error). The two axes AND to an empty visible set -> HasNoMatches true, the dedicated empty
         // state renders.
         var errorChip = audit.SeverityChips.Single(c => c.Severity == RuleSeverity.Error);
-        var emptyGroupChip = audit.RuleClassChips.Single(
-            c => string.Equals((string)c.Key, RuleIds.EmptyGroup, StringComparison.OrdinalIgnoreCase));
+        var emptyGroupRow = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.EmptyGroup, StringComparison.OrdinalIgnoreCase));
 
         audit.ToggleFilterCommand.Execute(errorChip);
-        audit.ToggleFilterCommand.Execute(emptyGroupChip);
+        audit.ToggleCategoryCommand.Execute(emptyGroupRow);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.True(errorChip.IsActive && emptyGroupChip.IsActive);
+        Assert.True(errorChip.IsActive && emptyGroupRow.IsActive);
         Assert.True(audit.IsFiltered);
         Assert.True(audit.HasNoMatches, "the contradictory combo must hide every finding");
         Assert.False(audit.IsAllClear, "a scope WITH findings is never all-clear, even when all filtered out");

@@ -80,8 +80,11 @@
          + scrolls internally for long lists. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <!-- Outer rows: 0 header / 1 ring+tiles / 2 categories pane / 3 WP1 filter-strip toolbar
-         (full width) / 4 table+detail split (Auto — the ListBox caps + scrolls) / 5 actions. -->
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+         (full width) / 4 table+detail split (Auto — the ListBox caps + scrolls) / 5 actions.
+         The 16px right margin reserves a GUTTER for the Auto vertical scrollbar so it never overlays
+         the rightmost edge content (the 4th count tile clipped at 1280px). The gutter is constant —
+         it does not over-inset at wider widths since it only reserves the scrollbar's fixed width. -->
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,16,0">
 
       <!-- 1. Header: "Audit · {RootDn}". -->
       <TextBlock Grid.Row="0" Text="{Binding Title}" Classes="heading" />
@@ -218,8 +221,10 @@
       </Grid>
 
       <!-- 3. Categories pane: the rule classes that produced findings (canonical rule order),
-           each a row of dot + class name + count. Read-only for now (click-to-filter is WP5d/e).
-           The unchecked caveat sits below the list inside the same card. -->
+           each a row of dot + class name + count. Each row IS the rule-class filter facet
+           (WP-C/#180) — clicking it toggles the findings filter to that class (the separate strip
+           RULE CLASS chip group was removed as a duplicate). The unchecked caveat sits below the
+           list inside the same card. -->
       <Border Grid.Row="2" Margin="0,16,0,0" Padding="16"
               Background="{DynamicResource CardBackgroundBrush}"
               BorderBrush="{DynamicResource CardBorderBrush}"
@@ -227,25 +232,35 @@
               VerticalAlignment="Top">
         <Grid RowDefinitions="Auto,Auto,Auto">
 
-          <TextBlock Grid.Row="0" Text="Rule classes" Classes="eyebrow" Margin="0,0,0,8" />
+          <TextBlock Grid.Row="0" Text="Rule classes · click to filter" Classes="eyebrow" Margin="0,0,0,8" />
 
-          <!-- The category rows. Each: a max-severity dot (colour, non-text channel) + the class
-               display name + its count. The name + count use the normal foreground on the card
-               surface (>= 4.5:1, both themes). -->
+          <!-- The category rows. Each is a flat, full-width, left-aligned filter Button: a max-severity
+               dot (colour, non-text channel) + the class display name + its count. The active (selected)
+               row reuses the chip-active visual (opaque fill + strong ink + 2px border — a redundant
+               border/fill/ink change, never hue alone; WCAG 1.4.1) via Classes.chip-active bound to
+               IsActive. The name + count clear 4.5:1 on the card surface in both themes. -->
           <ItemsControl Grid.Row="1" Name="CategoriesList"
                         ItemsSource="{Binding Categories}"
                         IsVisible="{Binding HasCategories}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:AuditCategoryRow">
-                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,2" Height="32">
-                  <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center"
-                           Margin="2,0,10,0"
-                           Fill="{Binding MaxSeverity, Converter={x:Static views:SeverityConverters.ToBrush}}" />
-                  <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
-                             VerticalAlignment="Center" FontSize="13" />
-                  <TextBlock Grid.Column="2" Text="{Binding Count}" Classes="dn"
-                             VerticalAlignment="Center" />
-                </Grid>
+                <Button Classes="chip" CornerRadius="6" Padding="8,4" Margin="0,0,0,2"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Classes.chip-active="{Binding IsActive}"
+                        Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).ToggleCategoryCommand}"
+                        CommandParameter="{Binding}"
+                        ToolTip.Tip="Filter the findings to this rule class">
+                  <Grid ColumnDefinitions="Auto,*,Auto" Height="24">
+                    <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center"
+                             Margin="2,0,10,0"
+                             Fill="{Binding MaxSeverity, Converter={x:Static views:SeverityConverters.ToBrush}}" />
+                    <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
+                               VerticalAlignment="Center" FontSize="13" FontWeight="Normal"
+                               HorizontalAlignment="Left" />
+                    <TextBlock Grid.Column="2" Text="{Binding Count}" Classes="chip-count"
+                               VerticalAlignment="Center" />
+                  </Grid>
+                </Button>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
@@ -278,8 +293,9 @@
       <!-- 4. WP1 filter chip strip: its OWN full-width toolbar row (between the categories pane and
            the table+detail split) so it reflows within ~1240px — NOT crammed into the findings card's
            narrow left column where it wrapped tall and overlapped the action bar. Reads as a toolbar,
-           not a card: a borderless padded WrapPanel. Three multi-select facets (Severity / Status /
-           Rule class) that AND together — an EMPTY axis imposes no constraint. Each chip is a flat
+           not a card: a borderless padded WrapPanel. Two multi-select chip facets (Severity / Status)
+           that AND together — an EMPTY axis imposes no constraint; the rule-class facet is the
+           categories pane above (WP-C/#180). Each chip is a flat
            Button (not a ToggleButton — avoids double-toggle); its active visual is a redundant
            border + opaque fill + ink change (Classes.chip-active bound to IsActive), never hue alone.
            Every group's eyebrow label AND its chips ItemsControl are DIRECT wrap items, so each chip
@@ -344,29 +360,8 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <!-- Rule-class group (dynamic — one chip per finding-bearing rule class, canonical order). -->
-        <TextBlock Text="RULE CLASS" Classes="eyebrow" VerticalAlignment="Center" Margin="0,0,4,6" />
-        <ItemsControl ItemsSource="{Binding RuleClassChips}" Margin="0,0,12,0">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel Orientation="Horizontal" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:AuditFilterChip">
-              <Button Classes="chip" Margin="0,0,4,6"
-                      Classes.chip-active="{Binding IsActive}"
-                      Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).ToggleFilterCommand}"
-                      CommandParameter="{Binding}"
-                      ToolTip.Tip="Toggle this rule-class filter">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
-                  <TextBlock Text="{Binding Count}" Classes="chip-count" VerticalAlignment="Center" />
-                </StackPanel>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <!-- The rule-class facet lives on the categories pane above (WP-C/#180) — clicking a category
+             row toggles the rule-class filter; this strip carries only the Severity + Status axes. -->
 
         <!-- Clear filters + the "Showing N of M" summary (each a direct wrap item so they reflow
              tidily onto the strip rather than orphaning on a detached line). -->
