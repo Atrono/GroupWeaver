@@ -121,7 +121,7 @@ badges use the stronger `BrandTokens.OnLightTextStrong` (#000000) ink, not the p
 ### Connect step
 
 - [ ] Both connect paths reachable: "Connect to domain" and "Demo mode" buttons present, enabled, clearly separated; Connect is the **accent primary**, Demo the **ghost secondary** — a clear Connect-vs-Demo hierarchy, not two identical grey buttons (#93) [S:connection-idle]
-- [ ] Connect composition: the content sits in a quiet token-chrome card lifted off the void, with an "ACTIVE DIRECTORY AUDIT" eyebrow above the weight-split wordmark and faint concentric rings (#10FFFFFF, non-interactive) echoing the graph — reads as a deliberate first-run, not a default template (#93) [S:connection-idle]
+- [ ] Connect composition: the content sits in a quiet token-chrome card lifted off the void, with an "ACTIVE DIRECTORY AUDIT" eyebrow above the weight-split wordmark and faint concentric rings (progressively fading white ~#16→#0B, non-interactive) echoing the graph — reads as a deliberate first-run, not a default template (#93) [S:connection-idle]
 - [ ] Integrated-auth context line shows `DOMAIN\user` under the live button; no credential fields anywhere on the step [S:connection-idle]
 - [ ] Demo hint line under the demo button explains "no domain needed" [S:connection-idle]
 - [ ] Inline error block: red, wraps without clipping, legible on the theme background; live-path message carries the try-Demo-mode hint on its own line [S:connection-error]

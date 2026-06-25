@@ -11,16 +11,20 @@
   <Panel>
 
     <!-- Concentric-ring signature (#93, the one sanctioned aesthetic risk): faint rings
-         behind the card echoing the graph's concentric layout. Structural-neutral white at
-         very low opacity (the separator language), hit-test-false so they never steal a
-         click. No GraphHost/native-HWND here, so no airspace concern. -->
-    <Ellipse Width="360" Height="360" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+         behind the card echoing the graph's concentric layout. Structural-neutral white,
+         hit-test-false so they never steal a click. No GraphHost/native-HWND here, so no
+         airspace concern. v0.4.2 polish: a gentle progressive fade gives the echo a subtle
+         ripple depth so the brand moment reads — the 520 ring just OUTSIDE the 420-wide card
+         is the most present (#16, ~9%), fading outward to the 840 ring (#0B, ~4%); the 360
+         inner ring (#14) sits behind the card. Still within the very-low-opacity separator
+         language, never loud. -->
+    <Ellipse Width="360" Height="360" Stroke="#14FFFFFF" StrokeThickness="1" Fill="Transparent"
              HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
-    <Ellipse Width="520" Height="520" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+    <Ellipse Width="520" Height="520" Stroke="#16FFFFFF" StrokeThickness="1" Fill="Transparent"
              HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
-    <Ellipse Width="680" Height="680" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+    <Ellipse Width="680" Height="680" Stroke="#0FFFFFFF" StrokeThickness="1" Fill="Transparent"
              HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
-    <Ellipse Width="840" Height="840" Stroke="#10FFFFFF" StrokeThickness="1" Fill="Transparent"
+    <Ellipse Width="840" Height="840" Stroke="#0BFFFFFF" StrokeThickness="1" Fill="Transparent"
              HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
 
     <Border Background="{DynamicResource CardBackgroundBrush}"
