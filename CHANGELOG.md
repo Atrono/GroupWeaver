@@ -4,6 +4,33 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-06-26
+
+Visual-polish pass driven by a senior UI/UX review of the shipped product. Four
+focused refinements to legibility and information hierarchy; still **read-only by
+construction** — no code path writes to Active Directory.
+
+### Changed
+- **Graph overview reads as a constellation, not a hairball** — at the fit/overview
+  zoom the explore graph's edges fade to a faint wash so the kind-shaped nodes and the
+  flagged-node severity halos read at a glance; edges return to full strength as you zoom
+  in to trace membership. Binary, hysteresis-gated, and instant (software-rendering-floor
+  safe); the gap/diff view is unaffected (its coloured edges stay the signal). The README
+  hero is the new clean overview (ADR-029, #176).
+- **Workspace rail gives the findings list room** — the findings sidebar and the
+  detail/scope section are now a **resizable, persisted** split (defaulting to ~1:1, up
+  from the old 2:5 that favoured the empty-state summary), via a hairline splitter that
+  mirrors the adaptive-rail width persistence. The **Refresh** button is accent-filled
+  only when a node is selected (so the empty state's loudest control is never a dead
+  button) (#178).
+- **Audit screen de-duplicated** — the "Rule classes" pane is now the rule-class
+  **filter** (click a class to slice the findings table), and the redundant rule-class
+  chip group is removed from the filter strip. The rightmost health count-tile no longer
+  clips behind the scrollbar at narrow widths (#180).
+- **Connect-screen brand ring** reads as a subtle concentric echo (a gentle progressive
+  fade, still within the very-low-opacity language), and **Settings rule rows** gain a
+  full-row hover highlight that ties each rule's name to its severity control (#182).
+
 ## [0.4.1] - 2026-06-25
 
 Audit-screen polish, driven by a persona-focused visibility audit (what an AD
