@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 
 using GroupWeaver.App.ViewModels;
 
@@ -9,6 +10,27 @@ public sealed partial class WorkspaceView : UserControl
     public WorkspaceView()
     {
         InitializeComponent();
+
+        // WP-B (#178): findings/detail rail resize. The rail's two star rows stay ONE-WAY bound
+        // to the VM getters (FindingsRowHeight / DetailRowHeight) so the NotifyPropertyChangedFor
+        // round-trip never fights the live drag (a TwoWay GridLength on a star row jitters in
+        // Avalonia 11). The GridSplitter mutates the live RowDefinitions during the drag; on
+        // release we read the two rows' rendered heights and hand the findings share to the VM,
+        // which clamps to [0.2, 0.8] and persists it. Wired in code-behind (the splitter is named
+        // in XAML); the Thumb.DragCompleted that GridSplitter inherits is the release signal.
+        if (this.FindControl<GridSplitter>("FindingsDetailSplitter") is { } splitter)
+        {
+            splitter.DragCompleted += (_, _) =>
+            {
+                if (DataContext is not WorkspaceViewModel vm
+                    || splitter.Parent is not Grid { RowDefinitions: { Count: >= 3 } rows })
+                {
+                    return;
+                }
+
+                vm.SetRailFindingsFraction(rows[0].ActualHeight, rows[2].ActualHeight);
+            };
+        }
 
         // Mount the renderer's surface into the reserved GraphHost region (AP 2.2 S6,
         // ADR-004 D5). Without a renderer view (null factory, missing WebView2 Runtime,

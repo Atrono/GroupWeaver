@@ -103,7 +103,17 @@ public sealed record UiState(double RailWidth, bool RailCollapsed)
     /// JSON stays forward/back compatible (ADR-026 D4, the never-throw load contract).</summary>
     public string Theme { get; init; } = "Dark";
 
+    /// <summary>The findings sidebar's share of the rail's findings+detail vertical space
+    /// (WP-B / #178): <c>0.5</c> ⇒ a 1:1 split, clamped to <c>[0.2, 0.8]</c> in
+    /// <see cref="ViewModels.WorkspaceViewModel.OnRailFindingsFractionChanged"/> so neither
+    /// section collapses. A NON-positional <c>init</c> property (like <see cref="Theme"/>) so the
+    /// existing two-arg <c>new UiState(width, collapsed)</c> call sites keep compiling and an old
+    /// <c>ui-state.json</c> with no <c>railFindingsFraction</c> field deserializes to the default —
+    /// the JSON stays forward/back compatible (the never-throw load contract).</summary>
+    public double RailFindingsFraction { get; init; } = 0.5;
+
     /// <summary>The seed values when no state has been persisted yet — the ADR-022 D3
-    /// defaults (rail 340 px, expanded) and the ADR-026 dark-first default theme.</summary>
+    /// defaults (rail 340 px, expanded), the ADR-026 dark-first default theme, and the WP-B
+    /// 1:1 findings/detail split.</summary>
     public static UiState Default { get; } = new(340, false);
 }

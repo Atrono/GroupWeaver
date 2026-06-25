@@ -89,22 +89,48 @@
         </Button>
       </Panel>
 
-      <!-- Right column (AP 3.4 S4, ADR-010 §5; ADR-022 D3 col 2): a vertical split
-           (2*,Auto,3*) of the rail - the violations sidebar tops it (row 0), a 1px
-           separator (row 1), and the Reload / Refresh / Export action row + LoadError +
-           DetailPanelRegion stack below (row 2). The whole rail hides when collapsed
-           (the column width is already 0; IsVisible keeps it out of the layout pass).
-           Beside GraphHost, never over it (ADR-001 airspace guardrail 5); GraphHost
-           (col 0) is untouched. -->
+      <!-- Right column (AP 3.4 S4, ADR-010 §5; ADR-022 D3 col 2): a vertical split of the
+           rail - the violations sidebar tops it (row 0), a draggable hairline splitter (row 1),
+           and the Reload / Refresh / Export action row + LoadError + DetailPanelRegion stack
+           below (row 2). WP-B (#178): rows 0/2 bind the VM's persisted star fractions
+           (FindingsRowHeight / DetailRowHeight, default 1:1) instead of the old fixed 2*,Auto,3*,
+           and the 1px separator became a Rows GridSplitter so the user can resize findings vs.
+           detail. The whole rail hides when collapsed (the column width is already 0; IsVisible
+           keeps it out of the layout pass). Beside GraphHost, never over it (ADR-001 airspace
+           guardrail 5); GraphHost (col 0) is untouched. -->
       <Border Grid.Column="2" BorderThickness="1,0,0,0" BorderBrush="#33808080"
               IsVisible="{Binding !IsRailCollapsed}">
-        <Grid RowDefinitions="2*,Auto,3*">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="{Binding FindingsRowHeight}" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="{Binding DetailRowHeight}" />
+          </Grid.RowDefinitions>
 
           <!-- Violations sidebar (AP 3.4): binds the workspace VM's report projection
                (S5 fills Evaluate); shows the all-clear state until then. -->
           <views:ViolationsSidebarView Grid.Row="0" />
 
-          <Border Grid.Row="1" BorderThickness="0,1,0,0" BorderBrush="#33808080" />
+          <!-- WP-B (#178): the findings/detail resize handle - a Rows GridSplitter that keeps the
+               old hairline look (a thin #33808080 line) with a taller transparent grab band around
+               it so it stays easy to hit. Rows 0/2 stay ONE-WAY bound to the VM star getters (no
+               jitter): the splitter mutates the live RowDefinitions during the drag, and the
+               code-behind DragCompleted handler syncs+clamps+persists the fraction on release.
+               Inside col 2 (the rail), never over GraphHost (ADR-001 airspace guardrail 5). -->
+          <GridSplitter Grid.Row="1" Name="FindingsDetailSplitter"
+                        ResizeDirection="Rows" Height="7"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                        Background="Transparent"
+                        ToolTip.Tip="Drag to resize findings vs. detail">
+            <GridSplitter.Template>
+              <ControlTemplate>
+                <Border Background="Transparent">
+                  <Border Height="1" VerticalAlignment="Center"
+                          HorizontalAlignment="Stretch" Background="#33808080" />
+                </Border>
+              </ControlTemplate>
+            </GridSplitter.Template>
+          </GridSplitter>
 
           <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
 
@@ -128,9 +154,14 @@
                       ToolTip.Tip="Reload the whole scope from the directory"
                       Command="{Binding ReloadScopeCommand}" />
               <!-- WP4 (#148): the detail panel's primary CTA ("Expand members" in the
-                   redesign) - re-fetch the selected node's members. Adopts the WP2 brand
-                   accent (Classes="accent", deferred from WP2); command/behaviour unchanged. -->
-              <Button Name="RefreshButton" Content="Refresh" Classes="accent" Margin="4"
+                   redesign) - re-fetch the selected node's members. WP-B (#178): the brand accent
+                   is now CONDITIONAL on a node being selected (IsNodeSelected) - it re-fetches the
+                   SELECTED node's members, so it should only read as the loud primary control when
+                   that action is meaningful; with nothing selected it drops to a plain/default
+                   button (and is disabled by RefreshCommand's CanExecute anyway). Name / Command /
+                   tooltip / content unchanged (tests reference the name). -->
+              <Button Name="RefreshButton" Content="Refresh" Margin="4"
+                      Classes.accent="{Binding IsNodeSelected}"
                       ToolTip.Tip="Re-fetch members of the selected node"
                       Command="{Binding RefreshCommand}" />
               <!-- Export image (AP 4.1 S8 / ADR-013): rasterise the live graph to PNG
