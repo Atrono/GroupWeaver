@@ -171,6 +171,21 @@
   // threshold keeps the init value until the next full build (acceptable for v0.1).
   var EDGE_HIDE_THRESHOLD = 1500;
 
+  // WP-A (#176, ADR-029): zoom-driven overview edge-fade. At/near the fit zoom an
+  // individual edge is untraceable, so the full-opacity mesh is pure visual noise (the
+  // "hairball"); at overview zoom every plain (non-diff) edge fades to a faint wash so
+  // the shaped-node constellation reads, then returns to full as the user zooms in to
+  // inspect. fitZoom is the size-independent overview baseline captured once per full
+  // build (cy.fit()); a binary class toggle with hysteresis keeps the software-
+  // rendering floor safe — the cy.batch toggle runs ONLY on a threshold crossing,
+  // never per frame. The gap/diff view is EXCLUDED wholesale (isDiffGraph): its
+  // Added/Removed/Unchecked edges are the signal, never noise. Instant (the
+  // gw-edge-faded rule carries no transition) so the #88 motion counters stay 0.
+  var EDGE_FADE_FACTOR = 1.6;   // fade while cy.zoom() <= fitZoom * this (tunable)
+  var fitZoom = null;           // zoom right after cy.fit() (overview baseline), per build
+  var edgesFaded = false;       // current applied fade state (the hysteresis guard)
+  var isDiffGraph = false;      // a gap/diff build (>=1 diff-tagged edge) => never fade
+
   // ADR-023 D4: Labels toggle state ('auto' = ADR-018 gate, 'all' = every label
   // at fit zoom). Module-level so applyLabelMode() can re-assert it in sendLoaded
   // after a graphUpdate adds new nodes. Default 'auto'.
@@ -433,6 +448,30 @@
     cy.nodes().toggleClass('gw-labels-all', labelMode === 'all');
   }
 
+  // WP-A (#176, ADR-029): apply the overview edge-fade for the CURRENT zoom. Driven by
+  // the 'zoom' cy event (via onZoomFade, force=false) and re-asserted from initGraph /
+  // sendLoaded (force=true) so a freshly built graph and any graphUpdate-added edges
+  // pick up the right state. Hysteresis: force=false short-circuits unless the fade
+  // threshold was just crossed, so the per-frame 'zoom' stream costs one read + one
+  // compare; the cy.batch class toggle runs ONLY on a crossing (software-floor safe).
+  // No-op until fitZoom is captured, and OFF entirely on a diff graph (isDiffGraph) so
+  // the gap view's coloured edges always stay full-opacity. Explore graphs carry no
+  // diff edge, so cy.edges() == the [!diff] set.
+  function updateEdgeFade(force) {
+    if (cy === null || fitZoom === null || isDiffGraph) { return; }
+    var shouldFade = cy.zoom() <= fitZoom * EDGE_FADE_FACTOR;
+    if (!force && shouldFade === edgesFaded) { return; }
+    edgesFaded = shouldFade;
+    cy.batch(function () {
+      if (shouldFade) { cy.edges().addClass('gw-edge-faded'); }
+      else { cy.edges().removeClass('gw-edge-faded'); }
+    });
+  }
+
+  // The 'zoom' cy event passes an event object as the first arg; wrap so it never
+  // reaches updateEdgeFade's `force` param (a truthy event would defeat the hysteresis).
+  function onZoomFade() { updateEdgeFade(false); }
+
   // WP3b (#142): does a node carry a finding or a flagged-descendant roll-up?
   // The predicate for "keep visible under issues-only". data('below') is emitted
   // only when > 0 (ADR-010 D2), so its mere presence means flagged descendants.
@@ -609,6 +648,7 @@
     updateLegendCounts();
     applyLabelMode();  // ADR-023 D4: re-assert label mode across a graphUpdate.
     applyIssuesFilter();  // WP3b (#142): re-assert issues-only across a graphUpdate.
+    updateEdgeFade(true); // WP-A (#176): re-assert overview fade onto graphUpdate edges.
     syncIssuesButton();   // WP3b: refresh the toggle (incl. all-clear) per build.
     refreshMinimap();     // WP3d (#146): (re)rasterize the thumbnail on any graph change.
   }
@@ -792,6 +832,17 @@
             opacity: 1
           }
         },
+        // WP-A (#176, ADR-029): overview edge-fade. Toggled on every edge by
+        // updateEdgeFade() when an explore graph is zoomed out near its fit baseline.
+        // Placed BEFORE the edge[diff=...] rules and the edge.gw-dim rule so BOTH still
+        // win the opacity channel below it: a diff-tagged edge keeps its diff opacity
+        // (and isDiffGraph turns fade off wholesale anyway), and a selection-dimmed edge
+        // keeps 0.12. The fade therefore governs only an undiffed, undimmed edge at
+        // overview zoom. No transition => instant => the #88 motion counters stay 0.
+        {
+          selector: 'edge.gw-edge-faded',
+          style: { opacity: 0.15 }
+        },
         // Gap diff EDGE override (AP 66, ADR-015 Slice 5): placed AFTER the
         // edge[rel=...] rules so it WINS line-color / line-style on a diffed edge.
         // line-style (solid/dashed/dotted) is the colorblind-redundant channel for
@@ -906,8 +957,16 @@
     // per-frame minimap work — a single div repositioned from cy.extent() (no png, no
     // boundingBox). Attaches ONCE per cy instance (initGraph recreates cy).
     cy.on('render pan zoom', updateMinimapViewport);
+    // WP-A (#176, ADR-029): track the overview edge-fade as the camera zooms.
+    cy.on('zoom', onZoomFade);
 
     cy.fit();
+    // ADR-029: capture the overview baseline, decide if this is a diff graph (once per
+    // build), and apply the fade BEFORE the first paint so the explore hero never
+    // flashes the full-opacity hairball. sendLoaded re-asserts it after a graphUpdate.
+    fitZoom = cy.zoom();
+    isDiffGraph = cy.edges('[?diff]').nonempty();
+    updateEdgeFade(true);
     cy.one('render', sendLoaded);
   }
 

@@ -12,7 +12,7 @@ live operator identity) must never reach published media.
 
 | README artifact | Pipeline | Source frame |
 |---|---|---|
-| `docs/media/graph-explore.png` | `verify.mjs` (headless Chromium, [[headless-uitest]] part A) | `artifacts/ui/graph-focus.png` |
+| `docs/media/graph-explore.png` | `verify.mjs` (headless Chromium, [[headless-uitest]] part A) | `artifacts/ui/graph-overview.png` |
 | `docs/media/gap-analysis.png` | `verify.mjs` (diff tripwire frame) | `artifacts/ui/graph-diff.png` |
 | `docs/media/m2-explore.gif` | `tools/record-demo-gif.ps1` (live windowed app) | its own frames |
 
@@ -29,13 +29,18 @@ Avalonia app is never on screen for them. Only the GIF drives the running app.
 2. Copy + rename into git-tracked `docs/media/` (`artifacts/` is gitignored, so
    nothing lands automatically — this mapping lives only here and in #108):
    ```
-   Copy-Item artifacts/ui/graph-focus.png docs/media/graph-explore.png -Force
-   Copy-Item artifacts/ui/graph-diff.png  docs/media/gap-analysis.png  -Force
+   Copy-Item artifacts/ui/graph-overview.png docs/media/graph-explore.png -Force
+   Copy-Item artifacts/ui/graph-diff.png     docs/media/gap-analysis.png  -Force
    ```
    Straight copy at 1600×1000 — there is no crop/resize/PNG-optimization step.
-3. Read both PNGs; judge vs `docs/ui-checklist.md` (`[S:graph-focus]`/
+   (The hero is the OVERVIEW frame, not `graph-focus`, since WP-A/ADR-029 — the
+   overview-zoom edge-fade turns that frame into a clean kind-shaped constellation
+   instead of a hairball, the stronger first impression. `graph-focus` is still the
+   zoomed-in, full-edge frame for the `[S:graph-focus]` checklist items.)
+3. Read both PNGs; judge vs `docs/ui-checklist.md` (`[S:graph-overview]`/
    `[S:graph-diff]`). If the UI change altered the visual language (a kind colour,
-   the diff palette), update the README alt-text too (lines 12/18).
+   the diff palette, the overview edge-fade), update the README alt-text too
+   (lines 12/18).
 
 ## B. The demo GIF (`tools/record-demo-gif.ps1`)
 

@@ -9,13 +9,15 @@ conventions. Where security-path tools like BloodHound or Adalanche show attack
 paths, GroupWeaver shows structural cleanliness and convention adherence — a
 governance perspective, not a security one.
 
-![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape, nesting drawn as edges, with a legend top-left, a minimap bottom-left, and a Ctrl+K command palette plus issues-only / fit / labels controls bottom-right](docs/media/graph-explore.png)
+![GroupWeaver visualizing the bundled demo directory as an interactive, AD-centered graph — object kinds distinguished by color and shape on concentric rings, nesting drawn as edges that fade back at the overview zoom so the kind-shaped constellation and flagged nodes read at a glance, with a legend top-left, a minimap bottom-left, and a Ctrl+K command palette plus issues-only / fit / labels controls bottom-right](docs/media/graph-explore.png)
 
-*Exploring the bundled demo directory in demo mode: object kinds (user, global /
+*The whole demo directory at a glance, in demo mode: object kinds (user, global /
 domain-local / universal group, OU, computer, external) are distinct by both color
-and shape, nesting is drawn as directed edges. A legend sits top-left, a minimap
-bottom-left, and a Ctrl+K command palette with an "issues-only" filter, fit, and
-label controls bottom-right.*
+and shape on concentric rings. At the overview zoom the nesting edges fade to a faint
+wash so the constellation — and the flagged nodes' severity halos — stay legible; zoom
+in and the edges return to full strength to trace membership. A legend sits top-left, a
+minimap bottom-left, and a Ctrl+K command palette with an "issues-only" filter, fit,
+and label controls bottom-right.*
 
 ![Gap analysis — a proposed plan diffed against the live structure: added reads green, removed reads red-orange and dashed, unexpanded-and-unchecked reads gray and dotted, on the union graph](docs/media/gap-analysis.png)
 
