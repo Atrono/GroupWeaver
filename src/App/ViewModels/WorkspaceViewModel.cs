@@ -73,6 +73,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// change plus each pipeline's <c>finally</c>; <c>null</c> while nothing is selected
     /// or no snapshot exists yet. Pinned by <c>WorkspaceDetailTests.cs</c>.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNodeSelected))]
     private DetailPanelModel? _detailPanel;
 
     /// <summary>The ADR-022 D3 rail width in pixels, clamped to [300, 520] in
@@ -92,6 +93,29 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RailColumnWidth))]
     private bool _isRailCollapsed;
+
+    /// <summary>The findings sidebar's share of the rail's findings+detail vertical space
+    /// (WP-B / #178), clamped to [0.2, 0.8] in <see cref="OnRailFindingsFractionChanged"/> so
+    /// neither section collapses. Default 0.5 (a 1:1 split, up from the old fixed 2:3); seeded
+    /// from <see cref="UiStateStore"/> at construction and persisted on change. The two rail rows
+    /// bind the derived <see cref="FindingsRowHeight"/>/<see cref="DetailRowHeight"/> star lengths
+    /// one-way; the row GridSplitter writes a new fraction back through
+    /// <see cref="SetRailFindingsFraction"/> on drag-completed (the jitter-free seam).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FindingsRowHeight))]
+    [NotifyPropertyChangedFor(nameof(DetailRowHeight))]
+    private double _railFindingsFraction = 0.5;
+
+    /// <summary>The findings sidebar row height as a star <see cref="GridLength"/> (WP-B / #178):
+    /// the findings share of the findings+detail vertical split. One-way bound (the row
+    /// GridSplitter mutates the live RowDefinitions during a drag and the VM is synced on
+    /// drag-completed — see <see cref="SetRailFindingsFraction"/>).</summary>
+    public GridLength FindingsRowHeight => new(RailFindingsFraction, GridUnitType.Star);
+
+    /// <summary>The detail/actions row height as a star <see cref="GridLength"/> (WP-B / #178):
+    /// the complementary <c>1 - fraction</c> share of the findings+detail vertical split. One-way
+    /// bound, the mirror of <see cref="FindingsRowHeight"/>.</summary>
+    public GridLength DetailRowHeight => new(1 - RailFindingsFraction, GridUnitType.Star);
 
     /// <summary>The rail grid column width as a <see cref="GridLength"/> (ADR-022 D3): collapsed ⇒
     /// <c>GridLength(0)</c>, otherwise <c>RailWidth</c> px. Two-way: the GridSplitter writes a
@@ -193,6 +217,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         var uiState = _uiStateStore.Load();
         RailWidth = uiState.RailWidth;
         IsRailCollapsed = uiState.RailCollapsed;
+        RailFindingsFraction = uiState.RailFindingsFraction;
         _seeding = false;
 
         // null => the embedded default (the pre-AP-3.4 contract); a located user/default
@@ -268,6 +293,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// report's <see cref="RuleReport.UncheckedDns"/> is non-empty (load-state truth,
     /// never ignore-filtered — ADR-009). Recomputed on <see cref="Report"/> change.</summary>
     public bool HasUncheckedAreas => Report.UncheckedDns.Count > 0;
+
+    /// <summary>WP-B (#178): true exactly when a node's detail is projected (a node is selected over
+    /// a loaded snapshot — the same signal that arms the detail panel). Drives the Refresh button's
+    /// conditional brand accent: filled/primary only when the action is meaningful, plain otherwise.
+    /// Recomputed via the <see cref="DetailPanel"/> change notification.</summary>
+    public bool IsNodeSelected => DetailPanel is not null;
 
     /// <summary>
     /// The scope-load-and-render flow kicked off at construction; completes only once
@@ -565,6 +596,40 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>ADR-022 D4: persist the rail-collapsed change (write-on-change, best-effort).</summary>
     partial void OnIsRailCollapsedChanged(bool value) => PersistUiState();
 
+    /// <summary>WP-B (#178) clamp: the findings share is held within [0.2, 0.8] so neither the
+    /// findings sidebar nor the detail stack collapses. Persists on change (write-on-change,
+    /// best-effort — mirrors <see cref="OnRailWidthChanged"/>).</summary>
+    partial void OnRailFindingsFractionChanged(double value)
+    {
+        var clamped = Math.Clamp(value, 0.2, 0.8);
+        if (clamped != value)
+        {
+            // Re-entrant write through the same setter; the clamped value re-fires this hook
+            // (clamped == value the second time), so it persists exactly once at the clamped value.
+            RailFindingsFraction = clamped;
+            return;
+        }
+
+        PersistUiState();
+    }
+
+    /// <summary>WP-B (#178) write-back seam from the row GridSplitter: the view's drag-completed
+    /// handler reads the two live rail rows' rendered heights and calls this with the findings
+    /// share. Routes through the <see cref="RailFindingsFraction"/> setter, so the value is clamped
+    /// to [0.2, 0.8] and persisted exactly like a manual change. A non-finite or zero total (a
+    /// not-yet-measured rail) is ignored — the splitter only fires after layout, but guard anyway
+    /// so a degenerate read never writes NaN to the store.</summary>
+    public void SetRailFindingsFraction(double findingsHeight, double detailHeight)
+    {
+        var total = findingsHeight + detailHeight;
+        if (!double.IsFinite(total) || total <= 0)
+        {
+            return;
+        }
+
+        RailFindingsFraction = findingsHeight / total;
+    }
+
     /// <summary>Writes the current rail state to the persisted store (ADR-022 D4). Best-effort —
     /// <see cref="UiStateStore.Save"/> never throws. Suppressed during ctor seeding so applying
     /// the just-loaded values does not write them straight back.</summary>
@@ -577,7 +642,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
 
         // Preserve the ADR-026 theme field that ShellViewModel owns: read-modify-write the
         // shared store so a rail change never clobbers the persisted theme back to default.
-        _uiStateStore.Save(_uiStateStore.Load() with { RailWidth = RailWidth, RailCollapsed = IsRailCollapsed });
+        _uiStateStore.Save(_uiStateStore.Load() with
+        {
+            RailWidth = RailWidth,
+            RailCollapsed = IsRailCollapsed,
+            RailFindingsFraction = RailFindingsFraction,
+        });
     }
 
     /// <summary>Installs the real export save-picker seam (AP 4.1 / ADR-013 §5): the
