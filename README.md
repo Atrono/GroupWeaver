@@ -23,6 +23,66 @@ label controls bottom-right.*
 memberships read green, removed read red-orange and dashed, and known-but-unexpanded
 areas read gray and dotted — a node's kind and any rule findings still show through.*
 
+## Download
+
+**Latest release: v0.4.1** — [Download the portable `.zip` →](https://github.com/Atrono/GroupWeaver/releases/latest)
+
+Portable and self-contained — **no .NET install needed** (the .NET 8 runtime is bundled).
+Requires the [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+(a shared system component, preinstalled on current Windows 10/11). The build is unsigned,
+so [verify your download](#verify-your-download) and read the [SmartScreen note](#system-requirements)
+before first run.
+
+Full release history → [CHANGELOG.md](CHANGELOG.md) ·
+[GitHub Releases](https://github.com/Atrono/GroupWeaver/releases).
+
+## What it does
+
+Everything runs read-only, in the logged-on user's security context, holding to
+**WCAG 2.2 AA** throughout. Architecture decisions live in [docs/adr/](docs/adr/); the
+[project plan](PLANNING.md) (German) tracks scope.
+
+**Explore the live structure**
+
+- Live LDAP connection (read-only, user context) plus a demo mode
+- Entry filter: pick a base OU or group as the graph root
+- Interactive graph: node types, nesting edges, lazy expand, drag/zoom/fit, a selection
+  halo, a minimap, and an **issues-only** filter
+- **Find any node** by name or DN, a **Ctrl+K** command palette, and an all-labels toggle
+- **Viewport-preserving Back** navigation that keeps your place as you drill in and out
+- Adjustable, collapsible panel rail plus a distraction-free **focus mode** (press `F`, or
+  `F11` for full-screen) that folds the chrome away for presenting
+- One-switch **light / dark theme** across both the chrome and the graph canvas, plus
+  brand chrome — a DEMO badge in demo mode, an always-on read-only lock pill, and an
+  accent on primary actions
+- Detail panel showing object attributes — restricted to an explicit attribute whitelist
+  (the privacy baseline), with per-object audit chips
+
+**Plan and compare**
+
+- **Plan mode** — author a proposed structure (groups, users, memberships); the same rule
+  engine validates it live as you edit
+- **Gap analysis** — diff a plan against the live structure: added / removed / unchecked
+  cues in the graph plus a "Changes" sidebar (see the gap-analysis image above)
+- **Export** — findings report as CSV or self-contained HTML, the graph as a PNG, and a
+  plan as an **inert** PowerShell script (for human review — GroupWeaver never runs it and
+  never writes to AD)
+
+**Audit**
+
+- Rule engine: nesting-matrix and naming checks with traffic-light badges, plus
+  circularity and empty-group detection, a findings sidebar with **jump-to-node**, and an
+  honest "unexpanded areas are unchecked" caveat
+- Dedicated **Audit screen** — a health score with summary tiles and a sortable findings
+  table, sliceable by **severity**, **triage status** (Open / Acknowledged / Suppressed),
+  and **rule class**
+- Bulk **Acknowledge / Suppress** as reversible ruleset ignore entries, and a per-finding
+  fix with a **copy-only** PowerShell snippet (never executed)
+- **Export CSV / HTML** straight from the Audit screen
+- Rule editor in Settings — a structured **matrix editor** and naming rules with a **live
+  preview**, ruleset **import / export**, or a raw **JSONC editor** with a live
+  finding-count and diff-from-default
+
 ## What GroupWeaver does NOT see
 
 GroupWeaver audits the **A-G-DL structure and naming conventions** — not the
@@ -36,49 +96,6 @@ out of scope** — that would be a different product.
 The app **never writes to Active Directory**. There is no code path for write
 operations of any kind. It runs in the logged-on user's security context
 (Integrated Authentication) — no credential handling, no stored secrets.
-
-## Status
-
-**v0.4.1 is the latest public release** — **audit-screen polish**: a findings
-**filter** (severity / status / rule class), **CSV / HTML export** straight from the
-Audit screen, and a more prominent **Audit** entry button. It builds on **v0.4.0**,
-a full **UX redesign**: a one-switch
-**light / dark theme** (chrome + graph canvas), the redesign's brand chrome (DEMO
-badge, read-only lock, brand accent), graph polish (selection halo, an **issues-only**
-filter, a **Ctrl+K** command palette, a **minimap**), per-object **audit chips** in
-the detail panel, a dedicated **Audit screen** (health score + tiles, a sortable
-findings table, bulk **Acknowledge / Suppress** as reversible ruleset ignore entries,
-a per-finding fix with a copy-only PowerShell snippet), and a raw **JSONC rule editor**
-with live finding-count + diff-from-default. These ride on the v0.3 navigation work
-(viewport-preserving Back, in-graph find/controls, focus mode), the v0.2 feature set
-(plan mode, gap analysis, export), and the WCAG 2.2 AA discipline throughout; see the
-[project plan](PLANNING.md), German; architecture decisions in
-[docs/adr/](docs/adr/). GroupWeaver offers:
-
-**Explore the live structure**
-
-- Live LDAP connection (read-only, user context) plus a demo mode
-- Entry filter: pick a base OU or group as the graph root
-- Interactive graph: node types, nesting edges, lazy expand, drag/zoom/fit,
-  find any node by name or DN, and an all-labels toggle
-- Adjustable, collapsible panel rail plus a distraction-free **focus mode**
-  (press `F`, or `F11` for full-screen) that folds the chrome away for presenting
-- Detail panel showing object attributes — restricted to an explicit
-  attribute whitelist (the privacy baseline)
-- Rule engine: nesting-matrix and naming checks with traffic-light badges
-  (plus circularity and empty-group detection), a findings sidebar with
-  jump-to-node, and an honest "unexpanded areas are unchecked" caveat
-- Settings page with rule editor (live preview, matrix editor, import/export)
-
-**Plan and compare** (v0.2)
-
-- **Plan mode** — author a proposed structure (groups, users, memberships); the
-  same rule engine validates it live as you edit
-- **Gap analysis** — diff a plan against the live structure: added / removed /
-  unchecked cues in the graph plus a "Changes" sidebar
-- **Export** — findings report as CSV or self-contained HTML, the graph as a PNG,
-  and a plan as an **inert** PowerShell script (for human review — GroupWeaver
-  never runs it and never writes to AD)
 
 ## Demo mode
 
