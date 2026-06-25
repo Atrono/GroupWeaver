@@ -63,10 +63,12 @@ tests — they are fixed fixtures, decoupled from the app version on purpose.
 - **Repo must be PUBLIC** or the attestation step fails ("Feature not available
   for user-owned private repositories") — it failed exactly this way on the first
   v0.1 run.
-- **`DOTNET_ROOT` CI flake (#110):** `dotnet format`/publish on `windows-2022`
-  intermittently can't locate the SDK after `setup-dotnet` (resolves via
-  `DOTNET_ROOT`, not PATH). `ci.yml` pins it; if a release run dies with "Unable
-  to locate dotnet CLI", that's the cause, not your bump.
+- **`dotnet format` CLI-resolution flake (#110):** on `windows-2022`, `dotnet
+  format` (a child process) intermittently can't locate the SDK after
+  `setup-dotnet` (resolves via `DOTNET_HOST_PATH`/`DOTNET_ROOT`, not PATH).
+  `tools/build.ps1` pins both vars and invokes format via the absolute dotnet
+  host, so the shared gate is deterministic; if a release run still dies with
+  "Unable to locate dotnet CLI", that's the cause, not your bump.
 - **The pack's zip manifest is hardcoded** (`$webFiles`/`$rulesetFiles`/
   `$rootFiles`). If the release adds/removes a shipped `web/` file or
   `examples/rulesets/` entry, update those arrays or the manifest verify fails.
