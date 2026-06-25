@@ -112,11 +112,14 @@ const DIFF_UNDERLAY = {
   unchecked: { color: '#8A8F98', opacity: 0.35, padding: 6, bgOpacity: null },
 };
 // Per-status EDGE line override: diff line-color + the colorblind-redundant
-// line-style (added keeps solid, removed dashed, unchecked dotted).
+// line-style (added keeps solid, removed dashed, unchecked dotted). The `opacity`
+// is the DARK diffXxxLineOpacity (graph.js THEME.dark) - pinned so the ADR-029
+// fade-OFF-on-diff check can prove a diff edge keeps its OWN diff opacity (never
+// the 0.15 overview-fade wash) on the graph-diff frame.
 const DIFF_LINE = {
-  added: { color: '#2FAE4E', style: 'solid' },
-  removed: { color: '#E0503A', style: 'dashed' },
-  unchecked: { color: '#8A8F98', style: 'dotted' },
+  added: { color: '#2FAE4E', style: 'solid', opacity: 0.95 },
+  removed: { color: '#E0503A', style: 'dashed', opacity: 0.85 },
+  unchecked: { color: '#8A8F98', style: 'dotted', opacity: 0.5 },
 };
 // BASE (non-diff) edge styling, F6 edge-legibility change (graph.js
 // edge[rel='member'] / edge[rel='contains']). Membership is the PRIMARY directed
@@ -132,6 +135,20 @@ const BASE_EDGE = {
   member: { color: '#8E9BB4', width: 1.6, style: 'solid', arrowColor: '#8E9BB4' },
   contains: { color: '#6B788F', width: 1, style: 'dashed' },
 };
+
+// THE overview edge-fade tripwire (WP-A #176 / ADR-029). Parity constants
+// hand-mirrored from graph.js: at/near the fit zoom EVERY plain (non-diff) edge
+// on an EXPLORE graph carries the `gw-edge-faded` class and renders opacity 0.15
+// (the `edge.gw-edge-faded { opacity: 0.15 }` rule); zoomed in past
+// fitZoom * EDGE_FADE_FACTOR the class is removed and the edge returns to the
+// base rel opacity (1). The fade is OFF wholesale on a gap/diff graph
+// (isDiffGraph) - the diff frame asserts no edge ever carries the class and the
+// diff edges keep their pinned diff opacities. These are behaviour constants
+// (theme-invariant, ADR-029 D4), NOT colours - so they are NOT in the
+// palette-parity mirror set; the value 1 is graph.js' base edge[rel=...] opacity.
+const EDGE_FADE_OPACITY = 0.15;   // graph.js edge.gw-edge-faded opacity
+const EDGE_FADE_FACTOR = 1.6;     // graph.js EDGE_FADE_FACTOR (fade band ceiling = fitZoom * this)
+const EDGE_FULL_OPACITY = 1;      // graph.js base edge[rel='member'|'contains'] opacity (zoomed-in)
 
 // THE interaction-feedback parity tripwire (ADR-018 / #89). The graph-layer
 // analogue of PALETTE/SEVERITY/DIFF: hand-copied from ADR-018 D1 so any drift
@@ -856,6 +873,32 @@ async function diffRenderTripwire(browser, indexHtml, screenshotDir) {
     && Math.abs(toNumber(coexistOverlay.opacity) - SEVERITY_OVERLAY.error.opacity) < 1e-6,
     `COEXIST node '${COEXIST_NODE}' must ALSO show its sev='error' overlay (${SEVERITY.error} / opacity ${SEVERITY_OVERLAY.error.opacity}) independently of the diff underlay: rendered overlay '${coexistOverlay.color}' (${toHex(coexistOverlay.color)}) / opacity ${coexistOverlay.opacity}`);
   phase(`diff: COEXIST keystone (added underlay + error overlay, no collision) ('${COEXIST_NODE}')`);
+
+  // --- WP-A (#176, ADR-029): the overview edge-fade is OFF on a diff graph ----
+  // This is a GAP graph (>= 1 diff-tagged edge => isDiffGraph true), so
+  // updateEdgeFade is a wholesale NO-OP: the Added/Removed/Unchecked edges ARE the
+  // signal, never noise, and must NEVER be faded - even though this dataset renders
+  // at its own fit/overview zoom, exactly the zoom that fades an EXPLORE graph. Two
+  // pins: (1) NO edge anywhere carries gw-edge-faded (the isDiffGraph guard short-
+  // circuited the class toggle), and (2) every diff edge keeps its OWN pinned diff
+  // line opacity (DIFF_LINE[*].opacity, the dark diffXxxLineOpacity) - i.e. NOT the
+  // 0.15 wash. The COMMON no-diff edge is the keystone: on an explore graph it WOULD
+  // fade at this overview zoom, but here isDiffGraph keeps it at full opacity (1).
+  const fadedEdgeCount = await page.evaluate(() => window.__cy.edges('.gw-edge-faded').length);
+  assert(fadedEdgeCount === 0,
+    `ADR-029 D3 fade-off-on-diff: a gap/diff graph (isDiffGraph) must NEVER fade an edge - ${fadedEdgeCount} edge(s) carry gw-edge-faded (updateEdgeFade must be a no-op when cy.edges('[?diff]').nonempty())`);
+  for (const [status, eid] of Object.entries(EDGE_PINS)) {
+    const got = await lineOf(eid);
+    assert(!(await page.evaluate((id) => window.__cy.getElementById(id).hasClass('gw-edge-faded'), eid)),
+      `ADR-029 D3: diff '${status}' edge '${eid}' must not carry gw-edge-faded on a diff graph`);
+    assert(Math.abs(toNumber(got.opacity) - DIFF_LINE[status].opacity) < 1e-6,
+      `ADR-029 D3: diff '${status}' edge '${eid}' must keep its pinned diff line opacity ${DIFF_LINE[status].opacity} (its OWN signal, NOT the 0.15 overview-fade wash), got ${got.opacity}`);
+  }
+  const commonLine = await lineOf(COMMON_EDGE);
+  assert(commonLine.found, `ADR-029 D3: Common no-diff edge '${COMMON_EDGE}' not found`);
+  assert(Math.abs(toNumber(commonLine.opacity) - EDGE_FULL_OPACITY) < 1e-6,
+    `ADR-029 D3: the Common NO-diff edge '${COMMON_EDGE}' on a diff graph must render full opacity ${EDGE_FULL_OPACITY} (isDiffGraph turns fade OFF wholesale - an explore graph would fade it to ${EDGE_FADE_OPACITY} at this overview zoom), got ${commonLine.opacity}`);
+  phase(`ADR-029 D3: overview-fade OFF on diff graph (0 faded edges; diff edges keep own opacity; Common edge full ${EDGE_FULL_OPACITY})`);
 
   // --- screenshot: the frame the ui-verifier judges -------------------------
   await page.screenshot({ path: join(screenshotDir, 'graph-diff.png') });
@@ -2231,9 +2274,81 @@ async function main() {
     }
     phase(`legend: SVG swatch fill parity vs PALETTE (7/7 kinds)`);
 
+    // --- WP-A (#176, ADR-029): overview edge-fade ----------------------------
+    // The demo is an EXPLORE graph (no diff edge => isDiffGraph false), so at the
+    // post-cy.fit() overview zoom updateEdgeFade(true) (run in initGraph after
+    // fit) has flagged EVERY edge with `gw-edge-faded` and the
+    // `edge.gw-edge-faded { opacity: 0.15 }` rule resolves to EDGE_FADE_OPACITY.
+    // This is the frame graph-overview.png (below) captures - the README hero is
+    // copied from it, so the faded constellation is the pinned first impression.
+    // Reuse the SAME representative non-diff member + contains edges the F6 BASE
+    // block pinned (baseMemberEdge/baseContainsEdge), reading opacity + the class
+    // via getElementById (comma-DN safe, ADR-004 D5). The base buildStyle
+    // edge[rel=...] opacity literal is UNCHANGED (still 1, pinned implicitly by
+    // the zoomed-in read below); only the RENDERED overview state changed via the
+    // toggled class. NOTE: pre-ADR-029 this overview frame rendered these edges at
+    // opacity 1 (the base rel rule); the F6 BASE block never pinned edge OPACITY
+    // (only color/width/line-style/arrow), so no prior assertion is invalidated -
+    // this block ADDS the overview-state pin ADR-029 D5 / Consequences calls for.
+    const fadeStyleOf = (eid) => page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      return { found: el.length === 1, opacity: el.style('opacity'), faded: el.hasClass('gw-edge-faded') };
+    }, eid);
+    const fitZoomDemo = await page.evaluate(() => window.__cy.zoom());
+    const ovMemberFade = await fadeStyleOf(baseMemberEdge.id);
+    const ovContainsFade = await fadeStyleOf(baseContainsEdge.id);
+    assert(ovMemberFade.found && ovContainsFade.found,
+      `ADR-029 overview-fade: sample edges must be present (member '${baseMemberEdge.id}', contains '${baseContainsEdge.id}')`);
+    assert(ovMemberFade.faded,
+      `ADR-029 overview-fade: member edge '${baseMemberEdge.id}' must carry the gw-edge-faded class at the fit/overview zoom (${fitZoomDemo}) on an explore graph`);
+    assert(Math.abs(toNumber(ovMemberFade.opacity) - EDGE_FADE_OPACITY) < 1e-6,
+      `ADR-029 overview-fade: member edge '${baseMemberEdge.id}' must render opacity ${EDGE_FADE_OPACITY} at overview, got ${ovMemberFade.opacity} (graph.js edge.gw-edge-faded rule regressed or updateEdgeFade not applied after fit?)`);
+    assert(ovContainsFade.faded,
+      `ADR-029 overview-fade: contains edge '${baseContainsEdge.id}' must carry the gw-edge-faded class at the fit/overview zoom on an explore graph`);
+    assert(Math.abs(toNumber(ovContainsFade.opacity) - EDGE_FADE_OPACITY) < 1e-6,
+      `ADR-029 overview-fade: contains edge '${baseContainsEdge.id}' must render opacity ${EDGE_FADE_OPACITY} at overview, got ${ovContainsFade.opacity}`);
+    phase(`ADR-029 overview-fade: member + contains edges faded (opacity ${EDGE_FADE_OPACITY}, gw-edge-faded) at fit zoom ${fitZoomDemo.toFixed(4)}`);
+
     // --- screenshot 1: overview (initGraph already ran cy.fit()) -------------
     await page.screenshot({ path: join(screenshotDir, 'graph-overview.png') });
     phase('overview screenshot');
+
+    // --- WP-A (#176, ADR-029): zoom IN past fitZoom*EDGE_FADE_FACTOR restores --
+    // The same two edges must return to full opacity (class removed) once the user
+    // zooms in to inspect - the fade is a zoom-driven OVERVIEW treatment, not a
+    // permanent dim. Snapshot the eased/overview viewport, zoom to fitZoom*2 (well
+    // past the fitZoom*EDGE_FADE_FACTOR=1.6 band ceiling), let the 'zoom' event +
+    // hysteresis settle, read, then RESTORE the snapshot (the
+    // snapshot-and-restore idiom from assertEasedFocus) so every later frame the
+    // page reuses (selection/controls/etc.) starts from the unchanged overview
+    // camera. EDGE_FULL_OPACITY (1) pins the base rel opacity literal too - so the
+    // overview 0.15 above is unambiguously the class toggle, not a buildStyle edit.
+    const fadeSnap = await page.evaluate(() => {
+      const cy = window.__cy; const p = cy.pan();
+      return { zoom: cy.zoom(), panX: p.x, panY: p.y };
+    });
+    await page.evaluate((f) => { window.__cy.zoom(window.__cy.zoom() * (f + 0.4)); }, EDGE_FADE_FACTOR);
+    const zoomedInZoom = await page.evaluate(() => window.__cy.zoom());
+    assert(zoomedInZoom > fitZoomDemo * EDGE_FADE_FACTOR,
+      `ADR-029 zoom-in: probe zoom ${zoomedInZoom} must exceed the fade ceiling fitZoom*${EDGE_FADE_FACTOR} (${(fitZoomDemo * EDGE_FADE_FACTOR).toFixed(4)}) so the fade is expected OFF`);
+    const ziMemberFade = await fadeStyleOf(baseMemberEdge.id);
+    const ziContainsFade = await fadeStyleOf(baseContainsEdge.id);
+    assert(!ziMemberFade.faded,
+      `ADR-029 zoom-in: member edge '${baseMemberEdge.id}' must DROP the gw-edge-faded class once zoomed past fitZoom*${EDGE_FADE_FACTOR}`);
+    assert(Math.abs(toNumber(ziMemberFade.opacity) - EDGE_FULL_OPACITY) < 1e-6,
+      `ADR-029 zoom-in: member edge '${baseMemberEdge.id}' must render full opacity ${EDGE_FULL_OPACITY} when zoomed in, got ${ziMemberFade.opacity} (base edge[rel='member'] opacity regressed?)`);
+    assert(!ziContainsFade.faded,
+      `ADR-029 zoom-in: contains edge '${baseContainsEdge.id}' must DROP the gw-edge-faded class once zoomed past fitZoom*${EDGE_FADE_FACTOR}`);
+    assert(Math.abs(toNumber(ziContainsFade.opacity) - EDGE_FULL_OPACITY) < 1e-6,
+      `ADR-029 zoom-in: contains edge '${baseContainsEdge.id}' must render full opacity ${EDGE_FULL_OPACITY} when zoomed in, got ${ziContainsFade.opacity}`);
+    // Restore the overview camera (assertEasedFocus snapshot-restore idiom) so the
+    // shared page resumes at the unchanged fit zoom for every later frame.
+    await page.evaluate((s) => { window.__cy.zoom(s.zoom); window.__cy.pan({ x: s.panX, y: s.panY }); }, fadeSnap);
+    const restoredMemberFade = await fadeStyleOf(baseMemberEdge.id);
+    assert(restoredMemberFade.faded
+      && Math.abs(toNumber(restoredMemberFade.opacity) - EDGE_FADE_OPACITY) < 1e-6,
+      `ADR-029 zoom-in: restoring the overview viewport must re-fade member edge '${baseMemberEdge.id}' (opacity ${EDGE_FADE_OPACITY} + gw-edge-faded) so later frames start from the unchanged overview camera, got opacity ${restoredMemberFade.opacity} faded=${restoredMemberFade.faded}`);
+    phase(`ADR-029 zoom-in: edges restore to opacity ${EDGE_FULL_OPACITY} past fitZoom*${EDGE_FADE_FACTOR} (zoom ${zoomedInZoom.toFixed(4)}), overview camera restored`);
     // --- the encoding-key legend frame the ui-verifier judges (#87) ----------
     await page.screenshot({ path: join(screenshotDir, 'graph-legend-key.png') });
     phase('legend-key screenshot');
