@@ -326,7 +326,11 @@ try {
     Send-Key 0x46
     Start-Sleep -Milliseconds 900   # strip + rail collapse + WebView reflow settle
     Save-Frame 2
-    Hold-Frame 3
+    # Linger on the finale before the loop restarts (-loop 0): the focus-mode end-state holds
+    # for 2 + 8 = 10 frames (~5s at 2 fps) so the clean graph reads before the GIF cuts back to
+    # the root picker. Pure copies of the last capture (zero-diff -> negligible bytes); the loop
+    # seam stays clean because frame 0 is the only full-canvas keyframe and fully repaints.
+    Hold-Frame 8
 }
 finally {
     if (-not $app.HasExited) {
