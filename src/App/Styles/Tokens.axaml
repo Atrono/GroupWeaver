@@ -27,6 +27,13 @@
       <!-- Ghost-button pointer-over wash (App.axaml). -->
       <SolidColorBrush x:Key="GhostHoverBrush" Color="#14FFFFFF" />
 
+      <!-- WP1 active filter-chip (selected) surface + ink. OPAQUE (not the translucent card tint —
+           that composite dropped the active count to 4.44:1 in light; WCAG 1.4.3). The raised dark
+           grey reads as "selected" beside the 2px border; the near-white ink clears 4.5:1 with wide
+           headroom (10.39:1) for BOTH the chip label and the count. -->
+      <SolidColorBrush x:Key="ChipActiveBackgroundBrush" Color="#343A44" />
+      <SolidColorBrush x:Key="ChipActiveForegroundBrush" Color="#F2F4F7" />
+
       <!-- ADR-026 D6 (WP2): the brand-purple accent. Decorative accent (DEMO badge text /
            focus rings) is the lighter Frame-1 hue; the primary-button FILL is the deeper
            accent-2 whose WHITE text clears 4.5:1 across rest/hover/pressed (mirrors
@@ -66,6 +73,11 @@
       <SolidColorBrush x:Key="CardBorderBrush" Color="#1A000000" />
       <SolidColorBrush x:Key="SecondaryForegroundBrush" Color="#5A636E" />
       <SolidColorBrush x:Key="GhostHoverBrush" Color="#0D000000" />
+
+      <!-- WP1 active filter-chip (selected) surface + ink (light): an opaque light grey beside the
+           2px border; near-black ink clears 4.5:1 with headroom (11.78:1) for label AND count. -->
+      <SolidColorBrush x:Key="ChipActiveBackgroundBrush" Color="#DDE0E5" />
+      <SolidColorBrush x:Key="ChipActiveForegroundBrush" Color="#1F242C" />
 
       <!-- ADR-026 D6 (WP2): Frame-4 brand purple (decorative + accessible fill). -->
       <SolidColorBrush x:Key="AccentBrush" Color="#6A5CFF" />
