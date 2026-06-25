@@ -12,9 +12,9 @@ public class SmokeTests
     [Fact]
     public void CoreAssembly_InformationalVersion_StartsWithPinnedVersion()
     {
-        // Directory.Build.props pins <Version>0.4.0</Version> (minor bump from
-        // 0.3.1 — the 2026-06 UX redesign: light/dark theme, audit screen, raw rule
-        // editor, graph polish — new user-facing features); the App
+        // Directory.Build.props pins <Version>0.4.1</Version> (patch bump from
+        // 0.4.0 — persona-value audit-screen polish: findings filter, CSV/HTML
+        // export, a promoted Audit entry button); the App
         // banner (src/App/Program.cs) prints the informational version derived from
         // it. The SDK appends "+<commit>" via SourceLink, hence StartsWith.
         var core = Assembly.Load("GroupWeaver.Core");
