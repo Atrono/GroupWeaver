@@ -12,9 +12,10 @@ public class SmokeTests
     [Fact]
     public void CoreAssembly_InformationalVersion_StartsWithPinnedVersion()
     {
-        // Directory.Build.props pins <Version>0.4.1</Version> (patch bump from
-        // 0.4.0 — persona-value audit-screen polish: findings filter, CSV/HTML
-        // export, a promoted Audit entry button); the App
+        // Directory.Build.props pins <Version>0.4.2</Version> (patch bump from
+        // 0.4.1 — senior-review UI/UX polish: overview edge-fade, resizable
+        // findings/detail rail split, audit categories-as-filter de-dup, and
+        // connect-ring/rules-row visual polish); the App
         // banner (src/App/Program.cs) prints the informational version derived from
         // it. The SDK appends "+<commit>" via SourceLink, hence StartsWith.
         var core = Assembly.Load("GroupWeaver.Core");
@@ -23,7 +24,7 @@ public class SmokeTests
             .InformationalVersion;
 
         Assert.NotNull(informationalVersion);
-        Assert.StartsWith("0.4.1", informationalVersion);
+        Assert.StartsWith("0.4.2", informationalVersion);
     }
 
     [Fact]
