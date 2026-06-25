@@ -23,7 +23,7 @@ public class SmokeTests
             .InformationalVersion;
 
         Assert.NotNull(informationalVersion);
-        Assert.StartsWith("0.4.0", informationalVersion);
+        Assert.StartsWith("0.4.1", informationalVersion);
     }
 
     [Fact]

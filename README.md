@@ -39,7 +39,10 @@ operations of any kind. It runs in the logged-on user's security context
 
 ## Status
 
-**v0.4.0 is the latest public release** — a full **UX redesign**: a one-switch
+**v0.4.1 is the latest public release** — **audit-screen polish**: a findings
+**filter** (severity / status / rule class), **CSV / HTML export** straight from the
+Audit screen, and a more prominent **Audit** entry button. It builds on **v0.4.0**,
+a full **UX redesign**: a one-switch
 **light / dark theme** (chrome + graph canvas), the redesign's brand chrome (DEMO
 badge, read-only lock, brand accent), graph polish (selection halo, an **issues-only**
 filter, a **Ctrl+K** command palette, a **minimap**), per-object **audit chips** in
@@ -141,10 +144,10 @@ provenance attestation. There is no code-signing certificate (see the SmartScree
 note above); instead, verify integrity and origin yourself — two commands.
 
 **1. Check the SHA256 hash** against the value in the release notes / the
-`GroupWeaver-0.4.0-win-x64.zip.sha256` sidecar:
+`GroupWeaver-0.4.1-win-x64.zip.sha256` sidecar:
 
 ```powershell
-Get-FileHash .\GroupWeaver-0.4.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\GroupWeaver-0.4.1-win-x64.zip -Algorithm SHA256
 ```
 
 **2. Verify build provenance** with the [GitHub CLI](https://cli.github.com/) —
@@ -152,7 +155,7 @@ this cryptographically confirms the `.zip` was built by this repository's releas
 workflow on GitHub's runners, not repackaged by someone else:
 
 ```powershell
-gh attestation verify .\GroupWeaver-0.4.0-win-x64.zip --repo Atrono/GroupWeaver
+gh attestation verify .\GroupWeaver-0.4.1-win-x64.zip --repo Atrono/GroupWeaver
 ```
 
 A passing check prints the matched attestation and the workflow that produced it.

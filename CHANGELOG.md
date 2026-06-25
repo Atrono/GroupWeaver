@@ -4,6 +4,26 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-06-25
+
+Audit-screen polish, driven by a persona-focused visibility audit (what an AD
+sysadmin / governance analyst needs to *see*). Refines the v0.4.0 Audit surface;
+still **read-only by construction** — no code path writes to Active Directory.
+
+### Added
+- **Audit findings filter** — a chip strip on the Audit screen to slice the findings
+  table by **severity**, **triage status** (Open / Acknowledged / Suppressed), and
+  **rule class**, multi-select within and across axes, with a "Showing N of M" summary.
+  Client-side only; triage semantics unchanged (#170).
+- **Audit-screen export** — **Export CSV** / **Export HTML** straight from the Audit
+  screen (it previously lived only on the in-context findings sidebar), reusing the
+  existing report exporter; exports the live, post-suppression report (#171).
+
+### Changed
+- **Promoted the workspace "Audit" entry button** — from a plain ghost button to a
+  distinct accent-outline tier with a shield-check glyph, so the health-verdict screen
+  is discoverable; the filled Refresh primary is untouched (#172).
+
 ## [0.4.0] - 2026-06-24
 
 Fourth feature release — a full **UX redesign** (the 2026-06 initiative), implemented
