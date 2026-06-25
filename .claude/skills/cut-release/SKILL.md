@@ -20,8 +20,8 @@ and a gate goes red; items 3–4 are docs that must still be updated:
 2. `tests/GroupWeaver.Tests/SmokeTests.cs` — `Assert.StartsWith("X.Y.Z", …)` in
    `CoreAssembly_InformationalVersion_StartsWithPinnedVersion` (+ its comment).
    Bump #1 without this and `dotnet test`/CI is red.
-3. `README.md` — Status line + the three `GroupWeaver-X.Y.Z-win-x64.zip`
-   references in "Verify your download".
+3. `README.md` — the `**Latest release: vX.Y.Z**` line in the "Download" section + the
+   three `GroupWeaver-X.Y.Z-win-x64.zip` references in "Verify your download".
 4. `CHANGELOG.md` — new `## [X.Y.Z] - <date>` section.
 
 Do NOT touch the `ToolVersion: "0.2.0"` / `9.9.9-test` literals in the Plan-export
