@@ -12,14 +12,43 @@ using GroupWeaver.Core.Rules;
 namespace GroupWeaver.App.ViewModels;
 
 /// <summary>
-/// One categories-pane row (WP5c): a rule class that produced findings — its
-/// display name, the count from <see cref="AuditSummary.ByRuleClass"/>, and the
-/// max severity across that class's findings (drives the leading dot color). The
-/// row is read-only for now (click-to-filter is WP5d/e). Rows are emitted in the
-/// canonical rule order (<see cref="Ruleset.EnumerateRules"/>); see
-/// <see cref="AuditViewModel.Categories"/>.
+/// One categories-pane row (WP5c, made interactive in WP-C/#180): a rule class that produced
+/// findings — its display name, the count from <see cref="AuditSummary.ByRuleClass"/>, and the
+/// max severity across that class's findings (drives the leading dot color). The row IS the
+/// rule-class filter facet (the strip's separate RULE CLASS group was removed as a duplicate):
+/// clicking it toggles <see cref="AuditViewModel.ToggleCategoryCommand"/>, and
+/// <see cref="IsActive"/> mirrors membership in the VM's <c>_ruleClassFilter</c> set (the single
+/// source of truth — exactly like <see cref="AuditFilterChip.IsActive"/>), so the row's active
+/// affordance survives a summary rebuild. Rows are emitted in the canonical rule order
+/// (<see cref="Ruleset.EnumerateRules"/>); see <see cref="AuditViewModel.Categories"/>.
 /// </summary>
-public sealed record AuditCategoryRow(string RuleId, string DisplayName, int Count, RuleSeverity MaxSeverity);
+public sealed partial class AuditCategoryRow : ObservableObject
+{
+    public AuditCategoryRow(string ruleId, string displayName, int count, RuleSeverity maxSeverity)
+    {
+        RuleId = ruleId;
+        DisplayName = displayName;
+        Count = count;
+        MaxSeverity = maxSeverity;
+    }
+
+    /// <summary>The rule id this row filters on (the <c>_ruleClassFilter</c> key, OrdinalIgnoreCase).</summary>
+    public string RuleId { get; }
+
+    /// <summary>The human rule-class label (e.g. "Nesting matrix"); the row caption.</summary>
+    public string DisplayName { get; }
+
+    /// <summary>The finding count for this class (<see cref="AuditSummary.ByRuleClass"/>).</summary>
+    public int Count { get; }
+
+    /// <summary>The max severity across this class's findings — drives the leading dot colour.</summary>
+    public RuleSeverity MaxSeverity { get; }
+
+    /// <summary>True when this class is in the active rule-class filter set — the view renders the
+    /// active visual (a redundant border/fill change, never hue alone; WCAG 1.4.1).</summary>
+    [ObservableProperty]
+    private bool _isActive;
+}
 
 /// <summary>The triage state of one audit finding (WP5e / ADR-028): <see cref="Open"/> = a live
 /// finding, <see cref="Acknowledged"/>/<see cref="Suppressed"/> = covered by an equal-strength
@@ -130,7 +159,8 @@ public sealed partial class AuditFindingRowModel : ObservableObject
 
 /// <summary>The axis a <see cref="AuditFilterChip"/> filters on (WP1). Each axis is an independent
 /// fail-open constraint: an EMPTY active set on an axis imposes no constraint; a non-empty set keeps
-/// only rows whose value is in the set. The three axes AND together.</summary>
+/// only rows whose value is in the set. The chip axes AND together (the rule-class axis is driven by
+/// the categories pane, not a chip — WP-C/#180).</summary>
 public enum AuditFilterAxis
 {
     /// <summary>Filter by <see cref="AuditFindingRowModel.Severity"/> (boxed <see cref="RuleSeverity"/> key).</summary>
@@ -138,18 +168,16 @@ public enum AuditFilterAxis
 
     /// <summary>Filter by <see cref="AuditFindingRowModel.Status"/> (boxed <see cref="TriageStatus"/> key).</summary>
     Status,
-
-    /// <summary>Filter by <see cref="AuditFindingRowModel.RuleId"/> (the rule-class string key).</summary>
-    RuleClass,
 }
 
 /// <summary>
-/// One filter chip on the audit findings filter strip (WP1): a toggleable facet on one of the three
-/// <see cref="AuditFilterAxis"/> axes. Severity chips carry a non-null <see cref="Severity"/> (drives
-/// the glyph color/letter via <see cref="Views.SeverityConverters"/>); status/rule-class chips leave
-/// it null and show their <see cref="Label"/> + <see cref="Count"/>. <see cref="Key"/> is the boxed
-/// value added to / removed from the axis's filter set, and <see cref="IsActive"/> mirrors set
-/// membership (the view's redundant non-color active affordance binds it).
+/// One filter chip on the audit findings filter strip (WP1): a toggleable facet on a
+/// <see cref="AuditFilterAxis"/> axis (Severity or Status; the rule-class facet is the categories
+/// pane — WP-C/#180). Severity chips carry a non-null <see cref="Severity"/> (drives the glyph
+/// color/letter via <see cref="Views.SeverityConverters"/>); status chips leave it null and show
+/// their <see cref="Label"/> + <see cref="Count"/>. <see cref="Key"/> is the boxed value added to /
+/// removed from the axis's filter set, and <see cref="IsActive"/> mirrors set membership (the view's
+/// redundant non-color active affordance binds it).
 /// </summary>
 public sealed partial class AuditFilterChip : ObservableObject
 {
@@ -162,23 +190,22 @@ public sealed partial class AuditFilterChip : ObservableObject
         Severity = severity;
     }
 
-    /// <summary>The axis this chip toggles (selects which of the VM's three filter sets <see cref="Key"/>
+    /// <summary>The axis this chip toggles (selects which of the VM's filter sets <see cref="Key"/>
     /// is added to / removed from).</summary>
     internal AuditFilterAxis Axis { get; }
 
     /// <summary>The boxed value this chip contributes to its axis's filter set: a boxed
-    /// <see cref="RuleSeverity"/> (severity), a boxed <see cref="TriageStatus"/> (status), or the rule-id
-    /// string (rule class).</summary>
+    /// <see cref="RuleSeverity"/> (severity) or a boxed <see cref="TriageStatus"/> (status).</summary>
     internal object Key { get; }
 
-    /// <summary>The chip caption (severity letter source / status name / rule-class display name).</summary>
+    /// <summary>The chip caption (severity letter source / status name).</summary>
     public string Label { get; }
 
     /// <summary>The number of master-list rows this chip would match, computed over <c>_allRows</c>.</summary>
     public int Count { get; }
 
     /// <summary>Non-null only for severity chips — drives the colored glyph square + redundant letter
-    /// (<see cref="Views.SeverityConverters"/>); null for status / rule-class chips.</summary>
+    /// (<see cref="Views.SeverityConverters"/>); null for status chips.</summary>
     public RuleSeverity? Severity { get; }
 
     /// <summary>True when this chip's <see cref="Key"/> is in its axis's active filter set — the view
@@ -352,8 +379,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
 
     /// <summary>The categories pane (WP5c): one row per rule class that produced findings, in the
     /// canonical <see cref="Ruleset.EnumerateRules"/> order (nesting → naming rules in file order →
-    /// circular → empty-group), so the list never reshuffles by dictionary order. Read-only for now;
-    /// click-to-filter is WP5d/e. Rebuilt in place on every <see cref="ApplyRuleset"/>.</summary>
+    /// circular → empty-group), so the list never reshuffles by dictionary order. Each row IS the
+    /// rule-class filter facet (WP-C/#180) — clicking it runs <see cref="ToggleCategory"/>; its
+    /// <see cref="AuditCategoryRow.IsActive"/> mirrors the <c>_ruleClassFilter</c> set. Rebuilt in
+    /// place on every <see cref="ApplyRuleset"/>.</summary>
     public ObservableCollection<AuditCategoryRow> Categories { get; } = [];
 
     /// <summary>True when at least one rule class produced a finding — gates the categories pane
@@ -378,10 +407,6 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
 
     /// <summary>The triage-status filter chips (WP1) — fixed Open/Acknowledged/Suppressed.</summary>
     public ObservableCollection<AuditFilterChip> StatusChips { get; } = [];
-
-    /// <summary>The rule-class filter chips (WP1) — one per rule class present in <see cref="_allRows"/>,
-    /// in canonical <see cref="Categories"/> order, labelled by display name.</summary>
-    public ObservableCollection<AuditFilterChip> RuleClassChips { get; } = [];
 
     /// <summary>The count of currently-visible (filtered) findings (= <see cref="Findings"/>.Count).</summary>
     public int VisibleCount => Findings.Count;
@@ -578,7 +603,12 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
             if (Summary.ByRuleClass.TryGetValue(rule.Id, out var count) && count > 0)
             {
                 var severity = maxByRuleId.TryGetValue(rule.Id, out var max) ? max : RuleSeverity.Info;
-                Categories.Add(new AuditCategoryRow(rule.Id, rule.DisplayName, count, severity));
+                // IsActive mirrors the rule-class filter set so the active affordance survives a
+                // summary rebuild (exactly like the filter chips do — WP-C/#180).
+                Categories.Add(new AuditCategoryRow(rule.Id, rule.DisplayName, count, severity)
+                {
+                    IsActive = _ruleClassFilter.Contains(rule.Id),
+                });
             }
         }
 
@@ -634,20 +664,20 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         // A re-thread rebuilds the rows, so the prior detail selection no longer points at a live row;
         // clear it (the detail pane returns to its empty state). WP5f / #160.
         SelectedFinding = null;
-        // Rebuild the chips AFTER _allRows (counts + the dynamic rule-class set derive from it); this
-        // preserves the severity/status sets and prunes the rule-class set to surviving rule ids.
-        RebuildFilterChips(ruleClassById);
+        // Rebuild the chips AFTER _allRows (severity/status counts derive from it); this preserves the
+        // severity/status sets and prunes the rule-class set to surviving rule ids. The rule-class
+        // filter is driven by the categories pane (WP-C/#180), not a separate chip group.
+        RebuildFilterChips();
         ApplyView();
     }
 
-    /// <summary>Rebuilds the three chip collections (WP1) from the freshly-built <see cref="_allRows"/>.
-    /// Severity + status chips are the fixed domains (counts over <see cref="_allRows"/>); the
-    /// rule-class chips are dynamic — one per rule class present, in canonical <see cref="Categories"/>
-    /// order (the same <paramref name="ruleClassById"/> insertion order as <see cref="Ruleset.EnumerateRules"/>).
-    /// The severity/status filter sets are PRESERVED (fixed domains); the rule-class set is PRUNED to the
-    /// rule ids still present. Each chip's <see cref="AuditFilterChip.IsActive"/> is then set from the
-    /// (pruned) sets.</summary>
-    private void RebuildFilterChips(Dictionary<string, string> ruleClassById)
+    /// <summary>Rebuilds the severity + status chip collections (WP1) from the freshly-built
+    /// <see cref="_allRows"/> (both are fixed domains, counts over <see cref="_allRows"/>; their filter
+    /// sets are PRESERVED). Also prunes the rule-class filter set to the rule ids still present so a
+    /// stale id (after a re-thread dropped a class) never silently filters everything out — that set is
+    /// now driven by the categories pane (WP-C/#180), so there is no rule-class chip collection. Each
+    /// chip's <see cref="AuditFilterChip.IsActive"/> is set from the (preserved/pruned) sets.</summary>
+    private void RebuildFilterChips()
     {
         SeverityChips.Clear();
         foreach (var severity in new[] { RuleSeverity.Error, RuleSeverity.Warning, RuleSeverity.Info })
@@ -669,35 +699,14 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
             });
         }
 
-        // Dynamic rule-class chips, canonical order: one per rule id present in _allRows, counted, and
-        // labelled by display name. Prune the active set to the surviving ids first (a re-thread can
-        // drop a rule class) so a stale id never silently filters everything out.
+        // Prune the rule-class filter set to the rule ids still present (a re-thread can drop a rule
+        // class) so a stale id never silently filters everything out. The set is the single source of
+        // truth the categories pane's rows mirror (RebuildCategories sets each row's IsActive from it).
         var ruleIds = _allRows
             .Select(r => r.RuleId)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         _ruleClassFilter.RemoveWhere(id => !ruleIds.Contains(id));
-
-        var countByRuleId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in _allRows)
-        {
-            countByRuleId[row.RuleId] = countByRuleId.GetValueOrDefault(row.RuleId) + 1;
-        }
-
-        RuleClassChips.Clear();
-        // Re-walk EnumerateRules for the canonical chip order (matching how Categories is built) rather
-        // than trusting Dictionary enumeration — emit one chip per rule id present in _allRows.
-        foreach (var rule in _ruleset.EnumerateRules())
-        {
-            if (countByRuleId.TryGetValue(rule.Id, out var count) && count > 0)
-            {
-                var label = ruleClassById.TryGetValue(rule.Id, out var displayName) ? displayName : rule.DisplayName;
-                RuleClassChips.Add(new AuditFilterChip(AuditFilterAxis.RuleClass, rule.Id, label, count, null)
-                {
-                    IsActive = _ruleClassFilter.Contains(rule.Id),
-                });
-            }
-        }
     }
 
     private static string SeverityLabel(RuleSeverity severity) => severity switch
@@ -791,11 +800,21 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
             case AuditFilterAxis.Status:
                 ToggleKey(_statusFilter, (TriageStatus)chip.Key, chip.IsActive);
                 break;
-            case AuditFilterAxis.RuleClass:
-                ToggleKey(_ruleClassFilter, (string)chip.Key, chip.IsActive);
-                break;
         }
 
+        ApplyView();
+    }
+
+    /// <summary>Toggles the rule-class filter from a categories-pane row (WP-C/#180): flips the row's
+    /// <see cref="AuditCategoryRow.IsActive"/>, adds/removes its <see cref="AuditCategoryRow.RuleId"/>
+    /// in <c>_ruleClassFilter</c>, and rebuilds the visible view. The rule-class axis is the single
+    /// source of truth here — the category rows ARE the rule-class filter facet (the separate strip
+    /// chip group was removed as a duplicate). Multi-select within the axis; ANDs with severity/status.</summary>
+    [RelayCommand]
+    private void ToggleCategory(AuditCategoryRow row)
+    {
+        row.IsActive = !row.IsActive;
+        ToggleKey(_ruleClassFilter, row.RuleId, row.IsActive);
         ApplyView();
     }
 
@@ -829,9 +848,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
             chip.IsActive = false;
         }
 
-        foreach (var chip in RuleClassChips)
+        // The rule-class axis lives on the categories pane (WP-C/#180) — reset its rows' active state.
+        foreach (var row in Categories)
         {
-            chip.IsActive = false;
+            row.IsActive = false;
         }
 
         ApplyView();

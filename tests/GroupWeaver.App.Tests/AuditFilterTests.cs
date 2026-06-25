@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+
+using CommunityToolkit.Mvvm.ComponentModel;
 
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
@@ -28,29 +31,37 @@ namespace GroupWeaver.App.Tests;
 /// independent fail-open axes — Severity (<see cref="AuditFindingRowModel.Severity"/>), Status
 /// (<see cref="AuditFindingRowModel.Status"/>), and Rule class (<see cref="AuditFindingRowModel.RuleId"/>,
 /// OrdinalIgnoreCase) — AND together (a row is visible iff it passes EVERY non-empty axis; within an
-/// axis, set membership is OR'd). Chip <see cref="AuditFilterChip.Count"/>s are over the unfiltered
-/// master list, so they never shrink as filters apply.
+/// axis, set membership is OR'd). The severity/status axes are chip-driven; the rule-class axis is the
+/// <see cref="AuditViewModel.Categories"/> pane (WP-C/#180 — the redundant rule-class chip group was
+/// removed, the category rows ARE the rule-class filter facet). Chip <see cref="AuditFilterChip.Count"/>s
+/// and category-row <see cref="AuditCategoryRow.Count"/>s are over the unfiltered master list, so they
+/// never shrink as filters apply.
 ///
 /// <para>Sister to <see cref="AuditTableTests"/> (the 1:1 row projection / sort / multi-select) and
 /// <see cref="AuditTriageTests"/> (the triage write path + per-row status). This fixture covers the
-/// NEW WP1 filter surface only: the chip collections, the <see cref="AuditViewModel.ToggleFilterCommand"/>
-/// / <see cref="AuditViewModel.ClearFiltersCommand"/> behavior, the filter↔sort and filter↔selection
+/// NEW WP1 filter surface only: the chip + category-row collections, the
+/// <see cref="AuditViewModel.ToggleFilterCommand"/> (severity/status) /
+/// <see cref="AuditViewModel.ToggleCategoryCommand"/> (rule class) /
+/// <see cref="AuditViewModel.ClearFiltersCommand"/> behavior, the filter↔sort and filter↔selection
 /// interactions, and the rebuild-preserves-filters / prunes-vanished-rule-class contract.</para>
 ///
 /// <para>Most pins are UNIT-level over a directly-constructed <see cref="AuditViewModel"/> on the SAME
 /// hand-built loaded scope the WP5b/WP5c/WP5d tests use (<see cref="LoadedScopeWithFindings"/>). Two
 /// pins drive the REAL <see cref="DemoProvider"/> scope through the shell (the AP 3.2 19-finding
-/// baseline) so the chip counts / canonical chip order are proven against the documented baseline end
-/// to end; the status-filter pin reuses the <see cref="AuditTriageTests"/> shell-gate triage seam so a
-/// genuinely-tagged ignore entry produces non-Open rows.</para>
+/// baseline) so the chip counts / canonical category order are proven against the documented baseline
+/// end to end; the status-filter pin reuses the <see cref="AuditTriageTests"/> shell-gate triage seam so
+/// a genuinely-tagged ignore entry produces non-Open rows.</para>
 ///
 /// <para><b>Test-isolation seam (#124 lesson):</b> every shell-driven case injects a temp-dir
 /// <see cref="UiStateStore"/> (and, where it triages, a temp-dir <see cref="RulesetLocator"/>) so it
-/// never reads/writes real <c>%APPDATA%</c>.</para>
+/// never reads/writes real <c>%APPDATA%</c>. (The unit-level cases construct the VM directly: the
+/// <see cref="AuditViewModel"/> reads NO user-profile state, so no seam is needed there.)</para>
 ///
 /// <para>Compares PROJECTIONS, never record/collection identity (rule-engine.md / data-model.md):
 /// rows are compared by their value projections (Severity / RuleId / Status / ReportOrder sequences),
-/// chips by their (label, key, count, active) projections.</para>
+/// chips by their (label, key, count, active) projections, and category rows — which lost value
+/// equality (they became <see cref="ObservableObject"/>s) — by their (RuleId / Count / IsActive)
+/// projections, never whole-row identity.</para>
 /// </summary>
 public sealed class AuditFilterTests
 {
@@ -68,11 +79,13 @@ public sealed class AuditFilterTests
     /// With no filter active, <see cref="AuditViewModel.Findings"/> is the full master list
     /// (<see cref="AuditViewModel.VisibleCount"/> == <see cref="AuditViewModel.TotalCount"/>),
     /// <see cref="AuditViewModel.IsFiltered"/>/<see cref="AuditViewModel.HasNoMatches"/> are false, and
-    /// <see cref="AuditViewModel.FilterSummary"/> is the unfiltered "{N} findings" form. The chip
-    /// collections are built: 3 fixed severity chips, 3 fixed status chips, and one rule-class chip per
-    /// finding-bearing class in canonical <see cref="Ruleset.EnumerateRules"/> order. Every chip's
-    /// <see cref="AuditFilterChip.Count"/> matches a fresh tally over the master list (counts are
-    /// unfiltered) and the per-axis counts sum to <see cref="AuditViewModel.TotalCount"/>.
+    /// <see cref="AuditViewModel.FilterSummary"/> is the unfiltered "{N} findings" form. The filter
+    /// collections are built: 3 fixed severity chips, 3 fixed status chips, and one
+    /// <see cref="AuditCategoryRow"/> per finding-bearing rule class in canonical
+    /// <see cref="Ruleset.EnumerateRules"/> order (the rule-class filter axis — WP-C/#180). Every chip's
+    /// <see cref="AuditFilterChip.Count"/> / category row's <see cref="AuditCategoryRow.Count"/> matches
+    /// a fresh tally over the master list (counts are unfiltered) and the per-axis counts sum to
+    /// <see cref="AuditViewModel.TotalCount"/>.
     /// </summary>
     [Fact]
     public void Default_NoFilter_PassesThroughAll_BuildsChips_CountsOverMasterList()
@@ -103,21 +116,22 @@ public sealed class AuditFilterTests
             new[] { "Open", "Acknowledged", "Suppressed" },
             audit.StatusChips.Select(c => c.Label).ToArray());
 
-        // Rule-class chips: one per finding-bearing class, in canonical EnumerateRules order, labelled
-        // by the rule's DisplayName. Compare to the SAME canonical order the engine yields (not hardcoded).
+        // Rule-class axis = the categories pane (WP-C/#180): one row per finding-bearing class, in
+        // canonical EnumerateRules order, labelled by the rule's DisplayName + carrying its RuleId.
+        // Compare to the SAME canonical order the engine yields (not hardcoded).
         var ruleIdsPresent = audit.Findings.Select(r => RuleIdOf(r)).Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var expectedRuleClassLabels = ruleset.EnumerateRules()
+        var expectedRuleClasses = ruleset.EnumerateRules()
             .Where(rule => ruleIdsPresent.Contains(rule.Id))
-            .Select(rule => rule.DisplayName)
+            .Select(rule => (rule.Id, rule.DisplayName))
             .ToArray();
-        Assert.Equal(expectedRuleClassLabels, audit.RuleClassChips.Select(c => c.Label).ToArray());
-        Assert.True(audit.RuleClassChips.Count > 1, "the fixture must span >1 rule class for a meaningful axis");
+        Assert.Equal(expectedRuleClasses, audit.Categories.Select(c => (c.RuleId, c.DisplayName)).ToArray());
+        Assert.True(audit.Categories.Count > 1, "the fixture must span >1 rule class for a meaningful axis");
 
-        // No chip is active by default.
+        // No chip / category row is active by default.
         Assert.All(audit.SeverityChips, c => Assert.False(c.IsActive));
         Assert.All(audit.StatusChips, c => Assert.False(c.IsActive));
-        Assert.All(audit.RuleClassChips, c => Assert.False(c.IsActive));
+        Assert.All(audit.Categories, c => Assert.False(c.IsActive));
 
         // Chip counts are over the UNFILTERED master list: each equals a fresh tally, and each axis's
         // counts sum to TotalCount.
@@ -128,7 +142,7 @@ public sealed class AuditFilterTests
 
         Assert.Equal(total, audit.SeverityChips.Sum(c => c.Count));
         Assert.Equal(total, audit.StatusChips.Sum(c => c.Count));
-        Assert.Equal(total, audit.RuleClassChips.Sum(c => c.Count)); // each finding has exactly one rule id
+        Assert.Equal(total, audit.Categories.Sum(c => c.Count)); // each finding has exactly one rule id
 
         // On the untriaged baseline every row is Open.
         Assert.Equal(total, audit.StatusChips.Single(c => c.Label == "Open").Count);
@@ -139,7 +153,7 @@ public sealed class AuditFilterTests
     /// <summary>
     /// Over the REAL demo root-OU scope (the AP 3.2 19-finding baseline incl. the GG_Circle cycle), the
     /// chip counts match the documented baseline exactly: 4 Error (3 nesting + 1 cycle), 3 Warning
-    /// (naming), 12 Info (empty-group), all-Open (untriaged). The rule-class chips are emitted in
+    /// (naming), 12 Info (empty-group), all-Open (untriaged). The rule-class category rows are emitted in
     /// canonical <see cref="Ruleset.EnumerateRules"/> order. Proven end to end so the unit-level fixture
     /// stays anchored to the rule-engine.md baseline.
     /// </summary>
@@ -161,14 +175,14 @@ public sealed class AuditFilterTests
         Assert.Equal(0, audit.StatusChips.Single(c => c.Label == "Acknowledged").Count);
         Assert.Equal(0, audit.StatusChips.Single(c => c.Label == "Suppressed").Count);
 
-        // Rule-class chips emitted in canonical EnumerateRules order (one per finding-bearing class).
+        // Rule-class category rows emitted in canonical EnumerateRules order (one per finding-bearing class).
         var ruleIdsPresent = audit.Findings.Select(r => RuleIdOf(r)).Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var expectedLabels = ruleset.EnumerateRules()
+        var expectedClasses = ruleset.EnumerateRules()
             .Where(rule => ruleIdsPresent.Contains(rule.Id))
-            .Select(rule => rule.DisplayName)
+            .Select(rule => (rule.Id, rule.DisplayName))
             .ToArray();
-        Assert.Equal(expectedLabels, audit.RuleClassChips.Select(c => c.Label).ToArray());
+        Assert.Equal(expectedClasses, audit.Categories.Select(c => (c.RuleId, c.DisplayName)).ToArray());
 
         shell.Dispose();
         window.Close();
@@ -278,9 +292,12 @@ public sealed class AuditFilterTests
     // === (4) Rule-class filter: single → union ======================================================
 
     /// <summary>
-    /// Toggling one rule-class chip keeps only that <see cref="AuditFindingRowModel.RuleId"/>; toggling
-    /// a second rule-class chip UNIONs (OR within the axis). Compared OrdinalIgnoreCase, since the
-    /// rule-class axis is keyed by rule id case-insensitively.
+    /// Toggling one rule-class CATEGORY ROW (WP-C/#180 — the row IS the rule-class filter facet) keeps
+    /// only that <see cref="AuditCategoryRow.RuleId"/>; toggling a second row UNIONs (OR within the
+    /// axis). Compared OrdinalIgnoreCase, since the rule-class axis is keyed by rule id
+    /// case-insensitively. The mechanism is <see cref="AuditViewModel.ToggleCategoryCommand"/> (which
+    /// replaced the old rule-class chip's <see cref="AuditViewModel.ToggleFilterCommand"/> path); the
+    /// row's <see cref="AuditCategoryRow.IsActive"/> mirrors set membership.
     /// </summary>
     [Fact]
     public void RuleClassFilter_SingleThenUnion()
@@ -289,36 +306,45 @@ public sealed class AuditFilterTests
         var report = RuleEngine.Evaluate(snapshot, ruleset);
         using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
 
-        Assert.True(audit.RuleClassChips.Count >= 2, "need ≥2 rule classes for a union pin");
-        var chipA = audit.RuleClassChips[0];
-        var chipB = audit.RuleClassChips[1];
-        var keyA = (string)KeyOf(chipA);
-        var keyB = (string)KeyOf(chipB);
+        Assert.True(audit.Categories.Count >= 2, "need ≥2 rule classes for a union pin");
+        var rowA = audit.Categories[0];
+        var rowB = audit.Categories[1];
+        var keyA = rowA.RuleId;
+        var keyB = rowB.RuleId;
 
         // Single rule class.
-        audit.ToggleFilterCommand.Execute(chipA);
-        Assert.True(chipA.IsActive);
-        Assert.Equal(chipA.Count, audit.VisibleCount);
+        audit.ToggleCategoryCommand.Execute(rowA);
+        Assert.True(rowA.IsActive);
+        Assert.Equal(rowA.Count, audit.VisibleCount);
         Assert.All(audit.Findings, r => Assert.Equal(keyA, RuleIdOf(r), StringComparer.OrdinalIgnoreCase));
 
         // Union: rule class A OR B.
-        audit.ToggleFilterCommand.Execute(chipB);
-        Assert.True(chipB.IsActive);
-        Assert.Equal(chipA.Count + chipB.Count, audit.VisibleCount);
+        audit.ToggleCategoryCommand.Execute(rowB);
+        Assert.True(rowB.IsActive);
+        Assert.Equal(rowA.Count + rowB.Count, audit.VisibleCount);
         Assert.All(
             audit.Findings,
             r => Assert.True(
                 string.Equals(RuleIdOf(r), keyA, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(RuleIdOf(r), keyB, StringComparison.OrdinalIgnoreCase)));
+
+        // Toggle row A back off: only B's class remains (the IsActive flip round-trips).
+        audit.ToggleCategoryCommand.Execute(rowA);
+        Assert.False(rowA.IsActive);
+        Assert.True(rowB.IsActive);
+        Assert.Equal(rowB.Count, audit.VisibleCount);
+        Assert.All(audit.Findings, r => Assert.Equal(keyB, RuleIdOf(r), StringComparer.OrdinalIgnoreCase));
     }
 
     // === (5) Axes AND together: a contradictory pair → HasNoMatches, not all-clear ==================
 
     /// <summary>
-    /// The three axes AND together: combining the Error severity chip with a rule-class chip whose class
-    /// has NO Error finding yields an empty visible set — <see cref="AuditViewModel.HasNoMatches"/> true
-    /// (findings exist but all hidden), <see cref="AuditViewModel.IsAllClear"/> FALSE (the scope is not
-    /// clean), and <see cref="AuditViewModel.FilterSummary"/> shows "Showing 0 of {N}".
+    /// The three axes AND together: combining the Error severity chip with a rule-class CATEGORY ROW
+    /// whose class has NO Error finding yields an empty visible set —
+    /// <see cref="AuditViewModel.HasNoMatches"/> true (findings exist but all hidden),
+    /// <see cref="AuditViewModel.IsAllClear"/> FALSE (the scope is not clean), and
+    /// <see cref="AuditViewModel.FilterSummary"/> shows "Showing 0 of {N}". The cross-axis AND spans a
+    /// chip axis (severity) and the categories-pane axis (rule class) — the WP-C/#180 single source.
     /// </summary>
     [Fact]
     public void AxesAndTogether_ContradictoryPair_HasNoMatchesNotAllClear()
@@ -340,11 +366,11 @@ public sealed class AuditFilterTests
             .Where(r => r.Severity == RuleSeverity.Error)
             .Select(r => RuleIdOf(r))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var nonErrorOnlyChip = audit.RuleClassChips.First(
-            c => nonErrorRuleIds.Contains((string)KeyOf(c)) && !errorRuleIds.Contains((string)KeyOf(c)));
+        var nonErrorOnlyRow = audit.Categories.First(
+            c => nonErrorRuleIds.Contains(c.RuleId) && !errorRuleIds.Contains(c.RuleId));
 
         audit.ToggleFilterCommand.Execute(errorChip);
-        audit.ToggleFilterCommand.Execute(nonErrorOnlyChip);
+        audit.ToggleCategoryCommand.Execute(nonErrorOnlyRow);
 
         // Empty intersection: no matches, but the scope is NOT all-clear.
         Assert.Empty(audit.Findings);
@@ -360,8 +386,9 @@ public sealed class AuditFilterTests
 
     /// <summary>
     /// After several toggles across all three axes, <see cref="AuditViewModel.ClearFiltersCommand"/>
-    /// deactivates EVERY chip, restores <see cref="AuditViewModel.Findings"/> to the full master list,
-    /// and clears <see cref="AuditViewModel.IsFiltered"/>.
+    /// deactivates EVERY chip AND every <see cref="AuditViewModel.Categories"/> row (the rule-class
+    /// axis — WP-C/#180), restores <see cref="AuditViewModel.Findings"/> to the full master list, and
+    /// clears <see cref="AuditViewModel.IsFiltered"/>.
     /// </summary>
     [Fact]
     public void ClearFilters_DeactivatesEveryChip_RestoresFullList()
@@ -372,10 +399,11 @@ public sealed class AuditFilterTests
 
         var total = audit.TotalCount;
 
-        // Toggle one chip on each axis (status uses the Open chip — every untriaged row is Open).
+        // Toggle one facet on each axis (status uses the Open chip — every untriaged row is Open; the
+        // rule-class axis is a categories-pane row).
         audit.ToggleFilterCommand.Execute(audit.SeverityChips.Single(c => c.Severity == RuleSeverity.Error));
         audit.ToggleFilterCommand.Execute(audit.StatusChips.Single(c => c.Label == "Open"));
-        audit.ToggleFilterCommand.Execute(audit.RuleClassChips[0]);
+        audit.ToggleCategoryCommand.Execute(audit.Categories[0]);
         Assert.True(audit.IsFiltered);
 
         audit.ClearFiltersCommand.Execute(null);
@@ -387,7 +415,7 @@ public sealed class AuditFilterTests
         Assert.Equal($"{total} findings", audit.FilterSummary);
         Assert.All(audit.SeverityChips, c => Assert.False(c.IsActive));
         Assert.All(audit.StatusChips, c => Assert.False(c.IsActive));
-        Assert.All(audit.RuleClassChips, c => Assert.False(c.IsActive));
+        Assert.All(audit.Categories, c => Assert.False(c.IsActive));
     }
 
     // === (7) Filter + sort: membership unchanged, only re-ordered, ReportOrder tie-break stable ======
@@ -479,10 +507,12 @@ public sealed class AuditFilterTests
 
     /// <summary>
     /// With a severity filter active, an <see cref="AuditViewModel.ApplyRuleset"/> re-thread PRESERVES
-    /// the severity filter (the fixed-domain axes survive a rebuild), while a rule-class chip whose
-    /// class VANISHED from the rebuilt findings is PRUNED — no stale active key silently filters
-    /// everything out. Drives the nesting rule OFF: the nesting class disappears (the canonical drop in
-    /// AuditTableTests/AuditTriageTests), so a rule-class filter pinned on nesting must be pruned.
+    /// the severity filter (the fixed-domain axes survive a rebuild), while a rule-class
+    /// <see cref="AuditCategoryRow"/> whose class VANISHED from the rebuilt findings is PRUNED — no
+    /// stale active key silently filters everything out. Drives the nesting rule OFF: the nesting class
+    /// disappears (the canonical drop in AuditTableTests/AuditTriageTests), so a rule-class filter
+    /// pinned on nesting must be pruned (both the active key in <c>_ruleClassFilter</c> AND the
+    /// category row).
     /// </summary>
     [Fact]
     public void Rebuild_PreservesSeverityFilter_PrunesVanishedRuleClass()
@@ -491,17 +521,17 @@ public sealed class AuditFilterTests
         var report = RuleEngine.Evaluate(snapshot, ruleset);
         using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
 
-        // Identify the nesting rule-class chip (the class that disappears when nesting is disabled).
-        var nestingChip = audit.RuleClassChips.FirstOrDefault(
-            c => string.Equals((string)KeyOf(c), RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
-        Assert.NotNull(nestingChip);
+        // Identify the nesting rule-class category row (the class that disappears when nesting is off).
+        var nestingRow = audit.Categories.FirstOrDefault(
+            c => string.Equals(c.RuleId, RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(nestingRow);
 
         // Activate BOTH a fixed-domain severity filter (Warning) AND the nesting rule-class filter.
         var warningChip = audit.SeverityChips.Single(c => c.Severity == RuleSeverity.Warning);
         audit.ToggleFilterCommand.Execute(warningChip);
-        audit.ToggleFilterCommand.Execute(nestingChip!);
+        audit.ToggleCategoryCommand.Execute(nestingRow!);
         Assert.True(warningChip.IsActive);
-        Assert.True(nestingChip!.IsActive);
+        Assert.True(nestingRow!.IsActive);
 
         // Re-thread with nesting disabled: the nesting class vanishes from the rebuilt findings.
         var defaults = RulesetLoader.LoadDefault();
@@ -515,12 +545,12 @@ public sealed class AuditFilterTests
         Assert.True(audit.IsFiltered);
         Assert.All(audit.Findings, r => Assert.Equal(RuleSeverity.Warning, r.Severity));
 
-        // The nesting rule-class chip is GONE (no nesting findings remain) and the stale active key was
+        // The nesting category row is GONE (no nesting findings remain) and the stale active key was
         // pruned — so the Warning rows are genuinely visible (a stale nesting key would have AND'd them
         // all out, leaving HasNoMatches).
         Assert.DoesNotContain(
-            audit.RuleClassChips,
-            c => string.Equals((string)KeyOf(c), RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
+            audit.Categories,
+            c => string.Equals(c.RuleId, RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
         Assert.NotEmpty(audit.Findings);
         Assert.False(audit.HasNoMatches);
     }
@@ -565,15 +595,182 @@ public sealed class AuditFilterTests
         var errorRuleIds = audit.Findings
             .Where(r => r.Severity == RuleSeverity.Error).Select(r => RuleIdOf(r))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var nonErrorOnlyChip = audit.RuleClassChips.First(
-            c => !errorRuleIds.Contains((string)KeyOf(c))
-                 && audit.Findings.Any(r => string.Equals(RuleIdOf(r), (string)KeyOf(c), StringComparison.OrdinalIgnoreCase)));
+        var nonErrorOnlyRow = audit.Categories.First(
+            c => !errorRuleIds.Contains(c.RuleId)
+                 && audit.Findings.Any(r => string.Equals(RuleIdOf(r), c.RuleId, StringComparison.OrdinalIgnoreCase)));
         audit.ToggleFilterCommand.Execute(errorChip);
-        audit.ToggleFilterCommand.Execute(nonErrorOnlyChip);
+        audit.ToggleCategoryCommand.Execute(nonErrorOnlyRow);
 
         Assert.True(audit.TotalCount > 0, "the master list is non-empty (findings exist)");
         Assert.True(audit.HasNoMatches, "filters hiding all findings is the no-matches state");
         Assert.False(audit.IsAllClear, "a scope WITH findings is never all-clear, even when all are filtered out");
+    }
+
+    // === (11) NEW (WP-C/#180): a category row IS the rule-class filter — click toggles it on/off ======
+
+    /// <summary>
+    /// Clicking ONE <see cref="AuditViewModel.Categories"/> row via
+    /// <see cref="AuditViewModel.ToggleCategoryCommand"/> filters the findings view to ONLY that rule
+    /// class (and the row's <see cref="AuditCategoryRow.IsActive"/> goes true + <see cref="AuditViewModel.IsFiltered"/>);
+    /// clicking it AGAIN clears the constraint (IsActive false, full list restored). This is the
+    /// category-row replacement for the old rule-class chip's toggle path. Asserts via the findings
+    /// view's rule-id membership + the row's IsActive — never row identity (the row lost value equality).
+    /// </summary>
+    [Fact]
+    public void ToggleCategory_SingleRow_FiltersToThatClass_ThenClicksAgainToClear()
+    {
+        var (snapshot, ruleset) = LoadedScopeWithFindings();
+        var report = RuleEngine.Evaluate(snapshot, ruleset);
+        using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
+
+        var total = audit.TotalCount;
+        var nestingRow = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.Nesting, StringComparison.OrdinalIgnoreCase));
+        Assert.True(nestingRow.Count > 0 && nestingRow.Count < total, "need a strict subset for a meaningful filter");
+
+        // Click: the view collapses to exactly the nesting rows; nothing else leaks in.
+        audit.ToggleCategoryCommand.Execute(nestingRow);
+        Assert.True(nestingRow.IsActive);
+        Assert.True(audit.IsFiltered);
+        Assert.Equal(nestingRow.Count, audit.VisibleCount);
+        Assert.All(
+            audit.Findings,
+            r => Assert.Equal(RuleIds.Nesting, RuleIdOf(r), StringComparer.OrdinalIgnoreCase));
+        Assert.Equal($"Showing {nestingRow.Count} of {total}", audit.FilterSummary);
+
+        // Click again: the constraint clears, the full list is back, the row goes inactive.
+        audit.ToggleCategoryCommand.Execute(nestingRow);
+        Assert.False(nestingRow.IsActive);
+        Assert.False(audit.IsFiltered);
+        Assert.Equal(total, audit.VisibleCount);
+        Assert.Equal($"{total} findings", audit.FilterSummary);
+    }
+
+    /// <summary>
+    /// A rule-class category-row filter ANDs with an active SEVERITY chip (cross-axis intersection,
+    /// both directions): the empty-group category (Info-only findings) AND the Info severity chip keeps
+    /// the empty-group rows (a NON-empty intersection — the AND admits the rows both axes accept);
+    /// swapping the severity chip to Error empties the view (no empty-group row is Error — a strict AND,
+    /// not a union, leaving <see cref="AuditViewModel.HasNoMatches"/>). Proves the categories pane
+    /// participates in the same fail-open AND-across-axes contract the chips do (WP-C/#180), with the
+    /// rule-class facet on one axis and a chip on another.
+    /// </summary>
+    [Fact]
+    public void ToggleCategory_AndsWithSeverityChip_CrossAxisIntersection_BothDirections()
+    {
+        var (snapshot, ruleset) = LoadedScopeWithFindings();
+        var report = RuleEngine.Evaluate(snapshot, ruleset);
+        using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
+
+        var emptyGroupRow = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.EmptyGroup, StringComparison.OrdinalIgnoreCase));
+        var infoChip = audit.SeverityChips.Single(c => c.Severity == RuleSeverity.Info);
+        var errorChip = audit.SeverityChips.Single(c => c.Severity == RuleSeverity.Error);
+        Assert.True(emptyGroupRow.Count > 0, "the fixture must carry empty-group findings");
+
+        // Concordant AND: empty-group class AND Info severity => the empty-group rows survive (every
+        // empty-group finding is Info, so the two axes agree — a non-empty intersection).
+        audit.ToggleCategoryCommand.Execute(emptyGroupRow);
+        audit.ToggleFilterCommand.Execute(infoChip);
+        Assert.True(emptyGroupRow.IsActive && infoChip.IsActive);
+        Assert.Equal(emptyGroupRow.Count, audit.VisibleCount);
+        Assert.All(audit.Findings, r => Assert.Equal(RuleSeverity.Info, r.Severity));
+        Assert.All(
+            audit.Findings,
+            r => Assert.Equal(RuleIds.EmptyGroup, RuleIdOf(r), StringComparer.OrdinalIgnoreCase));
+        Assert.False(audit.HasNoMatches);
+
+        // Contradictory AND: swap Info -> Error. No empty-group row is Error => the strict AND empties
+        // the view (a union would have kept the Error rows; the AND does not).
+        audit.ToggleFilterCommand.Execute(infoChip);  // off
+        audit.ToggleFilterCommand.Execute(errorChip); // on (still empty-group on the rule-class axis)
+        Assert.True(emptyGroupRow.IsActive && errorChip.IsActive);
+        Assert.Empty(audit.Findings);
+        Assert.True(audit.HasNoMatches, "no empty-group row is Error => empty cross-axis intersection");
+        Assert.False(audit.IsAllClear);
+    }
+
+    // === (12) NEW (WP-C/#180): an active rule-class filter SURVIVES a summary rebuild ================
+
+    /// <summary>
+    /// An active rule-class category filter SURVIVES a summary rebuild (the
+    /// <see cref="AuditViewModel.ApplyRuleset"/> path runs <c>RebuildCategories</c>, which sets each
+    /// fresh row's <see cref="AuditCategoryRow.IsActive"/> from the surviving <c>_ruleClassFilter</c> set
+    /// — exactly how the severity/status chips' active state survives a rebuild). Activates the
+    /// empty-group category, re-threads with a NO-OP ruleset change (naming display tweak that keeps
+    /// empty-group findings intact), and asserts the NEW (re-created) empty-group row is still active and
+    /// the view is still constrained to empty-group rows.
+    /// </summary>
+    [Fact]
+    public void RebuildCategories_AfterSummaryChange_PreservesActiveRuleClassFilter()
+    {
+        var (snapshot, ruleset) = LoadedScopeWithFindings();
+        var report = RuleEngine.Evaluate(snapshot, ruleset);
+        using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
+
+        // Activate the empty-group category (it survives the rebuild below — empty-group stays enabled).
+        var emptyGroupRow = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.EmptyGroup, StringComparison.OrdinalIgnoreCase));
+        audit.ToggleCategoryCommand.Execute(emptyGroupRow);
+        var emptyGroupCount = emptyGroupRow.Count;
+        Assert.True(emptyGroupRow.IsActive);
+        Assert.Equal(emptyGroupCount, audit.VisibleCount);
+
+        // Re-thread with the nesting rule DISABLED: a real summary change (nesting findings vanish, the
+        // health/summary recompute, the categories rebuild) that LEAVES the empty-group class intact.
+        var defaults = RulesetLoader.LoadDefault();
+        var nestingOff = ruleset with { Nesting = defaults.Nesting with { Enabled = false } };
+        audit.ApplyRuleset(nestingOff);
+
+        // The empty-group category row was RE-CREATED by RebuildCategories (it lost value equality, so
+        // this is a fresh instance) — and it is STILL active, sourced from the surviving filter set, so
+        // the view stays constrained to empty-group rows (a stale/lost active flag would have reverted
+        // the view to the full list). Asserts the projection, never the row instance identity.
+        var emptyGroupRowAfter = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.EmptyGroup, StringComparison.OrdinalIgnoreCase));
+        Assert.True(emptyGroupRowAfter.IsActive, "the active rule-class filter must survive the summary rebuild");
+        Assert.True(audit.IsFiltered);
+        Assert.Equal(emptyGroupCount, audit.VisibleCount); // empty-group findings are unaffected by disabling nesting
+        Assert.All(
+            audit.Findings,
+            r => Assert.Equal(RuleIds.EmptyGroup, RuleIdOf(r), StringComparer.OrdinalIgnoreCase));
+    }
+
+    // === (13) NEW (WP-C/#180): Categories is the de-dup single source — no parallel RuleClassChips ====
+
+    /// <summary>
+    /// The categories pane is the SINGLE source for the rule-class axis (WP-C/#180 de-dup): there is no
+    /// parallel <c>RuleClassChips</c> collection (it was removed — proven at COMPILE time by the rest of
+    /// this fixture binding <see cref="AuditViewModel.Categories"/>), and the only chip collections the
+    /// VM exposes are the Severity + Status axes. A category-row filter drives the SAME "Showing N of M"
+    /// summary the chip axes do — confirming the one filter pipeline serves all three axes.
+    /// </summary>
+    [Fact]
+    public void Categories_IsTheSingleRuleClassSource_AndDrivesTheShowingSummary()
+    {
+        var (snapshot, ruleset) = LoadedScopeWithFindings();
+        var report = RuleEngine.Evaluate(snapshot, ruleset);
+        using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
+
+        // The VM exposes ONLY the Severity + Status chip collections (the rule-class axis is the
+        // categories pane). There is no RuleClassChips property — confirmed reflectively so the de-dup
+        // can never silently regrow a parallel chip collection.
+        var chipCollectionProps = typeof(AuditViewModel)
+            .GetProperties()
+            .Where(p => p.PropertyType == typeof(ObservableCollection<AuditFilterChip>))
+            .Select(p => p.Name)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(new[] { nameof(AuditViewModel.SeverityChips), nameof(AuditViewModel.StatusChips) }, chipCollectionProps);
+        Assert.Null(typeof(AuditViewModel).GetProperty("RuleClassChips"));
+
+        // The category-row filter reflects in the SAME "Showing N of M" summary the chip axes produce.
+        var total = audit.TotalCount;
+        var row = audit.Categories.Single(
+            c => string.Equals(c.RuleId, RuleIds.EmptyGroup, StringComparison.OrdinalIgnoreCase));
+        audit.ToggleCategoryCommand.Execute(row);
+        Assert.Equal($"Showing {row.Count} of {total}", audit.FilterSummary);
+        Assert.Equal(row.Count, audit.VisibleCount);
     }
 
     // === Helpers ===============================================================================
@@ -582,10 +779,8 @@ public sealed class AuditFilterTests
     /// these pins (the property is <c>internal</c>; the tests assembly has InternalsVisibleTo).</summary>
     private static AuditFilterAxis AxisOf(AuditFilterChip chip) => chip.Axis;
 
-    /// <summary>The chip's boxed <see cref="AuditFilterChip.Key"/> (internal — visible to tests).</summary>
-    private static object KeyOf(AuditFilterChip chip) => chip.Key;
-
-    /// <summary>The row's rule id — the rule-class axis key.</summary>
+    /// <summary>The row's rule id — the rule-class axis key (a finding row's class membership; the
+    /// rule-class filter facet is the matching <see cref="AuditCategoryRow.RuleId"/>).</summary>
     private static string RuleIdOf(AuditFindingRowModel row) => row.RuleId;
 
     /// <summary>True when <paramref name="row"/> is the naming Warning finding anchored at
