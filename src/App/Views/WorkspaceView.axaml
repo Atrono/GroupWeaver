@@ -146,9 +146,25 @@
                    never disturbs the pinned Reload-scope→Refresh adjacency. CanExecute arms once
                    the shell installs the switch callback AND a load has completed (Snapshot
                    non-null). -->
-              <Button Name="AuditButton" Content="Audit" Margin="4"
+              <Button Name="AuditButton" Classes="accent-outline" Margin="12,4,4,4"
                       ToolTip.Tip="Audit this scope — health score and findings summary"
-                      Command="{Binding AuditCommand}" />
+                      Command="{Binding AuditCommand}">
+                <!-- WP3 (#152): the headline health-verdict destination — promoted to the
+                     accent-OUTLINE tier (App.axaml) with a leading shield-check glyph so it
+                     reads as "go here for the verdict", distinct from the grey ghosts and the
+                     filled-accent Refresh. The glyph is an inline vector Path (font-independent
+                     ⇒ renders in headless Skia, no missing-glyph box), Fill = the same accent
+                     ink as the label. The "Audit" text stays a reachable TextBlock. The extra
+                     left margin (12) detaches it from the graph-action cluster without a
+                     reflow-breaking separator element; the button stays LAST. -->
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path VerticalAlignment="Center"
+                        Fill="{DynamicResource AccentTextBrush}"
+                        Data="F1 M7,0 L13,2 V7 C13,11 10.4,13.2 7,14 C3.6,13.2 1,11 1,7 V2 Z
+                              M5.1,6.4 L4,7.5 L6.2,9.7 L10.4,5.5 L9.3,4.4 L6.2,7.5 Z" />
+                  <TextBlock Text="Audit" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
 
             </WrapPanel>
 

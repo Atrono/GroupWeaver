@@ -76,6 +76,36 @@
       <Setter Property="Background" Value="{DynamicResource AccentFillPressedBrush}" />
       <Setter Property="Foreground" Value="#FFFFFF" />
     </Style>
+
+    <!-- Accent-OUTLINE button (WP3, #152): a distinct third tier between the grey ghosts and the
+         filled-accent primary — an accent hairline border + accent INK label/glyph, hollow at rest,
+         with a subtle accent-soft wash on hover. Promotes the Audit button (the health-verdict
+         destination) without cloning the filled Refresh accent (the ui-checklist's action-hierarchy
+         ambiguity guard). The ink is AccentTextBrush (the accessible deepened accent — the decorative
+         AccentBrush FAILS as text); the border reuses that same opaque AccentTextBrush so the outline
+         is deterministically >=3:1 in both themes (not the translucent AccentLineBrush, which could
+         flatten below the non-text floor); the hover wash is AccentSoftBrush. All DynamicResource so
+         they re-resolve on a live ThemeVariant flip. -->
+    <Style Selector="Button.accent-outline">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentTextBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+    </Style>
+    <Style Selector="Button.accent-outline /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+    </Style>
+    <Style Selector="Button.accent-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentTextBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+    </Style>
+    <Style Selector="Button.accent-outline:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentTextBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+    </Style>
   </Application.Styles>
 
 </Application>
