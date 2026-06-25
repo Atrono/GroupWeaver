@@ -235,6 +235,23 @@
       <TabItem Header="Rules">
         <ScrollViewer>
           <StackPanel Margin="12" Spacing="2">
+            <!-- Eye-line affordance (v0.4.2 polish): the rule name (left) and its severity
+                 control (far right of the * column) sit a long way apart, so a full-row
+                 pointer-over wash ties the two together on hover - the theme-aware GhostHoverBrush
+                 (dark #14FFFFFF / light #0D000000), the SAME wash Button.ghost uses. The base
+                 rule sets a Transparent rest fill so the whole row (not just its glyphs) is
+                 hit-test-visible across the * gap; BOTH live at Style priority so the more-specific
+                 :pointerover setter actually wins (an inline Background="Transparent" would be a
+                 LocalValue that outranks the style and silently swallows the hover - Avalonia
+                 value precedence). -->
+            <StackPanel.Styles>
+              <Style Selector="Border.ruleRow">
+                <Setter Property="Background" Value="Transparent" />
+              </Style>
+              <Style Selector="Border.ruleRow:pointerover">
+                <Setter Property="Background" Value="{DynamicResource GhostHoverBrush}" />
+              </Style>
+            </StackPanel.Styles>
 
             <TextBlock Opacity="0.6" TextWrapping="Wrap" Margin="2,0,0,8"
                        Text="Every rule, with its on/off toggle and severity. Edit a rule's details on its own tab (Naming, Matrix); changes here and there stay in sync." />
@@ -251,7 +268,8 @@
             <ItemsControl ItemsSource="{Binding Rules}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="settings:RuleRowEditor">
-                  <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="4,6">
+                  <Border Classes="ruleRow"
+                          BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="4,6">
                     <Grid ColumnDefinitions="Auto,*,Auto">
                       <CheckBox Grid.Column="0" VerticalAlignment="Center"
                                 IsChecked="{Binding Enabled}" />
