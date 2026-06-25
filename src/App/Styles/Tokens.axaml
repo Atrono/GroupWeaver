@@ -44,6 +44,12 @@
       <SolidColorBrush x:Key="AccentFillBrush" Color="#6B5BDF" />
       <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#5F4FD0" />
       <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#5B4BC8" />
+      <!-- WP3 (#152): accessible accent INK for the promoted Audit button's outline
+           label + glyph. The decorative AccentBrush #8B7BFF FAILS as text (3.96:1 on the
+           card surface); this lightened accent reads 6.93:1 on the page and 5.48:1 on the
+           card composite — clears 4.5:1 on both. Value = the proven accent-ink hue (mirrors
+           BrandTokens.DemoBadgeTextHex, the ADR-021 ToTextBrush-deepened accent). -->
+      <SolidColorBrush x:Key="AccentTextBrush" Color="#A99BFF" />
       <!-- DEMO badge ink: deepened/lightened off the raw accent to clear 4.5:1 on the soft
            pill (the label is readable text — 1.4.3 applies; ADR-021 ToTextBrush precedent).
            Dark pill is dark ⇒ a LIGHTER purple (5.51:1 on the blended pill). -->
@@ -86,6 +92,10 @@
       <SolidColorBrush x:Key="AccentFillBrush" Color="#5547E6" />
       <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#4A3CC8" />
       <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#4537C0" />
+      <!-- WP3 (#152): light-theme accessible accent INK for the Audit button (see dark note).
+           Deepened purple reads 6.52:1 on the page and 6.00:1 on the card composite — clears
+           4.5:1 on both. Mirrors BrandTokens.DemoBadgeTextLightHex. -->
+      <SolidColorBrush x:Key="AccentTextBrush" Color="#4A3CC8" />
       <!-- DEMO badge ink: light pill is light ⇒ a DARKER purple (5.62:1 on the blended pill). -->
       <SolidColorBrush x:Key="DemoBadgeTextBrush" Color="#4A3CC8" />
       <!-- Read-only ink deepened to a forest green: the Frame #1F9D57 fails at 2.65:1 on the
