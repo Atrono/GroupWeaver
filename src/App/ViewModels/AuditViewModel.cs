@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Text;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using GroupWeaver.App.Export;
+using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
 
@@ -263,13 +266,36 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// callback idiom), so a headless / un-wired audit never half-acts; the commands no-op when null.</summary>
     private Action<IReadOnlyList<TriageRequest>>? _triage;
 
+    /// <summary>The connection summary threaded from the shell (WP2 / ADR-013 §2) for the HTML
+    /// report header. Empty when un-threaded (e.g. the 5-arg test ctors); a non-empty value is used
+    /// verbatim, an empty one falls back to a snapshot-derived line (<see cref="BuildReportHeader"/>).</summary>
+    private readonly string _connectionSummary;
+
+    /// <summary>Cancels an export dialog/write still in flight at <see cref="Dispose"/> (WP2 / ADR-013),
+    /// so a save-picker open during teardown can never write after dispose. Mirrors the workspace's
+    /// cancel-on-teardown <c>_cts</c>; the audit otherwise owns no cancellable work.</summary>
+    private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>The export save-picker seam (WP2 / ADR-013 §5), installed by the shell via
+    /// <see cref="UseExportFileDialogs"/> once a <see cref="Avalonia.Controls.TopLevel"/> exists.
+    /// Dead (the Export CSV/HTML commands are disarmed) until installed — a headless / un-wired audit
+    /// never opens a picker. Gates <see cref="CanExportReport"/>; the installer re-arms both commands
+    /// (the plain-field + manual-notify idiom of <see cref="WorkspaceViewModel.UseExportFileDialogs"/>).</summary>
+    private IExportFileDialogs? _exportDialogs;
+
     /// <summary>The dashboard health roll-up the view binds (WP5). Recomputed from
     /// <see cref="AuditSummary.Compute"/> at construction and on every <see cref="ApplyRuleset"/>;
     /// the bound count/score props re-notify in <see cref="OnSummaryChanged"/>.</summary>
     [ObservableProperty]
     private AuditSummary _summary;
 
-    public AuditViewModel(DirectorySnapshot snapshot, RuleReport report, Ruleset ruleset, string rootDn, Action onBack)
+    public AuditViewModel(
+        DirectorySnapshot snapshot,
+        RuleReport report,
+        Ruleset ruleset,
+        string rootDn,
+        Action onBack,
+        string connectionSummary = "")
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(report);
@@ -281,6 +307,7 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         _wouldBeReport = ComputeWouldBeReport(snapshot, ruleset);
         RootDn = rootDn;
         _onBack = onBack;
+        _connectionSummary = connectionSummary;
 
         _summary = AuditSummary.Compute(report, snapshot, ruleset);
         RebuildCategories();
@@ -292,6 +319,19 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// Un-triage commands are inert no-ops, so a renderer-less / headless audit never half-acts.
     /// Idempotent — the last writer wins.</summary>
     public void UseTriageCallback(Action<IReadOnlyList<TriageRequest>> triage) => _triage = triage;
+
+    /// <summary>Installs the real export save-picker seam (WP2 / ADR-013 §5; mirrors
+    /// <see cref="WorkspaceViewModel.UseExportFileDialogs"/>): the production <c>MainWindow</c>
+    /// calls this from its own <see cref="Avalonia.Controls.TopLevel"/>
+    /// (<c>StorageProviderExportFileDialogs</c>) once the audit step is current, so the export
+    /// commands reach the OS picker. Headless tests inject a fake here. Re-arms both export commands
+    /// (their gate includes <c>_exportDialogs is not null</c>); idempotent — the last writer wins.</summary>
+    public void UseExportFileDialogs(IExportFileDialogs dialogs)
+    {
+        _exportDialogs = dialogs;
+        ExportReportCsvCommand.NotifyCanExecuteChanged();
+        ExportReportHtmlCommand.NotifyCanExecuteChanged();
+    }
 
     /// <summary>The would-be report (ADR-028): re-evaluates over a clone of <paramref name="ruleset"/>
     /// whose global ignore list excludes the triage-tagged (<c>[ack]</c>/<c>[suppress]</c>) entries —
@@ -940,6 +980,86 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         Summary = AuditSummary.Compute(_report, _snapshot, _ruleset);
     }
 
+    /// <summary>
+    /// Exports the LIVE post-suppression report (<see cref="_report"/> — the same findings the
+    /// health score + sidebar show; ack'd/suppressed findings are intentionally absent, NOT the
+    /// would-be table) as RFC-4180 CSV to a user-picked path (WP2 / ADR-013 §2/§5/§6). Re-guards in
+    /// the body (a stale-armed Execute ignores CanExecute), picks via the seam, and on a non-null
+    /// pick writes the pure-Core <see cref="ViolationReportExporter.ToCsv"/> output (UTF-8, no BOM)
+    /// to ONLY that path. Read-only toward AD: the only write target is the picked local file; the
+    /// name closure reads the borrowed snapshot only (never a provider call).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportReport))]
+    private async Task ExportReportCsvAsync()
+    {
+        if (IsDisposed || _exportDialogs is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.Csv, _cts.Token);
+        if (path is null || IsDisposed)
+        {
+            return;
+        }
+
+        var csv = ViolationReportExporter.ToCsv(_report, ResolveName);
+        await WriteUtf8Async(path, csv, _cts.Token);
+    }
+
+    /// <summary>Exports the LIVE post-suppression report as a self-contained HTML file to a
+    /// user-picked path (WP2 / ADR-013 §2/§5/§6). Same gate, re-guard, pick and write-once discipline
+    /// as <see cref="ExportReportCsvAsync"/>; the HTML carries a <see cref="ReportHeader"/> from
+    /// the audit root identity + connection summary + the current wall clock
+    /// (<see cref="BuildReportHeader"/>).</summary>
+    [RelayCommand(CanExecute = nameof(CanExportReport))]
+    private async Task ExportReportHtmlAsync()
+    {
+        if (IsDisposed || _exportDialogs is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.Html, _cts.Token);
+        if (path is null || IsDisposed)
+        {
+            return;
+        }
+
+        var html = ViolationReportExporter.ToHtml(_report, ResolveName, BuildReportHeader());
+        await WriteUtf8Async(path, html, _cts.Token);
+    }
+
+    /// <summary>Armed iff the export seam is installed and the step is live (WP2 / ADR-013 §6). The
+    /// borrowed snapshot is non-null by ctor contract and there is no loading state, so the seam +
+    /// not-disposed are the only gates — pre-install the commands are inert.</summary>
+    private bool CanExportReport() => !IsDisposed && _exportDialogs is not null;
+
+    /// <summary>The name-resolution closure handed to the exporter — identical to the findings table
+    /// + sidebar: an in-snapshot object resolves to its <c>Name</c>, an absent DN falls back to the
+    /// DN itself (never a provider call, so export stays read-only toward AD). Core stays App-free
+    /// (ADR-013 §2): it takes this delegate, never the snapshot.</summary>
+    private string ResolveName(string dn) => SubjectNameResolver.Resolve(_snapshot, dn);
+
+    /// <summary>Builds the HTML report header from the audit's identity (ADR-013 §2): root DN + the
+    /// snapshot-resolved root name + the shell-threaded connection summary (an empty one falls back to
+    /// a snapshot-object-count line, so an un-threaded audit still produces an honest header), with
+    /// <see cref="DateTimeOffset.Now"/> as the injected generation timestamp.</summary>
+    private ReportHeader BuildReportHeader()
+    {
+        var rootName = SubjectNameResolver.Resolve(_snapshot, RootDn);
+        var summary = string.IsNullOrEmpty(_connectionSummary)
+            ? $"{_snapshot.Objects.Count} objects loaded"
+            : _connectionSummary;
+        return new ReportHeader(RootDn, rootName, summary, DateTimeOffset.Now);
+    }
+
+    /// <summary>Writes <paramref name="content"/> to <paramref name="path"/> as UTF-8 WITHOUT a BOM —
+    /// the exact bytes the CSV/HTML exporter pinned tests expect (mirrors
+    /// <see cref="WorkspaceViewModel.WriteUtf8Async"/>).</summary>
+    private static Task WriteUtf8Async(string path, string content, CancellationToken cancellationToken) =>
+        File.WriteAllTextAsync(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+
     /// <summary>Back to the Ist workspace (mirrors <see cref="GapViewModel.BackCommand"/>):
     /// invokes the shell-supplied callback, which restores the SAME workspace instance and
     /// disposes this audit step.</summary>
@@ -951,8 +1071,19 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void ShowInGraph() => _onBack.Invoke();
 
-    /// <summary>No-op dispose (the audit step owns no renderer and no cancellable in-flight work):
-    /// it exists only to satisfy the shell's <see cref="IDisposable"/> track/untrack contract.
-    /// Idempotent; NEVER disposes nor mutates the borrowed Ist snapshot / report / ruleset.</summary>
-    public void Dispose() => IsDisposed = true;
+    /// <summary>Dispose: flips <see cref="IsDisposed"/> and cancels+disposes <see cref="_cts"/> so an
+    /// export save-picker / write still in flight at teardown is cancelled and can never write after
+    /// dispose (WP2 / ADR-013). Idempotent; NEVER disposes nor mutates the borrowed Ist snapshot /
+    /// report / ruleset (the audit owns no renderer — there is nothing else to tear down).</summary>
+    public void Dispose()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        IsDisposed = true;
+        _cts.Cancel();
+        _cts.Dispose();
+    }
 }

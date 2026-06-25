@@ -304,8 +304,14 @@ has no renderer, so GraphHost shows its placeholder — the right-hand chrome is
 band + categories pane; the findings TABLE is WP5d and bulk triage + status filters are WP5e
 (not on screen yet). Judge in BOTH theme variants.
 
-- [ ] Header: "Audit · {RootDn}" title; Back ("← Back") + "Show in graph" buttons present at the
-      bottom, legible, with tooltips; no clipped/overlapping controls at both sizes [S:audit-view]
+- [ ] Header: "Audit · {RootDn}" title; the bottom action row reads Back ("← Back") on the LEFT and
+      the Export CSV / Export HTML / "Show in graph" group on the RIGHT — all legible, with tooltips;
+      no clipped/overlapping controls at both sizes [S:audit-view]
+- [ ] Export buttons (WP2): "Export CSV" + "Export HTML" present in the bottom action row with
+      tooltips noting the read-only ("writes only the file you pick") behaviour; DISABLED until the
+      shell installs the export save-picker seam (UseExportFileDialogs), ARMED once installed; they
+      export the LIVE post-suppression report (matching the health score + sidebar, not the would-be
+      table) [S:audit-view] [T:AuditViewModel — CanExportReport gating / live report export]
 - [ ] Health ring: a band-coded conic ring filled to the score (green Excellent/Good · amber Fair
       · red Poor — reusing the severity hues) with the ALWAYS-PRESENT "{Score} / 100" + band text
       inside it carrying the meaning (WCAG 1.4.1 — colour is not the sole channel); the ring fill
