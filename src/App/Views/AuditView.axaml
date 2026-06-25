@@ -22,6 +22,40 @@
       <Setter Property="BorderBrush" Value="{DynamicResource SecondaryForegroundBrush}" />
     </Style>
 
+    <!-- WP1 filter chip: a flat, ghost toggle Button (NOT a ToggleButton — avoids double-toggle). The
+         INACTIVE chip is a ghost pill (transparent fill, card border, secondary ink); the ACTIVE chip
+         (Classes.chip-active, bound to AuditFilterChip.IsActive) swaps to the card-tint fill + a
+         stronger secondary border — a redundant border/fill change, NEVER hue alone (WCAG 1.4.1). -->
+    <Style Selector="Button.chip">
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}" />
+    </Style>
+    <!-- Active (selected) chip: an OPAQUE raised fill + a strong near-primary ink + the 2px border —
+         a redundant border/fill/ink change (never hue alone). The opaque fill avoids the translucent
+         card-tint composite that dropped the active count to 4.44:1 in light; both the label and the
+         count now clear 4.5:1 with wide headroom in BOTH themes (11.78:1 light / 10.39:1 dark). -->
+    <Style Selector="Button.chip-active">
+      <Setter Property="Background" Value="{DynamicResource ChipActiveBackgroundBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ChipActiveForegroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SecondaryForegroundBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <!-- WP1 chip count: tabular numerals at FULL opacity (NOT Classes="dn", whose 0.8 opacity drops
+         the meaningful count below 4.5:1 in light; WCAG 1.4.3). Inherits the chip's foreground (the
+         same full-opacity ink the chip label uses) so the digit contrast matches the label. -->
+    <Style Selector="TextBlock.chip-count">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="FontFeatures" Value="tnum=1" />
+    </Style>
+
     <!-- WP5d sortable column header: a flat, ghost button hosting the eyebrow label + caret. -->
     <Style Selector="Button.colhead">
       <Setter Property="Background" Value="Transparent" />
@@ -38,7 +72,16 @@
        Theme-aware via DynamicResource tokens (both variants); all text >= 4.5:1 on the card surface
        in both themes (the colored accents/dots are the non-text channel, WCAG 1.4.1). -->
   <Border Padding="24" Background="{DynamicResource PageBackgroundBrush}">
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <!-- The audit screen stacks a lot of fixed-height content (header + ring/tiles + categories card +
+         filter strip + table + actions) — more than fits 720px. Rather than fight the vertical budget,
+         the WHOLE page scrolls: when content exceeds the viewport the page scrolls and the action bar +
+         table stay reachable (never overlapped). All outer rows are therefore Auto (a * row collapses
+         to nothing inside a ScrollViewer's unbounded height); the findings ListBox caps its own height
+         + scrolls internally for long lists. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <!-- Outer rows: 0 header / 1 ring+tiles / 2 categories pane / 3 WP1 filter-strip toolbar
+         (full width) / 4 table+detail split (Auto — the ListBox caps + scrolls) / 5 actions. -->
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
 
       <!-- 1. Header: "Audit · {RootDn}". -->
       <TextBlock Grid.Row="0" Text="{Binding Title}" Classes="heading" />
@@ -232,7 +275,112 @@
         </Grid>
       </Border>
 
-      <!-- 4. Findings table region (WP5d / #156): a Table | Graph segmented toggle + a multi-select
+      <!-- 4. WP1 filter chip strip: its OWN full-width toolbar row (between the categories pane and
+           the table+detail split) so it reflows within ~1240px — NOT crammed into the findings card's
+           narrow left column where it wrapped tall and overlapped the action bar. Reads as a toolbar,
+           not a card: a borderless padded WrapPanel. Three multi-select facets (Severity / Status /
+           Rule class) that AND together — an EMPTY axis imposes no constraint. Each chip is a flat
+           Button (not a ToggleButton — avoids double-toggle); its active visual is a redundant
+           border + opaque fill + ink change (Classes.chip-active bound to IsActive), never hue alone.
+           Every group's eyebrow label AND its chips ItemsControl are DIRECT wrap items, so each chip
+           reflows against the full row width. The chip-count digits are full-opacity ink (NOT
+           Classes="dn", whose 0.8 opacity drops the meaningful count below 4.5:1; WCAG 1.4.3). -->
+      <WrapPanel Grid.Row="3" Orientation="Horizontal" Margin="0,16,0,0"
+                 IsVisible="{Binding !IsAllClear}">
+
+        <!-- Severity group. The chip shows a colored severity glyph square (E/W/i) + the label +
+             count — the colour is a redundant cue beside the letter (WCAG 1.4.1). -->
+        <TextBlock Text="SEVERITY" Classes="eyebrow" VerticalAlignment="Center" Margin="0,0,4,6" />
+        <ItemsControl ItemsSource="{Binding SeverityChips}" Margin="0,0,12,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:AuditFilterChip">
+              <Button Classes="chip" Margin="0,0,4,6"
+                      Classes.chip-active="{Binding IsActive}"
+                      Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).ToggleFilterCommand}"
+                      CommandParameter="{Binding}"
+                      ToolTip.Tip="Toggle this severity filter">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Border Width="16" Height="16" CornerRadius="3" VerticalAlignment="Center"
+                          Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                    <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                               Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                               FontSize="10" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Count}" Classes="chip-count" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Status group (Open / Acknowledged / Suppressed). Label + count; no severity glyph. -->
+        <TextBlock Text="STATUS" Classes="eyebrow" VerticalAlignment="Center" Margin="0,0,4,6" />
+        <ItemsControl ItemsSource="{Binding StatusChips}" Margin="0,0,12,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:AuditFilterChip">
+              <Button Classes="chip" Margin="0,0,4,6"
+                      Classes.chip-active="{Binding IsActive}"
+                      Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).ToggleFilterCommand}"
+                      CommandParameter="{Binding}"
+                      ToolTip.Tip="Toggle this status filter">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Count}" Classes="chip-count" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Rule-class group (dynamic — one chip per finding-bearing rule class, canonical order). -->
+        <TextBlock Text="RULE CLASS" Classes="eyebrow" VerticalAlignment="Center" Margin="0,0,4,6" />
+        <ItemsControl ItemsSource="{Binding RuleClassChips}" Margin="0,0,12,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:AuditFilterChip">
+              <Button Classes="chip" Margin="0,0,4,6"
+                      Classes.chip-active="{Binding IsActive}"
+                      Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).ToggleFilterCommand}"
+                      CommandParameter="{Binding}"
+                      ToolTip.Tip="Toggle this rule-class filter">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Count}" Classes="chip-count" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Clear filters + the "Showing N of M" summary (each a direct wrap item so they reflow
+             tidily onto the strip rather than orphaning on a detached line). -->
+        <Button Name="ClearFiltersButton" Content="Clear filters"
+                Classes="chip" Padding="10,4" Margin="0,0,8,6"
+                IsVisible="{Binding IsFiltered}"
+                Command="{Binding ClearFiltersCommand}"
+                ToolTip.Tip="Clear all active findings filters" />
+        <TextBlock Name="FilterSummaryText" Text="{Binding FilterSummary}"
+                   Classes="secondary" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,6" />
+
+      </WrapPanel>
+
+      <!-- 5. Findings table region (WP5d / #156): a Table | Graph segmented toggle + a multi-select
            selection bar over a pure-Avalonia (no DataGrid) findings table. The table is a header
            Grid + a ListBox whose row template shares the SAME ColumnDefinitions string as the header
            (one shared definition => header/body columns align without a DataGrid). "Graph" routes to
@@ -242,16 +390,20 @@
       <!-- Two-pane split (WP5f / #160): the findings TABLE card on the left, the selected finding's
            DETAIL pane on the right. The detail is driven by the table's ListBox SelectedItem (the
            single ACTIVE finding) — DISTINCT from the multi-select triage checkboxes. -->
-      <Grid Grid.Row="3" Margin="0,16,0,0" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+      <Grid Grid.Row="4" Margin="0,16,0,0" ColumnDefinitions="*,Auto" ColumnSpacing="16">
 
       <Border Grid.Column="0" Padding="16"
               Background="{DynamicResource CardBackgroundBrush}"
               BorderBrush="{DynamicResource CardBorderBrush}"
               BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
-        <Grid RowDefinitions="Auto,Auto,Auto,*">
+        <!-- The findings sub-row is Auto (not *): a * row collapses inside the page ScrollViewer's
+             unbounded height. The ListBox caps its own height (MaxHeight) + scrolls internally; the
+             empty-state TextBlocks carry a MinHeight so they render even when the list is empty. -->
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto">
 
           <!-- Table | Graph segmented toggle. Table = the active in-audit pane (pressed). Graph =
-               an action that returns to the workspace graph (no in-audit renderer in v1). -->
+               an action that returns to the workspace graph (no in-audit renderer in v1). The WP1
+               filter chip strip is NOT here — it has its own full-width row above this card. -->
           <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="0" HorizontalAlignment="Left">
             <Button Name="TableSegment" Content="Table"
                     Classes="segment segment-active"
@@ -368,8 +520,12 @@
                reuses the SAME column track string as the header so the columns line up (the no-
                DataGrid alignment technique). A row checkbox drives IsSelected; clicking the row
                selects it in the list (the future detail-pane anchor). -->
+          <!-- MaxHeight caps the list so the page (not an unbounded card) absorbs long finding lists:
+               the ListBox scrolls internally past ~480px while the action bar stays reachable via the
+               page ScrollViewer. -->
           <ListBox Grid.Row="3" Name="FindingsList"
                    Background="Transparent"
+                   MaxHeight="480"
                    ItemsSource="{Binding Findings}"
                    SelectedItem="{Binding SelectedFinding, Mode=TwoWay}"
                    IsVisible="{Binding HasFindings}">
@@ -448,10 +604,17 @@
             </ListBox.ItemTemplate>
           </ListBox>
 
-          <!-- All-clear: no finding at all. -->
+          <!-- All-clear: no finding at all (the master list is empty). MinHeight gives the row a
+               sensible height when the ListBox above is collapsed (IsVisible=false). -->
           <TextBlock Grid.Row="3" Text="No findings to list."
-                     IsVisible="{Binding !HasFindings}"
-                     Classes="secondary" VerticalAlignment="Top" Margin="0,12,0,0" />
+                     IsVisible="{Binding IsAllClear}"
+                     Classes="secondary" VerticalAlignment="Top" MinHeight="32" Margin="0,12,0,0" />
+
+          <!-- WP1 no-matches: findings exist but the active filters hide them all (distinct from the
+               all-clear above — HasNoMatches is true only when _allRows is non-empty). -->
+          <TextBlock Grid.Row="3" Text="No findings match the current filters."
+                     IsVisible="{Binding HasNoMatches}"
+                     Classes="secondary" VerticalAlignment="Top" MinHeight="32" Margin="0,12,0,0" />
 
         </Grid>
       </Border>
@@ -464,7 +627,10 @@
            no shell, no AD call). Theme-aware via DynamicResource; the code block uses FontFamilyMono on
            the page surface (the documented WCAG reference bg) with the theme default foreground
            (~15:1 dark / ~13:1 light — well above 4.5:1). -->
-      <Border Grid.Column="1" Width="380" Padding="16"
+      <!-- MaxHeight caps the detail card so its inner ScrollViewer (below) absorbs long snippets rather
+           than ballooning the Auto split row; the page ScrollViewer handles anything past that. -->
+      <Border Grid.Column="1" Width="380" MaxHeight="560" Padding="16"
+              VerticalAlignment="Top"
               Background="{DynamicResource CardBackgroundBrush}"
               BorderBrush="{DynamicResource CardBorderBrush}"
               BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
@@ -573,8 +739,8 @@
 
       </Grid>
 
-      <!-- 5. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
-      <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
+      <!-- 6. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
+      <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
         <Button Name="BackButton" Content="← Back"
                 ToolTip.Tip="Return to the explored structure"
                 Command="{Binding BackCommand}" />
@@ -584,6 +750,7 @@
       </StackPanel>
 
     </Grid>
+    </ScrollViewer>
   </Border>
 
 </UserControl>

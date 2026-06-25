@@ -332,3 +332,22 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
       unchecked [S:audit-view] [T:AuditViewModel — UncheckedPresent gating]
 - [ ] No AD-write affordance; the view binds only AuditSummary roll-up scalars + ByRuleClass (no
       AD attributes); read-only product [I — design rule / CLAUDE.md]
+- [ ] Filter chip strip (WP1): the findings card's top row carries the Table | Graph toggle on the
+      left and a reflowing chip strip to its right with three labelled groups — SEVERITY
+      (Errors/Warnings/Info, each a colored glyph square + count), STATUS (Open/Acknowledged/
+      Suppressed), and RULE CLASS (one chip per finding-bearing rule class, canonical order). Chips
+      multi-select WITHIN a group and ACROSS groups (an empty axis = no constraint; the three axes
+      AND); the strip wraps and never clips at the narrow size [S:audit-view] [T:AuditViewModel —
+      chip collections / counts / canonical order / ToggleFilter set membership]
+- [ ] "Showing N of M" summary: the strip shows "{TotalCount} findings" when unfiltered and
+      "Showing {VisibleCount} of {TotalCount}" once any chip is active; a "Clear filters" button
+      appears only while filtered and resets every axis [S:audit-view] [T:AuditViewModel —
+      FilterSummary / IsFiltered / ClearFilters]
+- [ ] Active-chip affordance is NOT color-only (WCAG 1.4.1): an active chip carries a stronger
+      (thicker, secondary-toned) border + card-tint fill change, not just a hue shift — legible as
+      active in BOTH themes; all chip text clears ≥ 4.5:1 on the card surface in both variants
+      [S:audit-view — both variants]
+- [ ] No-matches empty state: when findings exist but the active filters hide them all, the table
+      area shows "No findings match the current filters." — DISTINCT from the all-clear "No findings
+      to list." (shown only when the scope produced zero findings) [S:audit-view] [T:AuditViewModel —
+      HasNoMatches vs IsAllClear]
