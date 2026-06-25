@@ -608,7 +608,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 {
                     DisposeAndUntrack(audit);
                 }
-            });
+            },
+            // WP2 / ADR-013 §2: the real connection summary for the exported HTML report header
+            // (same line the status bar + the workspace HTML export use).
+            connectionSummary: current.ConnectionSummary);
         // The workspace this audit backs into — re-threaded alongside the audit step when a triage
         // Save fires (OnRulesetApplied), so the parked graph + rail update too (ADR-028).
         _auditBackWorkspace = current;

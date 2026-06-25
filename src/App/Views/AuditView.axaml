@@ -739,15 +739,27 @@
 
       </Grid>
 
-      <!-- 6. Actions: Back to the workspace + "Show in graph" (v1: also returns to the graph). -->
-      <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8" Margin="0,16,0,0">
-        <Button Name="BackButton" Content="← Back"
+      <!-- 6. Actions: Back to the workspace (left) + the export pair and "Show in graph" grouped right
+           (WP2). Export CSV/HTML write the LIVE post-suppression report (matching the health score +
+           sidebar) to a user-picked file — read-only toward AD; the buttons arm once the shell installs
+           the export save-picker seam (UseExportFileDialogs). The right group is pushed to the trailing
+           edge via a spacer so Back reads as the primary "leave" affordance on the left. -->
+      <Grid Grid.Row="5" Margin="0,16,0,0" ColumnDefinitions="Auto,*,Auto">
+        <Button Grid.Column="0" Name="BackButton" Content="← Back"
                 ToolTip.Tip="Return to the explored structure"
                 Command="{Binding BackCommand}" />
-        <Button Name="ShowInGraphButton" Content="Show in graph"
-                ToolTip.Tip="Return to the graph view of the explored structure"
-                Command="{Binding ShowInGraphCommand}" />
-      </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+          <Button Name="ExportCsvButton" Content="Export CSV"
+                  ToolTip.Tip="Export the current findings to a CSV file (read-only — writes only the file you pick)"
+                  Command="{Binding ExportReportCsvCommand}" />
+          <Button Name="ExportHtmlButton" Content="Export HTML"
+                  ToolTip.Tip="Export the current findings to a self-contained HTML report (read-only — writes only the file you pick)"
+                  Command="{Binding ExportReportHtmlCommand}" />
+          <Button Name="ShowInGraphButton" Content="Show in graph"
+                  ToolTip.Tip="Return to the graph view of the explored structure"
+                  Command="{Binding ShowInGraphCommand}" />
+        </StackPanel>
+      </Grid>
 
     </Grid>
     </ScrollViewer>

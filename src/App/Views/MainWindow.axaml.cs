@@ -177,6 +177,9 @@ public sealed partial class MainWindow : Window
             case PlanViewModel plan:
                 plan.UseExportFileDialogs(_exportDialogs);
                 break;
+            case AuditViewModel audit:
+                audit.UseExportFileDialogs(_exportDialogs);
+                break;
         }
     }
 
