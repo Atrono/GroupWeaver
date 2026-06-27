@@ -151,14 +151,14 @@ public sealed class ShellScreenshotTests
     // --- ADR-022: adaptive rail + focus mode ------------------------------------------------
 
     /// <summary>
-    /// ADR-022 D5: a loaded workspace with NOTHING selected (the default). The reclaimed rail
-    /// shows the compact <c>ScopeSummaryCard</c> (object/edge totals + per-kind tally + severity
-    /// tallies) instead of the old centered "Click a node…" void. The fixture pins soundness the
-    /// PNG can't: the named card Border is realized + effectively-visible (it binds
-    /// <c>DetailPanel is null</c>, which holds with no selection) AND the workspace's
-    /// <see cref="WorkspaceViewModel.ScopeKindTally"/> is non-empty (the demo scope draws nodes of
-    /// several kinds) — so the empty rail reads as information. The ui-verifier judges the rendered
-    /// frame against the new section-B scope-summary rows.
+    /// ADR-022 D5 (reframed, #186): a loaded workspace with NOTHING selected (the default). The
+    /// reclaimed rail shows the compact <c>ScopeSummaryCard</c> (object/edge totals + the active
+    /// <b>ruleset name</b> + the hint) instead of the old centered "Click a node…" void. The
+    /// fixture pins soundness the PNG can't: the named card Border is realized + effectively-visible
+    /// (it binds <c>DetailPanel is null</c>, which holds with no selection) AND the workspace's
+    /// <see cref="WorkspaceViewModel.RulesetName"/> is non-empty (the active-ruleset line is the
+    /// card's "reads as information" proof) — so the empty rail reads as information. The
+    /// ui-verifier judges the rendered frame against the new section-B scope-summary rows.
     /// </summary>
     [AvaloniaTheory]
     [InlineData(1280, 720)]
@@ -185,8 +185,8 @@ public sealed class ShellScreenshotTests
             card.IsEffectivelyVisible,
             "with nothing selected the scope-summary card must replace the empty-rail void (D5)");
 
-        // The per-kind tally actually populated — the empty rail reads as information, not a void.
-        Assert.NotEmpty(workspace.ScopeKindTally);
+        // The active-ruleset line is populated — the empty rail reads as information, not a void.
+        Assert.False(string.IsNullOrWhiteSpace(workspace.RulesetName));
 
         CapturePng(window, "workspace-scope-summary", width, height);
         window.Close();
@@ -406,7 +406,8 @@ public sealed class ShellScreenshotTests
         var card = Assert.Single(window.GetVisualDescendants()
             .OfType<Avalonia.Controls.Border>(), b => b.Name == "ScopeSummaryCard");
         Assert.True(card.IsEffectivelyVisible, "the ultrawide rail must show the scope summary, not a void");
-        Assert.NotEmpty(workspace.ScopeKindTally);
+        // The active-ruleset line is populated — the empty rail reads as information, not a void.
+        Assert.False(string.IsNullOrWhiteSpace(workspace.RulesetName));
 
         CapturePng(window, "workspace-ultrawide", width, height);
         window.Close();

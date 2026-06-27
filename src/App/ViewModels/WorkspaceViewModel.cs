@@ -253,6 +253,13 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <summary>DN of the chosen root.</summary>
     public string RootDn => Root.Dn;
 
+    /// <summary>The active ruleset's <see cref="GroupWeaver.Core.Rules.Ruleset.Name"/> — the one
+    /// audit-orientation fact surfaced nowhere else in the workspace chrome (root DN lives in the
+    /// status bar, demo/live in the top strip). Shown by the no-selection scope-summary card; the
+    /// change notification is raised in <see cref="ApplyRulesetAsync"/> so a settings apply updates
+    /// it live (ADR-022 D5 reframe, #186).</summary>
+    public string RulesetName => _ruleset.Name;
+
     /// <summary>Display name of the chosen root.</summary>
     public string RootName => Root.Name;
 
@@ -277,13 +284,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// <see cref="ViolationRowModel.SubjectName"/> resolved snapshot-only. Bound by
     /// <see cref="Views.ViolationsSidebarView"/>.</summary>
     public ObservableCollection<ViolationRowModel> Violations { get; } = [];
-
-    /// <summary>The ADR-022 D5 per-kind tally of the DRAWN graph (the same node set
-    /// <see cref="GraphSummary"/> totals), in <see cref="AdObjectKind"/> declaration order, omitting
-    /// zero-count kinds. Bound by the scope-summary card the empty rail shows when nothing is
-    /// selected. Repopulated in place (Clear/Add) at each graph build, so the bound count stays a
-    /// snapshot of the live drawn graph; <see cref="GraphSummary"/> remains the object/edge totals.</summary>
-    public ObservableCollection<KindTallyRow> ScopeKindTally { get; } = [];
 
     /// <summary>Drives the sidebar all-clear state: <c>true</c> when the report has at
     /// least one finding. Recomputed on <see cref="Report"/> change.</summary>
@@ -500,6 +500,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     public async Task ApplyRulesetAsync(Ruleset newRuleset, CancellationToken cancellationToken = default)
     {
         _ruleset = newRuleset;
+        OnPropertyChanged(nameof(RulesetName));
         if (Snapshot is null || IsLoading || GraphRenderer is not { } renderer)
         {
             return;
@@ -905,28 +906,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
         return map;
     }
 
-    /// <summary>Sets <see cref="GraphSummary"/> (object/edge totals) and repopulates
-    /// <see cref="ScopeKindTally"/> in place from <paramref name="graph"/> (ADR-022 D5) — the
-    /// single write site for both, called from each graph-build path. The tally is grouped by
-    /// node <see cref="GraphNode.Kind"/>, ordered by the <see cref="AdObjectKind"/> declaration,
-    /// and omits zero-count kinds.</summary>
-    private void UpdateGraphSummary(GraphModel graph)
-    {
+    /// <summary>Sets <see cref="GraphSummary"/> (object/edge totals) from <paramref name="graph"/> —
+    /// the single write site, called from each graph-build path.</summary>
+    private void UpdateGraphSummary(GraphModel graph) =>
         GraphSummary = $"{graph.Nodes.Count} objects, {graph.Edges.Count} edges";
-
-        var counts = graph.Nodes
-            .GroupBy(n => n.Kind)
-            .ToDictionary(g => g.Key, g => g.Count());
-
-        ScopeKindTally.Clear();
-        foreach (var kind in Enum.GetValues<AdObjectKind>())
-        {
-            if (counts.TryGetValue(kind, out var count) && count > 0)
-            {
-                ScopeKindTally.Add(new KindTallyRow(kind, count));
-            }
-        }
-    }
 
     private async Task ExpandAsync(string dn, bool forceFetch, CancellationToken cancellationToken)
     {

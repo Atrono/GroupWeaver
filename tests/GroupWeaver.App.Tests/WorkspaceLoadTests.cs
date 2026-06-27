@@ -109,6 +109,31 @@ public sealed class WorkspaceLoadTests
         Assert.Null(vm.LoadError);
     }
 
+    [Fact]
+    public async Task RulesetName_ReflectsTheCtorRuleset_AndUpdatesWithNotificationOnApply()
+    {
+        var provider = Provider(SmallSnapshot());
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(provider, () => fake);
+        await vm.Initialization;
+
+        // #186: the no-selection scope-summary card reads the ACTIVE ruleset's name. At
+        // construction that is the default ruleset (the VM falls back to it when handed none) —
+        // pinned against the loader, never a hardcoded literal.
+        Assert.Equal(GroupWeaver.Core.Rules.RulesetLoader.LoadDefault().Name, vm.RulesetName);
+
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        // Apply a renamed ruleset: ApplyRulesetAsync raises RulesetName BEFORE its
+        // snapshot/IsLoading/renderer guard, so the property + notification fire even renderer-less.
+        var renamed = GroupWeaver.Core.Rules.RulesetLoader.LoadDefault() with { Name = "custom-test-ruleset" };
+        await vm.ApplyRulesetAsync(renamed);
+
+        Assert.Equal("custom-test-ruleset", vm.RulesetName);
+        Assert.Contains(nameof(WorkspaceViewModel.RulesetName), changed);
+    }
+
     [AvaloniaFact]
     public async Task PendingLoad_ShowsIndeterminateProgressInTheStatusRow_UntilReleased()
     {

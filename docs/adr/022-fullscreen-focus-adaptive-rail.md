@@ -36,3 +36,18 @@ The initial WP-A implementation wired focus mode end-to-end (`ShellViewModel.Tog
 2. **A single `F` key** in `MainWindow.OnKeyDown`, gated to the workspace step (`CurrentStep is WorkspaceViewModel`), toggling `ToggleFocusModeCommand`. Single-key (not a chord) so it is reliably postable via `WM_KEYDOWN` for the demo recorder; gated to the workspace, where there is no native text input to hijack (the web Find box lives inside the WebView's own HWND). Esc still exits (D1).
 
 This makes focus mode demonstrable in the public demo GIF (`record-demo-media`): the recorder posts `F`, the chrome melts away, the graph goes edge-to-edge.
+
+## Addendum (2026-06-27) — D5 scope-summary card reframed (redundancy removed, ruleset surfaced)
+
+D5's scope-summary card filled the no-selection rail with object/edge totals, a **per-kind tally**, and
+**severity tallies**. Two of those echoed information already on screen: the per-kind tally duplicated the
+always-on graph legend's Kinds section (identical live counts), and the severity tally duplicated the findings
+chip strip directly above the card in the same rail. Redundant filler competes with the findings list it sits
+under and trains the eye to skip the region.
+
+This addendum removes both duplicated blocks and replaces them with the **active ruleset name** — the single
+audit-orientation fact the workspace surfaced nowhere (the root DN is already in the status bar, demo/live in
+the top strip). The card now reads `Scope summary` / `Ruleset: <name>` / object-edge totals (`GraphSummary`,
+unchanged) / the "Click a node to inspect it." hint — still "information, not a void," now non-redundant and
+finally telling the user which ruleset their findings are judged against. `ScopeKindTally`/`KindTallyRow` are
+retired; `GraphSummary` and the `SeverityConverters`/legend are untouched. (#186)
