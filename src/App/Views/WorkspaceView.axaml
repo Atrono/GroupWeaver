@@ -2,7 +2,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
              xmlns:views="using:GroupWeaver.App.Views"
-             xmlns:rules="using:GroupWeaver.Core.Rules"
              x:Class="GroupWeaver.App.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel">
 
@@ -214,10 +213,11 @@
             <ContentControl Grid.Row="2" Name="DetailPanelRegion">
               <Panel>
 
-                <!-- ADR-022 D5: with nothing selected the empty rail reads as information,
-                     not a void — a compact scope-summary card (object/edge totals, per-kind
-                     tally, severity tallies) on the #91 card tokens, with a one-line "click a
-                     node" hint at the bottom. Replaces the old centered placeholder. -->
+                <!-- ADR-022 D5 (reframed, #186): with nothing selected the empty rail reads as
+                     information, not a void — a compact scope-summary card (active ruleset name +
+                     object/edge totals) on the #91 card tokens, with a one-line "click a node" hint
+                     at the bottom. The old per-kind / severity tallies were removed as redundant
+                     (graph legend + findings chip strip). Replaces the old centered placeholder. -->
                 <Border Name="ScopeSummaryCard"
                         IsVisible="{Binding DetailPanel, Converter={x:Static ObjectConverters.IsNull}}"
                         Margin="12"
@@ -229,120 +229,16 @@
 
                     <TextBlock Text="Scope summary" Classes="heading" />
 
+                    <!-- The active ruleset: the one audit-orientation fact shown nowhere else in
+                         the chrome (mirrors the status-bar 'root:' provenance line). Updates live
+                         on a settings apply (ADR-022 D5 reframe, #186). -->
+                    <TextBlock Text="{Binding RulesetName, StringFormat='Ruleset: {0}'}"
+                               Classes="secondary" TextWrapping="Wrap" />
+
                     <!-- Object / edge totals (reuses GraphSummary; null until first load). -->
                     <TextBlock Text="{Binding GraphSummary}"
                                Classes="secondary" TextWrapping="Wrap"
                                IsVisible="{Binding GraphSummary, Converter={x:Static ObjectConverters.IsNotNull}}" />
-
-                    <!-- Per-kind tally: one row per drawn kind (badge swatch + count),
-                         in the AP 2.2 kind palette so it matches the graph + root picker. -->
-                    <ItemsControl ItemsSource="{Binding ScopeKindTally}">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                          <WrapPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:KindTallyRow">
-                          <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,12,6">
-                            <Border Width="22" Height="18" CornerRadius="3"
-                                    Background="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
-                              <TextBlock Text="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
-                                         Foreground="White" FontSize="10" FontWeight="SemiBold"
-                                         HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <TextBlock Text="{Binding Count}" VerticalAlignment="Center"
-                                       FontSize="12" Opacity="0.85" />
-                          </StackPanel>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <!-- Severity tallies: the same per-severity counts the sidebar chip
-                         strip derives (SeverityConverters.CountForSeverity over Violations);
-                         shown only when there is at least one finding. -->
-                    <StackPanel Orientation="Horizontal" Spacing="12"
-                                IsVisible="{Binding HasViolations}">
-
-                      <StackPanel Orientation="Horizontal" Spacing="4">
-                        <StackPanel.IsVisible>
-                          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
-                                        ConverterParameter="{x:Static rules:RuleSeverity.Error}">
-                            <Binding Path="Violations" />
-                            <Binding Path="Violations.Count" />
-                          </MultiBinding>
-                        </StackPanel.IsVisible>
-                        <Border Width="18" Height="18" CornerRadius="3"
-                                Background="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                          <TextBlock Text="E"
-                                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                                     FontSize="11" FontWeight="SemiBold"
-                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
-                          <TextBlock.Text>
-                            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
-                                          ConverterParameter="{x:Static rules:RuleSeverity.Error}">
-                              <Binding Path="Violations" />
-                              <Binding Path="Violations.Count" />
-                            </MultiBinding>
-                          </TextBlock.Text>
-                        </TextBlock>
-                      </StackPanel>
-
-                      <StackPanel Orientation="Horizontal" Spacing="4">
-                        <StackPanel.IsVisible>
-                          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
-                                        ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
-                            <Binding Path="Violations" />
-                            <Binding Path="Violations.Count" />
-                          </MultiBinding>
-                        </StackPanel.IsVisible>
-                        <Border Width="18" Height="18" CornerRadius="3"
-                                Background="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                          <TextBlock Text="W"
-                                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                                     FontSize="11" FontWeight="SemiBold"
-                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
-                          <TextBlock.Text>
-                            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
-                                          ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
-                              <Binding Path="Violations" />
-                              <Binding Path="Violations.Count" />
-                            </MultiBinding>
-                          </TextBlock.Text>
-                        </TextBlock>
-                      </StackPanel>
-
-                      <StackPanel Orientation="Horizontal" Spacing="4">
-                        <StackPanel.IsVisible>
-                          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
-                                        ConverterParameter="{x:Static rules:RuleSeverity.Info}">
-                            <Binding Path="Violations" />
-                            <Binding Path="Violations.Count" />
-                          </MultiBinding>
-                        </StackPanel.IsVisible>
-                        <Border Width="18" Height="18" CornerRadius="3"
-                                Background="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                          <TextBlock Text="i"
-                                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                                     FontSize="11" FontWeight="SemiBold"
-                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
-                          <TextBlock.Text>
-                            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
-                                          ConverterParameter="{x:Static rules:RuleSeverity.Info}">
-                              <Binding Path="Violations" />
-                              <Binding Path="Violations.Count" />
-                            </MultiBinding>
-                          </TextBlock.Text>
-                        </TextBlock>
-                      </StackPanel>
-
-                    </StackPanel>
 
                     <!-- The one-line inspect hint stays at the bottom of the card. -->
                     <TextBlock Text="Click a node to inspect it."
