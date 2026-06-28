@@ -133,6 +133,8 @@ keep context lean. Implementation work goes to subagents (`.claude/agents/`):
   `+refspec`), `git reset --hard origin*`, and inline non-`Get-AD*` `*-AD*` cmdlets
   (`pwsh tools/seed-testad.ps1` contains none). Best-effort; the rules are primary.
 - **SessionStart**: effort/ultracode reminder; show current phase + last `docs/journal/` entry
+- **Stop**: non-blocking `additionalContext` nudge to run the `wrap-session` skill when
+  `docs/journal/<today>.md` is missing (reminder only — never authors the entry)
 
 ## Recovery & stuck policy
 

@@ -10,7 +10,9 @@ CLAUDE.md mandates the close-out: *"End every session: append 3-5 lines to
 journal only recovers what reached the remote."* This skill is the **ordered
 sequence + the two guard gotchas that silently break it**. It is the close-out
 counterpart to `.claude/hooks/session-start.ps1`, which surfaces the latest
-entry's first 15 lines to orient the *next* session.
+entry's first 15 lines to orient the *next* session. The `Stop` hook
+(`.claude/hooks/wrap-session-reminder.ps1`) nudges you here when
+`docs/journal/<today>.md` is still missing — a reminder, never a substitute.
 
 Run it autonomously at session end - composing the entry IS the work (judgment
 about what the session did), so never ask the user; just write, commit, push.
