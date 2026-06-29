@@ -30,7 +30,7 @@ PR that updates the tests deliberately.
 - **Kind mapper** (`AdObjectKindMapper`): `computer` beats `user` in objectClass
   chains; groupType scope bits 0x2/0x4/0x8, builtin 0x1 → DomainLocal, security
   bit 0x80000000 IGNORED (scope ≠ security/distribution category — distribution
-  groups are out of scope until v0.4); scopeless/null groupType and unrecognized
+  groups are out of scope, a post-v0.4 roadmap item); scopeless/null groupType and unrecognized
   chains → `External`. DemoProvider JSON stores `kind` strings directly and does
   NOT go through the mapper (AP 1.4).
 - **`AdObject.Attributes`** is case-insensitive-keyed and provider-filtered

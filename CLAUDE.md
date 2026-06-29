@@ -32,12 +32,9 @@ problems (architecture, gnarly debugging, graph performance) with **ultrathink**
 
 ## Environment
 
-- Windows Server 2022 Datacenter (eval), full local admin, exclusive use. Claude
-  Code runs with `--dangerously-skip-permissions`.
-- Domain Controller on **localhost**, test forest `agdlp.lab` (LDAP `localhost:389`)
-  — provisioned by bootstrap step 2 on a fresh box.
-- Package manager: **Chocolatey** (winget is not preinstalled on Server 2022).
-  PowerShell 7 (`pwsh`) is the default shell for scripts.
+- Windows Server 2022 Datacenter (eval), full local admin, `--dangerously-skip-permissions`.
+- DC on **localhost**, forest `agdlp.lab` (LDAP `localhost:389`), set up by bootstrap step 2.
+- Package manager **Chocolatey** (no winget on Server 2022); PowerShell 7 (`pwsh`) for scripts.
 
 ## Bootstrap (first session — run once, keep idempotent)
 
@@ -50,50 +47,46 @@ problems (architecture, gnarly debugging, graph performance) with **ultrathink**
    (`groupweaver-app` if taken); enable Actions; add `.gitattributes` (`* text=auto`
    — prevents CRLF churn in `dotnet format`) + MIT `LICENSE`. **Only manual step:**
    a human ran `gh auth login` (PAT: `repo` + `workflow`) — Claude can't mint creds.
-4. Scaffold `.claude/`: `agents/` (definitions below), `rules/`, `skills/` (stubs
-   for `agdlp-domain` and `headless-uitest`; flesh out during Phases 1–2),
+4. Scaffold `.claude/`: `agents/` (definitions below), `rules/`, `skills/`,
    `settings.json` with the hooks listed below.
-5. Run `tools/seed-testad.ps1` via `ad-fixture-admin` (create it if missing): seeds
-   `OU=AGDLP-Lab` mirroring the DemoProvider dataset spec (PLANNING.md AP 1.4; the
-   DemoProvider JSON is a separate deliverable) — ~200 objects, deliberate AGDLP +
-   naming violations, one circular nesting (A→B→A), empty groups: the test bed.
+5. Run `tools/seed-testad.ps1` via `ad-fixture-admin`: seeds `OU=AGDLP-Lab` mirroring
+   the DemoProvider dataset spec (PLANNING.md AP 1.4; the DemoProvider JSON is a
+   separate deliverable) — ~200 objects, deliberate AGDLP + naming violations, one
+   circular nesting (A→B→A), empty groups: the test bed.
 6. Verify the toolchain: `dotnet --version` (8.x), `pwsh -v`, `gh --version`.
-7. Install official plugins (verify names in `/plugin` Discover): **code-review**
-   (powers `reviewer`), **security-guidance** (`/security-review` — LDAP filters
-   from user input!), **frontend-design**, **Microsoft Learn**. Install NOTHING
-   else: every plugin is fully trusted code on this box — minimal surface wins.
+7. **Marketplace plugins** (`/plugin` Discover): code-review (powers `reviewer`),
+   security-guidance (`/security-review`), frontend-design, superpowers. **MCP servers**
+   (claude.ai, account-scoped, not choco/script-installable): Microsoft Learn, Context7.
+   Nothing else — every plugin is fully trusted code on this box; minimal surface wins.
 
 ## Project map & commands
 
 ```
 src/Core/          # AdObject model, GraphBuilder, RuleEngine (UI-free)
 src/Providers/     # IDirectoryProvider: LdapProvider, DemoProvider
-src/App/           # Avalonia UI, WebView2 + Cytoscape.js (pending ADR-001)
+src/App/           # Avalonia UI, WebView2 + Cytoscape.js (ADR-001)
 tests/             # xUnit; Avalonia.Headless for UI tests
 tools/             # bootstrap.ps1, seed-testad.ps1, build.ps1
-docs/adr/  docs/journal/  docs/ui-checklist.md
-artifacts/ui/      # rendered UI screenshots (gitignored)
+docs/adr/  docs/journal/  docs/ui-checklist.md  ·  artifacts/ui/ (screenshots, gitignored)
 ```
 
 - Full local gate: `pwsh tools/build.ps1` (restore → build → `dotnet format
   --verify-no-changes` → `dotnet test`)
-- AD integration tests: xUnit trait `Category=RequiresAd` — required locally,
-  excluded in CI (`build.ps1 -SkipAdTests`); skip + warn loudly if the OU is
-  unreachable
-- Run app: `dotnet run --project src/App` · demo mode: `--demo` · stack: .NET 8
-  LTS, Avalonia, xUnit · graph library per ADR-001 (Phase 0 spike)
+- AD integration tests: xUnit trait `Category=RequiresAd` — required locally, excluded
+  in CI (`build.ps1 -SkipAdTests`); skip + warn loudly if the OU is unreachable.
+- Run app: `dotnet run --project src/App` (`--demo` for demo mode). Stack: .NET 8 LTS,
+  Avalonia, xUnit; graph library per ADR-001.
 
 ## Workflow
 
-Work through `PLANNING.md` phases in order (0 → 3), vertical slices; each phase ends
-at its milestone (M0–M3; M3 = public release v0.1: portable .zip + SHA256 hashes +
-build provenance attestations). Work packages are tracked as public GitHub issues
-(+ Project board) from day 1. Trunk-based: short-lived branch per work package →
-PR → reviewer approval → squash merge. Conventional Commits (`feat:`, `fix:`, …).
-Run `/security-review` and resolve findings before any tagged release. Public media
-(README GIF, screenshots): **demo mode only** — never a real or lab AD. End every
-session: append 3–5 lines to `docs/journal/YYYY-MM-DD.md` (done, decided, next),
-then commit + push — the journal only recovers what reached the remote.
+Phases 0–3 are shipped (v0.1 → v0.4.x public releases); now **Phase 4 — feedback-
+driven**: small slices gated on ADRs, cut with the `cut-release` skill. Work packages
+are tracked as public GitHub issues (+ Project board). Trunk-based: short-lived branch
+per work package → PR → reviewer approval → squash merge. Conventional Commits
+(`feat:`, `fix:`, …). Run `/security-review` and resolve findings before any tagged
+release. Public media (README GIF, screenshots): **demo mode only** — never a real or
+lab AD. End every session: append 3–5 lines to `docs/journal/YYYY-MM-DD.md` (done,
+decided, next), then commit + push — the journal only recovers what reached the remote.
 
 ## Subagents — delegate by default
 
@@ -112,6 +105,8 @@ keep context lean. Implementation work goes to subagents (`.claude/agents/`):
 
 ## Self-verification — Definition of Done for every change
 
+Docs/config-only changes (no `src/`/`tests/` edits) need only steps 4–6 (reviewer read → push → journal); steps 1–3 are for code changes.
+
 1. `pwsh tools/build.ps1` green locally (build + format + all tests).
 2. **UI changes — two-part, headless:** (a) graph layer: render the WebView's own
    browser bundle via Playwright/headless Chromium; (b) native chrome (panels,
@@ -127,8 +122,8 @@ keep context lean. Implementation work goes to subagents (`.claude/agents/`):
 
 ## Hooks (`.claude/settings.json` — create at bootstrap)
 
-- **PostToolUse** (Edit/Write on `*.cs`): `dotnet format <sln> --include <file>
-  --no-restore` (`dotnet format` takes a solution/project, not a bare file)
+- **PostToolUse** (Edit/Write `*.cs`): `dotnet format <sln> --include <file> --no-restore`
+  (`dotnet format` takes a solution/project, not a bare file).
 - **PreToolUse** (Bash **and** PowerShell): block force pushes (`--force*`, `-f`,
   `+refspec`), `git reset --hard origin*`, and inline non-`Get-AD*` `*-AD*` cmdlets
   (`pwsh tools/seed-testad.ps1` contains none). Best-effort; the rules are primary.
@@ -140,8 +135,9 @@ keep context lean. Implementation work goes to subagents (`.claude/agents/`):
 
 - **Re-orientation** (session start, after `/compact`, after crash, after any
   required reboot — DC promotion kills the session): read the latest
-  `docs/journal/` entry (= current phase), `PLANNING.md`, and `git log --oneline
-  -10` **before** acting. The journal is the recovery point — keep it honest.
+  `docs/journal/` entry, `PLANNING.md`, and `git log --oneline -10` **before**
+  acting. Trust git tags + the latest journal for the true version/phase — PLANNING.md's
+  header lags. The journal is the recovery point — keep it honest.
 - **Stuck rule:** after 3 distinct failed approaches to the same problem, stop.
   Write `docs/journal/BLOCKED-<topic>.md` (symptom, attempts, best hypothesis),
   commit it, and switch to the next independent work package. Never brute-force
@@ -149,7 +145,6 @@ keep context lean. Implementation work goes to subagents (`.claude/agents/`):
 
 ## Memory discipline
 
-Stable policy lives here; evolving knowledge goes to `.claude/rules/*.md`
-(path-scoped) and auto memory. Persist durable facts about this codebase or
-environment (quirks, gotchas, decisions) — don't rediscover them next session.
-Keep this file under ~150 lines; prune rather than append.
+Stable policy lives here; evolving knowledge goes to `.claude/rules/*.md` and auto
+memory — persist durable codebase/environment facts (quirks, gotchas, decisions), don't
+rediscover them next session. Keep this file under ~150 lines; prune rather than append.
