@@ -320,6 +320,13 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
       fraction visibly tracks the score; the ring carries an AutomationProperties.Name like
       "Directory health {Score} of 100, {Band}" [S:audit-view] [T:AuditViewModel — RingFraction /
       band-colour mapping / HealthAutomationName]
+- [B] Band honesty over a live Error (ADR-030 / #188): the band word never reads "Excellent" or
+      "Good" while a live Error exists — a live Error forces the red "Action required" band even at a
+      diluted high score (the ring colour follows the gated band, red over a 99% fill), and a live
+      Warning (no Error) caps the band below "Excellent" at max "Good"; when triage suppressions are
+      live a caveat ("N findings acknowledged/suppressed — excluded from this score") shows beside the
+      band, styled like the Unchecked caveat [S:audit-view — both variants] [T:AuditSummaryTests —
+      Critical>0 => "Action required" at any score; Warnings>0 => never "Excellent"]
 - [ ] Four count tiles (Critical / Warnings / Passing / Rule classes): each a card with the big
       count + a text label + a colored accent (left-border + dot) from the severity palette
       (Critical=Error red, Warnings=Warning amber, Passing=NamingOk green, Rule classes=neutral);

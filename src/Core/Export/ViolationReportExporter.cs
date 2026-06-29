@@ -139,6 +139,19 @@ public static class ViolationReportExporter
             "Findings",
             FormatCount(errorCount) + " error, " + FormatCount(warningCount) + " warning, "
                 + FormatCount(infoCount) + " info");
+
+        // ADR-030 D3 (#188): the honesty caveats travel into the header — the active ruleset name, the
+        // triaged count and the unchecked count, so a bare export can never present a clean bill that
+        // omits the suppressions or the unexpanded scope. Gated on a non-null RulesetName so a 4-arg
+        // ReportHeader (RulesetName == null) yields byte-identical legacy output; the App always passes
+        // a non-null name, so these rows always render in production.
+        if (header.RulesetName is not null)
+        {
+            AppendMetaRow(sb, "Ruleset", Encode(header.RulesetName));
+            AppendMetaRow(sb, "Triaged", FormatCount(header.TriagedCount) + " findings excluded by triage");
+            AppendMetaRow(sb, "Unchecked", FormatCount(header.UncheckedCount) + " unexpanded areas");
+        }
+
         sb.Append("</table>").Append(Eol);
 
         if (report.Violations.Count == 0)
@@ -324,9 +337,20 @@ public static class ViolationReportExporter
 /// whole report type model; <see cref="ViolationReportExporter"/>'s HTML
 /// rendering (a later slice) consumes it. The timestamp is injected — never read
 /// from the ambient clock — to keep output deterministic under test.
+///
+/// <para>ADR-030 D3 (#188) adds three OPTIONAL honesty fields — the active
+/// <see cref="RulesetName"/>, the <see cref="TriagedCount"/> ("N findings excluded
+/// by triage") and the <see cref="UncheckedCount"/> ("N unexpanded areas") — so a
+/// bare export is self-describing. They default to null/0 (the 4-arg construction
+/// remains valid); the exporter renders the three extra header rows ONLY when
+/// <see cref="RulesetName"/> is non-null, so a 4-arg header yields byte-identical
+/// legacy output.</para>
 /// </summary>
 public sealed record ReportHeader(
     string RootDn,
     string RootName,
     string ConnectionSummary,
-    DateTimeOffset GeneratedAt);
+    DateTimeOffset GeneratedAt,
+    string? RulesetName = null,
+    int TriagedCount = 0,
+    int UncheckedCount = 0);

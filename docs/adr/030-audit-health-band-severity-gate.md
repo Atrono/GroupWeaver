@@ -1,6 +1,6 @@
 # ADR-030: Audit health band severity-gate — never read green over a live Error; disclose triage
 
-**Status:** Proposed · **Date:** 2026-06-29
+**Status:** Accepted · **Date:** 2026-06-29 (accepted 2026-06-30, implemented #188)
 **Decides:** issue #188 (UX fit-audit Lever 1) · **Phase:** 4 (feedback-driven)
 **Builds on:** ADR-009 (`RuleEngine.Evaluate` / `RuleReport` — the severity model `Info<Warning<Error`), ADR-028 (triage as tagged global-ignore entries; the would-be vs live report split; the `[ack]`/`[suppress]` grammar lives in App's `TriageEntry`), ADR-013 (export pipeline / `ViolationReportExporter` header), PLANNING.md AP 3.4 / WP5c (the audit health dashboard). Refines the `AuditSummary` band derivation only.
 

@@ -495,14 +495,29 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// text (WCAG 1.4.1); the ring color is band-coded in the view.</summary>
     public double RingFraction => Score / 100.0;
 
-    /// <summary>The screen-reader label for the health ring (WCAG 1.1.1 / 4.1.2): restates the
-    /// score + band so the decorative ring is not the sole channel.</summary>
-    public string HealthAutomationName => $"Directory health {Score} of 100, {Band}";
+    /// <summary>The screen-reader label for the health ring (WCAG 1.1.1 / 4.1.2): restates the gated
+    /// verdict so the decorative ring is not the sole channel. ADR-030 (#188): when a live Error gates
+    /// the band to "Action required" it leads with that verdict + the Critical count (the band is the
+    /// headline, the diluted score is secondary); otherwise the score+band phrasing.</summary>
+    public string HealthAutomationName => Critical > 0
+        ? $"Directory health: action required, {Critical} critical"
+        : $"Directory health {Score} of 100, {Band}";
 
     /// <summary>True when unexpanded areas remain unchecked (<see cref="AuditSummary.UncheckedPresent"/>):
     /// gates the honest "the score covers checked objects only" caveat so the score never implies a
     /// clean bill over unexpanded subtrees.</summary>
     public bool UncheckedPresent => Summary.UncheckedPresent;
+
+    /// <summary>The number of findings excluded from the LIVE health report by triage (ADR-030 D2 /
+    /// #188): the would-be report (triage-tagged ignores removed) minus the live report. Computed
+    /// App-side from the two reports the VM already holds — <see cref="AuditSummary.Compute"/> stays
+    /// pure over the live report and never learns the triage tag grammar (the ADR-028 boundary).
+    /// Never negative (the would-be set is a superset of the live set). Clamped belt-and-braces.</summary>
+    public int TriagedCount => Math.Max(0, _wouldBeReport.Violations.Count - _report.Violations.Count);
+
+    /// <summary>True when at least one finding is triaged (acknowledged/suppressed) out of the live
+    /// report — gates the D2 triage caveat beside the band (parallel to <see cref="UncheckedPresent"/>).</summary>
+    public bool HasTriaged => TriagedCount > 0;
 
     /// <summary>Error-severity finding count (<see cref="AuditSummary.Critical"/>).</summary>
     public int Critical => Summary.Critical;
@@ -538,6 +553,8 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(Passing));
         OnPropertyChanged(nameof(RuleClasses));
         OnPropertyChanged(nameof(UncheckedPresent));
+        OnPropertyChanged(nameof(TriagedCount));
+        OnPropertyChanged(nameof(HasTriaged));
         RebuildCategories();
         RebuildFindings();
     }
@@ -1064,14 +1081,24 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// <summary>Builds the HTML report header from the audit's identity (ADR-013 §2): root DN + the
     /// snapshot-resolved root name + the shell-threaded connection summary (an empty one falls back to
     /// a snapshot-object-count line, so an un-threaded audit still produces an honest header), with
-    /// <see cref="DateTimeOffset.Now"/> as the injected generation timestamp.</summary>
+    /// <see cref="DateTimeOffset.Now"/> as the injected generation timestamp. ADR-030 D3 (#188): also
+    /// carries the active ruleset name, the triaged count (<see cref="TriagedCount"/>) and the live
+    /// report's unchecked count, so a bare export is self-describing and can never present a clean bill
+    /// that omits the suppressions or the unexpanded scope.</summary>
     private ReportHeader BuildReportHeader()
     {
         var rootName = SubjectNameResolver.Resolve(_snapshot, RootDn);
         var summary = string.IsNullOrEmpty(_connectionSummary)
             ? $"{_snapshot.Objects.Count} objects loaded"
             : _connectionSummary;
-        return new ReportHeader(RootDn, rootName, summary, DateTimeOffset.Now);
+        return new ReportHeader(
+            RootDn,
+            rootName,
+            summary,
+            DateTimeOffset.Now,
+            RulesetName: _ruleset.Name,
+            TriagedCount: TriagedCount,
+            UncheckedCount: _report.UncheckedDns.Count);
     }
 
     /// <summary>Writes <paramref name="content"/> to <paramref name="path"/> as UTF-8 WITHOUT a BOM —

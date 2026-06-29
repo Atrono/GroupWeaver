@@ -287,6 +287,76 @@ public class ViolationReportHtmlTests
         Assert.Contains("</style>", html);
     }
 
+    // ---- ADR-030 D3 (#188): the populated honesty header rows ------------------
+
+    [Fact]
+    public void PopulatedHeader_RendersTheThreeHonestyMetaRows_WithExactLabelsAndText()
+    {
+        // ADR-030 D3 (#188): when the header carries a non-null RulesetName the exporter renders three
+        // extra meta rows — the active ruleset name, the triaged count ("N findings excluded by triage")
+        // and the unchecked count ("N unexpanded areas") — so a bare export is self-describing and can
+        // never present a clean bill that omits the suppressions or the unexpanded scope. Pin the EXACT
+        // labels + value text the implementation emits.
+        var report = new RuleReport(
+            new[] { V(RuleIds.EmptyGroup, RuleSeverity.Info, "empty", SubjectDn) },
+            Array.Empty<string>());
+        var header = new ReportHeader(
+            RootDn: "OU=AGDLP-Demo,DC=weavedemo,DC=example",
+            RootName: "AGDLP-Demo",
+            ConnectionSummary: "DemoProvider (offline)",
+            GeneratedAt: FixedGeneratedAt,
+            RulesetName: "Strict AGDLP",
+            TriagedCount: 4,
+            UncheckedCount: 7);
+
+        var html = ViolationReportExporter.ToHtml(report, Names, header);
+
+        // The three meta rows, verbatim (the exact <th> labels + <td> value text from ToHtml).
+        Assert.Contains("<tr><th>Ruleset</th><td>Strict AGDLP</td></tr>", html);
+        Assert.Contains("<tr><th>Triaged</th><td>4 findings excluded by triage</td></tr>", html);
+        Assert.Contains("<tr><th>Unchecked</th><td>7 unexpanded areas</td></tr>", html);
+    }
+
+    [Fact]
+    public void PopulatedHeader_EscapesTheRulesetName_NeverRawInterpolated()
+    {
+        // The ruleset name is an untrusted token (a user-named ruleset file) — it goes through HtmlEncode
+        // exactly like every other token, never raw-interpolated into the meta row.
+        var report = new RuleReport(Array.Empty<RuleViolation>(), Array.Empty<string>());
+        var header = new ReportHeader(
+            "OU=AGDLP-Demo,DC=weavedemo,DC=example",
+            "AGDLP-Demo",
+            "DemoProvider (offline)",
+            FixedGeneratedAt,
+            RulesetName: NameMarker + Inject,
+            TriagedCount: 0,
+            UncheckedCount: 0);
+
+        var html = ViolationReportExporter.ToHtml(report, Names, header);
+
+        Assert.Contains("&lt;script&gt;", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.Contains(NameMarker, html);
+    }
+
+    [Fact]
+    public void NullRulesetName_OmitsTheThreeHonestyRows_LegacyOutput()
+    {
+        // The complement: a 4-arg header (RulesetName == null, the default Header used everywhere above)
+        // renders NONE of the three honesty rows — the byte-identical legacy output the App's null-name
+        // path never hits but the 4-arg ReportHeader contract preserves.
+        var report = new RuleReport(
+            new[] { V(RuleIds.EmptyGroup, RuleSeverity.Info, "empty", SubjectDn) },
+            Array.Empty<string>());
+
+        var html = Render(report); // the shared Header has a null RulesetName.
+
+        Assert.DoesNotContain("<th>Ruleset</th>", html);
+        Assert.DoesNotContain("<th>Triaged</th>", html);
+        Assert.DoesNotContain("findings excluded by triage", html);
+        Assert.DoesNotContain("unexpanded areas", html);
+    }
+
     // ---- determinism ----------------------------------------------------------
 
     [Fact]

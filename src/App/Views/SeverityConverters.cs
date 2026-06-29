@@ -112,13 +112,17 @@ public static class SeverityConverters
     };
 
     // The health-ring band → its decorative fill hue (WP5c). Excellent/Good are healthy (green),
-    // Fair is amber, Poor (and any unknown band string) is red. The band string is the pinned
-    // AuditSummary.BandFor output ("Excellent"/"Good"/"Fair"/"Poor").
+    // Fair is amber, Poor (and any unknown band string) is red. The ADR-030 (#188) "Action required"
+    // band (a live Error, gated regardless of score) reuses the SAME Error/red severity hue — the full
+    // red ring at the diluted high fill + the band text + the Critical tile together tell the true
+    // story. The band string is the pinned AuditSummary.BandFor output ("Action required"/"Excellent"/
+    // "Good"/"Fair"/"Poor"). No new colour token — just a new mapping to the existing severity red.
     private static Color BandRingColorFor(string? band) => band switch
     {
         "Excellent" => BrandTokens.NamingOk.Color,
         "Good" => BrandTokens.NamingOk.Color,
         "Fair" => BrandTokens.Warning.Color,
+        "Action required" => BrandTokens.Error.Color,
         _ => BrandTokens.Error.Color,
     };
 

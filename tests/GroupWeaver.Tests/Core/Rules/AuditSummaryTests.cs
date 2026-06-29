@@ -14,9 +14,11 @@ namespace GroupWeaver.Tests.Core.Rules;
 /// <item><b>Demo baseline</b> — the SAME full demo snapshot + embedded default
 /// ruleset the AP 3.2 baseline pins (<see cref="RuleEngineDemoBaselineTests"/>),
 /// reused via <see cref="DemoProviderFixture"/>. The 19-finding baseline rolls
-/// up to Critical=4 / Warnings=3 / Info=12 over CheckedSubjects=40, Score=55
-/// "Fair". If a number drifts, suspect the dataset or the engine, never this
-/// table — the AP 3.2 baseline is authoritative.</item>
+/// up to Critical=4 / Warnings=3 / Info=12 over CheckedSubjects=40, Score=55,
+/// band "Action required" (ADR-030 #188 gates the band on the 4 live Errors, not
+/// the scalar score — the old scalar band was "Fair"). If a number drifts,
+/// suspect the dataset or the engine, never this table — the AP 3.2 baseline is
+/// authoritative.</item>
 /// <item><b>Hand-built</b> — for clean/disabled/tri-state/weight/band cases, a
 /// minimal <see cref="DirectorySnapshot"/> plus a directly constructed
 /// <see cref="RuleReport"/> (Compute reads only report counts + snapshot
@@ -65,8 +67,15 @@ public class AuditSummaryTests : IClassFixture<DemoProviderFixture>
         Assert.True(summary.UncheckedPresent);
 
         // penalty = 3*4 + 1*3 + 0.25*12 = 18; raw = 100 - 18/40*100 = 55.
+        // Score + penalty math are UNCHANGED by ADR-030 (#188).
         Assert.Equal(55, summary.Score);
-        Assert.Equal("Fair", summary.Band);
+
+        // ADR-030 (#188) DELIBERATE REBAND: the band is now gated on worst LIVE
+        // severity, not the scalar score. The demo baseline has 4 live Errors
+        // (3 nesting + 1 cycle) => Critical>0 => band "Action required", overriding
+        // the old scalar "Fair" band. The 19-finding counts / Score / penalty above
+        // are intentionally unchanged — only the Band moves (D1, D4).
+        Assert.Equal("Action required", summary.Band);
 
         // ByRuleClass: RuleId -> finding count, compared as a sorted projection.
         // naming-ug has zero findings => absent from the map (only findings count).
@@ -266,21 +275,27 @@ public class AuditSummaryTests : IClassFixture<DemoProviderFixture>
     // --- 6. Band boundaries: exact thresholds ---------------------------------------------
 
     [Theory]
-    // CheckedSubjects pinned at 100 so penalty (weight units) maps 1:1 to points removed.
-    [InlineData(0, 100, "Excellent")] // perfect
-    [InlineData(10, 90, "Excellent")] // 90 is the Excellent floor (>=90)
-    [InlineData(11, 89, "Good")]      // 89 falls to Good
-    [InlineData(25, 75, "Good")]      // 75 is the Good floor (>=75)
-    [InlineData(26, 74, "Fair")]      // 74 falls to Fair
-    [InlineData(50, 50, "Fair")]      // 50 is the Fair floor (>=50)
-    [InlineData(51, 49, "Poor")]      // 49 falls to Poor
-    [InlineData(100, 0, "Poor")]      // worst (clamped to 0)
-    public void Compute_BandThresholds_ArePinnedExactly(int warnings, int expectedScore, string expectedBand)
+    // CheckedSubjects pinned at 100; driven by INFO findings (weight 0.25). ADR-030
+    // (#188) gates the band on worst LIVE severity, so Errors (=> "Action required")
+    // and Warnings (=> capped below Excellent) can no longer exercise the PURE score
+    // band thresholds — only Info leaves the score band intact (Info does NOT cap).
+    // info count N over CS=100: penalty 0.25N, points removed 0.25N, score 100-0.25N
+    // (N a multiple of 4 => exact integer). The warn-cap / critical-gate behaviour is
+    // owned by section 7 below; this Theory isolates the score->band mapping.
+    [InlineData(0, 100, "Excellent")]   // perfect
+    [InlineData(40, 90, "Excellent")]   // 90 is the Excellent floor (>=90)
+    [InlineData(44, 89, "Good")]        // 89 falls to Good
+    [InlineData(100, 75, "Good")]       // 75 is the Good floor (>=75)
+    [InlineData(104, 74, "Fair")]       // 74 falls to Fair
+    [InlineData(200, 50, "Fair")]       // 50 is the Fair floor (>=50)
+    [InlineData(204, 49, "Poor")]       // 49 falls to Poor
+    [InlineData(400, 0, "Poor")]        // worst (clamped to 0)
+    public void Compute_BandThresholds_ArePinnedExactly(int infoCount, int expectedScore, string expectedBand)
     {
-        // Warnings (weight 1.0) over CS=100: penalty == warnings, raw == 100-warnings.
+        // Info (weight 0.25) over CS=100: penalty == 0.25*infoCount, raw == 100 - 0.25*infoCount.
         var snapshot = LoadedGroups(100);
         var ruleset = RulesetLoader.LoadDefault();
-        var report = ReportWith(Repeat(RuleSeverity.Warning, warnings));
+        var report = ReportWith(Repeat(RuleSeverity.Info, infoCount));
 
         var summary = AuditSummary.Compute(report, snapshot, ruleset);
 
@@ -299,8 +314,128 @@ public class AuditSummaryTests : IClassFixture<DemoProviderFixture>
         var summary = AuditSummary.Compute(report, snapshot, ruleset);
 
         Assert.Equal(0, summary.Score);
-        Assert.Equal("Poor", summary.Band);
+        // ADR-030 (#188): 50 live Errors => Critical>0 => band "Action required"
+        // (the band is gated on severity, not the clamped scalar — at score 0 the old
+        // scalar band was "Poor"). The score-clamp invariant below is the real point
+        // of this test and is unchanged.
+        Assert.Equal("Action required", summary.Band);
         Assert.True(summary.Passing >= 0); // Passing is never negative
+    }
+
+    // --- 7. ADR-030 (#188) band severity-gate: the band is gated on worst LIVE -------------
+    //        severity, decoupled from the scalar score. Priority order:
+    //        Critical>0 => "Action required" (any score); else Warnings>0 => capped
+    //        below Excellent (max "Good"); else the score band. Info does NOT cap.
+
+    [Fact]
+    public void Compute_OneErrorDilutedToScore100_StillBandsActionRequired()
+    {
+        // The ADR's dilution case: a single live Error among ~2000 clean checked
+        // subjects. penalty = 3*1 = 3; raw = 100 - 3/2000*100 = 99.85, rounds to 100.
+        // The scalar score is "Excellent" territory (>=90), but a live structural
+        // Error must force the new top-priority band "Action required" REGARDLESS of
+        // the score — a green ring must never sit over a live AGDLP-breaking Error.
+        var snapshot = LoadedGroups(2000);
+        var ruleset = RulesetLoader.LoadDefault();
+        var report = ReportWith(Finding(RuleSeverity.Error));
+
+        var summary = AuditSummary.Compute(report, snapshot, ruleset);
+
+        Assert.Equal(1, summary.Critical);
+        Assert.True(summary.Score >= 90, $"score should dilute to >=90 (was {summary.Score})");
+        Assert.Equal(100, summary.Score); // pinned: 99.85 rounds AwayFromZero to 100
+        Assert.Equal("Action required", summary.Band);
+    }
+
+    [Fact]
+    public void Compute_ErrorPresent_OverridesEvenAnOtherwiseExcellentScore_PriorityOverWarnings()
+    {
+        // Critical>0 wins the priority gate over BOTH the score AND the Warnings cap:
+        // an Error + a Warning at a would-be-Excellent score still bands
+        // "Action required", not the warn-capped "Good".
+        var snapshot = LoadedGroups(2000);
+        var ruleset = RulesetLoader.LoadDefault();
+        var report = ReportWith(Finding(RuleSeverity.Error), Finding(RuleSeverity.Warning, "CN=W,OU=X,DC=lab"));
+
+        var summary = AuditSummary.Compute(report, snapshot, ruleset);
+
+        Assert.Equal(1, summary.Critical);
+        Assert.Equal(1, summary.Warnings);
+        Assert.True(summary.Score >= 90, $"score should remain Excellent territory (was {summary.Score})");
+        Assert.Equal("Action required", summary.Band);
+    }
+
+    [Fact]
+    public void Compute_WarningsPresentNoCritical_ExcellentScoreCapsToGood()
+    {
+        // Warnings>0 and Critical==0: a would-be-Excellent score (>=90) is capped
+        // below the top "genuinely clean" band, to max "Good" — never "Excellent".
+        // 1 Warning over CS=2000: penalty 1, raw = 100 - 1/2000*100 = 99.95 -> 100.
+        var snapshot = LoadedGroups(2000);
+        var ruleset = RulesetLoader.LoadDefault();
+        var report = ReportWith(Finding(RuleSeverity.Warning));
+
+        var summary = AuditSummary.Compute(report, snapshot, ruleset);
+
+        Assert.Equal(0, summary.Critical);
+        Assert.Equal(1, summary.Warnings);
+        Assert.True(summary.Score >= 90, $"score should be Excellent territory (was {summary.Score})");
+        Assert.Equal("Good", summary.Band); // capped below Excellent, not "Excellent"
+    }
+
+    [Fact]
+    public void Compute_WarningsPresentNoCritical_FairScoreStaysFair()
+    {
+        // Warnings>0, Critical==0, but the score is already in the Fair range — the
+        // warn-cap only forbids "Excellent"; a non-Excellent score band is unchanged.
+        // 30 Warnings over CS=100: penalty 30, raw = 70 -> "Fair" (>=50, <75).
+        var snapshot = LoadedGroups(100);
+        var ruleset = RulesetLoader.LoadDefault();
+        var report = ReportWith(Repeat(RuleSeverity.Warning, 30));
+
+        var summary = AuditSummary.Compute(report, snapshot, ruleset);
+
+        Assert.Equal(0, summary.Critical);
+        Assert.Equal(30, summary.Warnings);
+        Assert.Equal(70, summary.Score);
+        Assert.Equal("Fair", summary.Band); // the cap doesn't touch a non-Excellent band
+    }
+
+    [Fact]
+    public void Compute_AllClean_HighScore_KeepsExcellent()
+    {
+        // Critical==0, Warnings==0: the score band is intact. A genuinely clean,
+        // fully-checked scope reads "Excellent" at score 100 (the gate's else arm).
+        var snapshot = LoadedGroups(50);
+        var ruleset = RulesetLoader.LoadDefault();
+        var report = ReportWith();
+
+        var summary = AuditSummary.Compute(report, snapshot, ruleset);
+
+        Assert.Equal(0, summary.Critical);
+        Assert.Equal(0, summary.Warnings);
+        Assert.Equal(100, summary.Score);
+        Assert.Equal("Excellent", summary.Band);
+    }
+
+    [Fact]
+    public void Compute_InfoOnlyFindings_NoCritical_NoWarnings_DoesNotCap_StaysExcellent()
+    {
+        // Info-only findings (Critical==0, Warnings==0) do NOT cap the band: an
+        // info-only directory with a >=90 score still bands "Excellent". The warn-cap
+        // gate is keyed on Warnings>0, not on "any finding".
+        // 4 Info over CS=2000: penalty 0.25*4 = 1, raw = 100 - 1/2000*100 = 99.95 -> 100.
+        var snapshot = LoadedGroups(2000);
+        var ruleset = RulesetLoader.LoadDefault();
+        var report = ReportWith(Repeat(RuleSeverity.Info, 4));
+
+        var summary = AuditSummary.Compute(report, snapshot, ruleset);
+
+        Assert.Equal(0, summary.Critical);
+        Assert.Equal(0, summary.Warnings);
+        Assert.Equal(4, summary.Info);
+        Assert.True(summary.Score >= 90, $"score should be Excellent territory (was {summary.Score})");
+        Assert.Equal("Excellent", summary.Band); // info does NOT cap below Excellent
     }
 
     // --- Helpers --------------------------------------------------------------------------
