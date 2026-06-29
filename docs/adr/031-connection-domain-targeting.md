@@ -1,6 +1,6 @@
 # ADR-031: Connection domain targeting — audit a specified domain/DC under integrated auth
 
-**Status:** Proposed · **Date:** 2026-06-29
+**Status:** Accepted · **Date:** 2026-06-29 (accepted 2026-06-30, implemented #189)
 **Decides:** issue #189 (UX fit-audit Lever 2) · **Phase:** 4 (feedback-driven)
 **Builds on:** ADR-003 (app-shell / connect step + the D7 inline-error policy), PLANNING.md E1/E2 (read-only, integrated Windows auth, **no credentials in code**), ADR-005 (`LoadScopeAsync` accepts any `baseDn`), PLANNING.md AP 2.1 (the mandatory scope picker). Refines the Connect surface + the Root Picker candidate set only.
 

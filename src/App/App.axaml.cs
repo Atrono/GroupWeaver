@@ -52,7 +52,11 @@ public sealed partial class App : Application
                 static () => new CytoscapeGraphRenderer(),
                 locator.LoadEffective(),
                 locator,
-                uiStateStore);
+                uiStateStore,
+                // ADR-031 D1: the targeted live-provider builder behind the Connect card's Advanced
+                // disclosure — still integrated auth, no credentials. Inputs are validated by
+                // ConnectionTarget before reaching this; blank fields never call it (serverless default).
+                static (server, baseDn) => new LdapProvider(server, baseDn));
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
 

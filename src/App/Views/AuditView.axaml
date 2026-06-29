@@ -152,7 +152,7 @@
                   <TextBlock Grid.Column="0" Text="&#x2139;" Classes="secondary"
                              VerticalAlignment="Top" Margin="0,0,8,0" />
                   <TextBlock Grid.Column="1"
-                             Text="{Binding TriagedCount, StringFormat='{}{0} findings acknowledged/suppressed — excluded from this score.'}"
+                             Text="{Binding TriageCaveatText}"
                              Classes="secondary" TextWrapping="Wrap" />
                 </Grid>
               </Border>

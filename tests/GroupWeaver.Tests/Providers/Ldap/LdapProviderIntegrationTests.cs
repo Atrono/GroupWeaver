@@ -293,14 +293,38 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
     // --- T10: root candidates ------------------------------------------------------
 
     [AdFact]
-    public async Task GetRootCandidates_Returns45_OnlyOusAndGroups()
+    public async Task GetRootCandidates_Returns46_WholeDomainSyntheticPlusOusAndGroups()
     {
         var candidates = await _fixture.Provider.GetRootCandidatesAsync();
 
-        // 5 OUs (4 + the issue-#16 slash-OU fixture) + 40 groups.
-        Assert.Equal(45, candidates.Count);
-        Assert.Equal(5, candidates.Count(c => c.Kind == AdObjectKind.OrganizationalUnit));
-        Assert.Equal(40, candidates.Count(c => IsGroup(c.Kind))); // 5 + 40 = 45: no other kinds
+        // ADR-031 D3 (deliberate update of the pre-ADR-031 "Returns45" pin): the count is now
+        // 46, not 45 — GetRootCandidatesAsync PREPENDS one synthesized whole-domain candidate
+        // (an OrganizationalUnit-kind container at the effective base DN) ahead of the queried
+        // OUs + groups. Justification: the production change is a candidate-LIST addition only
+        // (LoadScopeAsync already accepts any baseDn), so the directory query result is
+        // unchanged — 5 OUs (4 + the issue-#16 slash-OU fixture) + 40 groups = the same 45 the
+        // old pin counted; the +1 is exactly the synthetic, asserted on its own below.
+        Assert.Equal(46, candidates.Count);
+        // 6 OUs now: the 5 real ones + the synthetic whole-domain container (OU-kind so it reads
+        // as a scope and passes the picker's OU/group filter).
+        Assert.Equal(6, candidates.Count(c => c.Kind == AdObjectKind.OrganizationalUnit));
+        Assert.Equal(40, candidates.Count(c => IsGroup(c.Kind))); // 6 + 40 = 46: no other kinds
+    }
+
+    [AdFact]
+    public async Task GetRootCandidates_PrependsWholeDomainCandidate_AtEffectiveBaseDn()
+    {
+        var candidates = await _fixture.Provider.GetRootCandidatesAsync();
+
+        // ADR-031 D3: the synthesized whole-domain entry is FIRST (prepended), built from the
+        // effective base DN (here the lab-pinned base, since this provider is new(localhost,
+        // LabDn)). Modeled as an OrganizationalUnit so it reads as a scope, not a group.
+        var first = candidates[0];
+        Assert.True(
+            Dn.Comparer.Equals(LabDn, first.Dn),
+            $"whole-domain candidate Dn should be the effective base DN '{LabDn}', was '{first.Dn}'");
+        Assert.Equal(AdObjectKind.OrganizationalUnit, first.Kind);
+        Assert.Equal($"Whole domain ({LabDn})", first.Name);
     }
 
     // --- T11: GetObjectAsync ---------------------------------------------------------
