@@ -20,25 +20,12 @@
   (RDP/server/VM) — see `spikes/GraphSpike/RESULTS-software-rendering.md`. This bullet
   is about PERF / rendering mode ONLY — it is NOT the cause of the local view-test
   failures below (the driver is currently PRESENT; the box has not been rebuilt).
-- **RESOLVED (#124, session 29): the ~12 local-only App view-test failures were a
-  test-isolation bug, NOT a GPU/headless quirk.** History: ~12 `GroupWeaver.App.Tests`
-  view-realization tests (`TypographyTests`, `DetailPanelViewTests`, `WorkspaceLoadTests`,
-  `ViolationsSidebarViewTests`, `SidebarExportButtonsViewTests`) failed LOCALLY (all
-  `Assert.*` over `IsEffectivelyVisible` / realized children seeing `Collection: []`) while
-  green on CI. Session 26 blamed an absent GPU driver (wrong — driver was PRESENT); session
-  28 called it an unexplained Avalonia.Headless quirk (also wrong). **Real root cause** (found
-  via an instrumented headless probe): those tests built the real `WorkspaceViewModel` WITHOUT
-  injecting a `UiStateStore`, so its ctor defaulted to `new UiStateStore()` and read the real
-  `%APPDATA%\GroupWeaver\ui-state.json`. This box had `RailCollapsed:true` persisted (from
-  interactive use / the demo-GIF recorder), so the ADR-022 right rail collapsed to width 0 →
-  `DetailPanelRegion`/sidebar got Bounds 0x0, `IsEffectivelyVisible=false`, zero realized
-  children → the text assertions saw `[]`. CI is a fresh machine (no ui-state.json) → `Load()`
-  returns `UiState.Default` (rail expanded) → green. **Fix:** inject a fresh
-  `Directory.CreateTempSubdirectory(...)`-backed `UiStateStore` into each affected test's VM
-  helper (the established idiom from `ParkingLotBackNavigationTests`/`ShellScreenshotTests`/
-  `WorkspaceRailStateTests`) — hermetic, never touches real `%APPDATA%`. **General lesson:**
-  any App test that constructs a VM reading user-profile state (`UiStateStore`, `RulesetLocator`)
-  MUST inject a temp-dir seam — a green CI run can still hide a dev-box-polluting read.
+- **App tests that build a VM reading user-profile state MUST inject a temp-dir-backed
+  `UiStateStore` (resolved #124, session 29).** Otherwise the ctor reads the real
+  `%APPDATA%\GroupWeaver\ui-state.json`; a persisted `RailCollapsed:true` zeroes the ADR-022
+  rail, so view-realization asserts (`IsEffectivelyVisible`, realized children) see `[]`
+  LOCALLY while CI (fresh box, no state file) stays green. Use the
+  `Directory.CreateTempSubdirectory(...)`-backed seam idiom from `WorkspaceRailStateTests`.
 - **`bash`/`sh` ARE on the Machine PATH since 2026-06-12** (`C:\Program
   Files\Git\bin`, added by `bootstrap.ps1` step 2b; `usr\bin` deliberately NOT —
   its Unix `find`/`sort` risk shadowing Windows'). Sessions started before the

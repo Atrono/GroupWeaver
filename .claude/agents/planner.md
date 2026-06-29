@@ -17,8 +17,9 @@ When decomposing a work package:
   subagent should implement it.
 
 When drafting an ADR:
-- Format `docs/adr/NNN-title.md`: Context / Decision / Consequences, under a page.
-- State rejected alternatives with one-line reasons.
+- Follow the `adr-author` skill for the house format (header block, D1..Dn decisions,
+  "Where the code lives" map, mandatory "Security-review note", rejected alternatives).
+- Return the draft text; the orchestrator numbers and files it via that skill.
 
 Hard constraints you must never plan around: no AD-write code paths in `src/`,
 detail panel limited to the attribute whitelist, RuleEngine/GraphBuilder stay UI-free.

@@ -1,7 +1,7 @@
 # GroupWeaver – Projektplanung
 
 **Projektname:** GroupWeaver (GitHub-Fallback: `groupweaver-app`)
-**Stand:** Juni 2026 · **Status:** lebender Plan — **v0.2.0 öffentlich released (2026-06-15)**, **v0.2.1 (UI-Politur) released (2026-06-22)**, **v0.3.0 (In-Graph-Navigation, Fokus-Modus, Back-Nav-Crash-Fix) released (2026-06-23)**, **v0.3.1 (Viewport-erhaltende Back-Navigation) released (2026-06-23)**; Phase 4 läuft
+**Stand:** Juni 2026 · **Status:** lebender Plan — **v0.2.0 öffentlich released (2026-06-15)**, **v0.2.1 (UI-Politur) released (2026-06-22)**, **v0.3.0 (In-Graph-Navigation, Fokus-Modus, Back-Nav-Crash-Fix) released (2026-06-23)**, **v0.3.1 (Viewport-erhaltende Back-Navigation) released (2026-06-23)**, **v0.4.0 (2026-06 UX-Redesign) released (2026-06-24)**, **v0.4.1 (Audit-Screen-Politur) released (2026-06-25)**, **v0.4.2 released (2026-06-26)**; Phase 4 läuft (feedbackgetrieben: UX-Fit-Audit -> Hebel #188-190)
 **Projekttyp:** Open-Source-Nebenprojekt, Solo-Start, Read-only-Tool
 
 ---

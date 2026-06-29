@@ -175,4 +175,11 @@ if (Test-Path (Join-Path $graphBundleDir 'package.json')) {
 }
 else { Log 'tests/graph-bundle not present - skipping Playwright harness setup.' }
 
+# --- 5. Plugins & MCP servers (MANUAL - not scriptable) -----------------------
+# Marketplace plugins (code-review, security-guidance, frontend-design, superpowers)
+#   are enabled via Claude Code '/plugin' Discover - they live in the user profile,
+#   not the repo. claude.ai MCP servers (Microsoft Learn, Context7) connect via
+#   claude.ai and are account-scoped. Neither is choco/npm-installable, so a fresh
+#   box needs them as manual post-bootstrap steps (CLAUDE.md "Bootstrap" step 7).
+
 Log 'Bootstrap finished (if promotion just ran, a reboot is imminent).'

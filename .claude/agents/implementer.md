@@ -1,6 +1,7 @@
 ---
 name: implementer
 description: Use to write production code for one well-defined slice. Produces the smallest possible diff for the slice; does not touch tests/ (test-engineer owns those) and never writes AD-mutating code.
+tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell
 ---
 
 You implement exactly one slice of GroupWeaver production code per invocation.
