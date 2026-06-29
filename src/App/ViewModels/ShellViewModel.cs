@@ -23,6 +23,14 @@ namespace GroupWeaver.App.ViewModels;
 public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly Func<bool, IDirectoryProvider> _providerFactory;
+
+    /// <summary>ADR-031 D1: the targeted live-provider builder — <c>(server, baseDn) =></c> a
+    /// provider bound to that DC/domain under integrated auth. Threaded to every
+    /// <see cref="ConnectionViewModel"/> so the Connect card's Advanced disclosure can target a
+    /// specific domain/DC; <c>null</c> (the default / pre-ADR-031 call sites + tests) keeps the
+    /// serverless-only behavior.</summary>
+    private readonly Func<string?, string?, IDirectoryProvider>? _targetedProviderFactory;
+
     private readonly Func<IGraphRenderer>? _graphRendererFactory;
     private readonly RulesetLocator _locator;
 
@@ -120,9 +128,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Func<IGraphRenderer>? graphRendererFactory = null,
         EffectiveRuleset? ruleset = null,
         RulesetLocator? locator = null,
-        UiStateStore? uiStateStore = null)
+        UiStateStore? uiStateStore = null,
+        Func<string?, string?, IDirectoryProvider>? targetedProviderFactory = null)
     {
         _providerFactory = providerFactory;
+        _targetedProviderFactory = targetedProviderFactory;
         _graphRendererFactory = graphRendererFactory;
         _ruleset = ruleset;
         // ADR-022 D4: defaulted like the locator — the composition root passes the one store,
@@ -144,7 +154,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         WebView2Missing = !runtime.IsInstalled;
         WebView2Version = runtime.Version;
 
-        var connect = new ConnectionViewModel(providerFactory, OnConnected);
+        var connect = new ConnectionViewModel(providerFactory, OnConnected, _targetedProviderFactory);
         _currentStep = connect;
 
         // --demo auto-connects without user input; storing the Task keeps the startup
@@ -440,7 +450,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         Provider = null;
         IsDemoMode = false;
-        CurrentStep = new ConnectionViewModel(_providerFactory, OnConnected);
+        CurrentStep = new ConnectionViewModel(_providerFactory, OnConnected, _targetedProviderFactory);
     }
 
     private void OnRootChosen(WorkspaceViewModel workspace)

@@ -194,6 +194,244 @@ public sealed class ConnectionFlowTests
         Assert.Same(released, ConfirmAndGetCarriedConnection(shell, picker));
     }
 
+    // --- ADR-031: targeted-connect (the Advanced disclosure) -------------------
+
+    [Fact]
+    public async Task TargetedConnect_ValidatedServerAndBaseDn_ReachTheTargetedFactory()
+    {
+        var expected = new DirectoryConnection("targeted directory", 3);
+        var provider = Stub(expected);
+        var targetedArgs = new List<(string? Server, string? BaseDn)>();
+        var connected = new List<(IDirectoryProvider Provider, bool Demo)>();
+        var connect = new ConnectionViewModel(
+            _ => throw new InvalidOperationException("the serverless factory must NOT run when targeting"),
+            (p, _, demo) => connected.Add((p, demo)),
+            (server, baseDn) =>
+            {
+                targetedArgs.Add((server, baseDn));
+                return provider;
+            })
+        {
+            TargetServer = "  dc01.corp.local  ", // surrounding whitespace is trimmed by the validator
+            TargetBaseDn = "OU=Groups,DC=corp,DC=local",
+        };
+
+        await connect.ConnectCommand.ExecuteAsync(null);
+
+        // The validated, TRIMMED values reach the targeted factory exactly once.
+        var args = Assert.Single(targetedArgs);
+        Assert.Equal("dc01.corp.local", args.Server);
+        Assert.Equal("OU=Groups,DC=corp,DC=local", args.BaseDn);
+        Assert.Same(provider, Assert.Single(connected).Provider);
+        Assert.False(Assert.Single(connected).Demo, "the live targeted path is never the demo flag");
+        Assert.Null(connect.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task TargetedConnect_OnlyServerEntered_PassesNullBaseDn()
+    {
+        var provider = Stub(new DirectoryConnection("targeted", 1));
+        var targetedArgs = new List<(string? Server, string? BaseDn)>();
+        var connect = new ConnectionViewModel(
+            _ => throw new InvalidOperationException("the serverless factory must NOT run when one field is set"),
+            (_, _, _) => { },
+            (server, baseDn) =>
+            {
+                targetedArgs.Add((server, baseDn));
+                return provider;
+            })
+        {
+            TargetServer = "10.0.0.5",
+            // base DN left blank => validates to null (read defaultNamingContext at bind)
+        };
+
+        await connect.ConnectCommand.ExecuteAsync(null);
+
+        var args = Assert.Single(targetedArgs);
+        Assert.Equal("10.0.0.5", args.Server);
+        Assert.Null(args.BaseDn);
+        Assert.Null(connect.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task BlankAdvancedFields_TakeTheServerlessDefault_PreservingZeroConfig()
+    {
+        var expected = new DirectoryConnection("serverless directory", 9);
+        var provider = Stub(expected);
+        var serverlessArgs = new List<bool>();
+        var connected = new List<IDirectoryProvider>();
+        var connect = new ConnectionViewModel(
+            demo =>
+            {
+                serverlessArgs.Add(demo);
+                return provider;
+            },
+            (p, _, _) => connected.Add(p),
+            (_, _) => throw new InvalidOperationException(
+                "the targeted factory must NOT run when both Advanced fields are blank (zero-config default)"));
+        // TargetServer / TargetBaseDn left null (the collapsed Advanced default).
+
+        await connect.ConnectCommand.ExecuteAsync(null);
+
+        // The zero-config serverless path: _providerFactory(false), never the targeted factory.
+        Assert.False(Assert.Single(serverlessArgs), "blank Advanced fields must request the live serverless provider");
+        Assert.Same(provider, Assert.Single(connected));
+        Assert.Null(connect.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task TargetedFactoryNull_WithFieldsEntered_FallsBackToServerless()
+    {
+        // A pre-ADR-031 call site (no targeted factory wired) must still connect serverlessly
+        // even with the fields populated — never NRE on a null targeted factory.
+        var provider = Stub(new DirectoryConnection("serverless fallback", 2));
+        var serverlessArgs = new List<bool>();
+        var connect = new ConnectionViewModel(
+            demo =>
+            {
+                serverlessArgs.Add(demo);
+                return provider;
+            },
+            (_, _, _) => { },
+            targetedProviderFactory: null)
+        {
+            TargetServer = "dc01",
+            TargetBaseDn = "DC=corp,DC=local",
+        };
+
+        await connect.ConnectCommand.ExecuteAsync(null);
+
+        Assert.False(Assert.Single(serverlessArgs), "no targeted factory ⇒ the live serverless provider is used");
+        Assert.Null(connect.ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData("LDAP://evil/DC=x", null)] // injected scheme/path in the server
+    [InlineData("a/b", null)]
+    [InlineData("a(b", null)] // filter metacharacter in the server
+    [InlineData(null, "notadn")] // garbage base DN
+    [InlineData(null, "=novalue")]
+    public async Task InvalidAdvancedInput_SurfacesInlineError_AndBuildsNoProvider(
+        string? server, string? baseDn)
+    {
+        var serverlessCalls = 0;
+        var targetedCalls = 0;
+        var connected = 0;
+        var connect = new ConnectionViewModel(
+            _ =>
+            {
+                serverlessCalls++;
+                return Stub(new DirectoryConnection("unused", 0));
+            },
+            (_, _, _) => connected++,
+            (_, _) =>
+            {
+                targetedCalls++;
+                return Stub(new DirectoryConnection("unused", 0));
+            })
+        {
+            TargetServer = server,
+            TargetBaseDn = baseDn,
+        };
+
+        await connect.ConnectCommand.ExecuteAsync(null);
+
+        // ADR-031 D5 / ADR-003 D7: invalid input shows the inline error and aborts BEFORE any
+        // provider is built — never reach AdsPath with an injectable host or a garbage base.
+        Assert.False(string.IsNullOrWhiteSpace(connect.ErrorMessage), "invalid input must surface an inline error");
+        Assert.Equal(0, serverlessCalls);
+        Assert.Equal(0, targetedCalls);
+        Assert.Equal(0, connected);
+        Assert.False(connect.IsConnecting, "a rejected validation must release the in-flight latch");
+    }
+
+    [Fact]
+    public async Task DemoPath_IgnoresAdvancedTargeting_EvenWithInvalidServer()
+    {
+        // The demo path never targets: an invalid server in the Advanced fields must not block
+        // Demo mode (targeting is a live-path concern only).
+        var provider = Stub(new DirectoryConnection("demo", 7));
+        var serverlessArgs = new List<bool>();
+        var connect = new ConnectionViewModel(
+            demo =>
+            {
+                serverlessArgs.Add(demo);
+                return provider;
+            },
+            (_, _, _) => { },
+            (_, _) => throw new InvalidOperationException("demo must never reach the targeted factory"))
+        {
+            TargetServer = "LDAP://would-be-invalid", // ignored on the demo path
+        };
+
+        await connect.ConnectDemoCommand.ExecuteAsync(null);
+
+        Assert.True(Assert.Single(serverlessArgs), "the demo path requests the demo provider regardless of targeting");
+        Assert.Null(connect.ErrorMessage);
+    }
+
+    [Fact]
+    public void TargetLine_NamesTheDirectory_AcrossTheFourTargetingStates()
+    {
+        var connect = new ConnectionViewModel(_ => Stub(new DirectoryConnection("x", 0)), (_, _, _) => { });
+        string ctx = connect.CurrentUserContext;
+
+        // Both blank: the serverless default resolves the FQDN at bind time.
+        Assert.Equal($"as {ctx} against the detected domain", connect.TargetLine);
+
+        connect.TargetServer = "dc01.corp.local";
+        Assert.Equal($"as {ctx} against dc01.corp.local", connect.TargetLine);
+
+        connect.TargetServer = null;
+        connect.TargetBaseDn = "OU=Groups,DC=corp,DC=local";
+        Assert.Equal($"as {ctx} against OU=Groups,DC=corp,DC=local", connect.TargetLine);
+
+        connect.TargetServer = "dc01";
+        Assert.Equal($"as {ctx} against dc01 — OU=Groups,DC=corp,DC=local", connect.TargetLine);
+    }
+
+    [Fact]
+    public void ToggleAdvanced_FlipsTheDisclosure_CollapsedByDefault()
+    {
+        var connect = new ConnectionViewModel(_ => Stub(new DirectoryConnection("x", 0)), (_, _, _) => { });
+
+        Assert.False(connect.IsAdvancedExpanded, "the Advanced disclosure is collapsed by default (zero-config)");
+
+        connect.ToggleAdvancedCommand.Execute(null);
+        Assert.True(connect.IsAdvancedExpanded);
+
+        connect.ToggleAdvancedCommand.Execute(null);
+        Assert.False(connect.IsAdvancedExpanded);
+    }
+
+    [Fact]
+    public async Task ShellTargetedFactory_ThreadsThroughToTheConnectStep()
+    {
+        // The ShellViewModel's optional trailing targetedProviderFactory must reach the Connect
+        // step it builds — proving the wire is end-to-end, not just on a bare ConnectionViewModel.
+        var provider = Stub(new DirectoryConnection("shell targeted", 4));
+        var targetedArgs = new List<(string? Server, string? BaseDn)>();
+        var shell = new ShellViewModel(
+            _ => throw new InvalidOperationException("the serverless factory must NOT run when targeting"),
+            new StartupOptions(Demo: false),
+            new WebView2RuntimeStatus(IsInstalled: true, Version: "test"),
+            targetedProviderFactory: (server, baseDn) =>
+            {
+                targetedArgs.Add((server, baseDn));
+                return provider;
+            });
+        var connect = Assert.IsType<ConnectionViewModel>(shell.CurrentStep);
+        connect.TargetServer = "dc02.corp.local";
+
+        await connect.ConnectCommand.ExecuteAsync(null);
+
+        var args = Assert.Single(targetedArgs);
+        Assert.Equal("dc02.corp.local", args.Server);
+        Assert.Null(args.BaseDn);
+        Assert.Same(provider, shell.Provider);
+        Assert.IsType<RootPickerViewModel>(shell.CurrentStep);
+    }
+
     // --- View level: headless visual tree --------------------------------------
 
     [AvaloniaFact]

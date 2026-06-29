@@ -89,8 +89,24 @@ public sealed class LdapProvider : IDirectoryProvider
         RunAsync<IReadOnlyList<AdObject>>(
             "enumerate root candidates", cancellationToken, () =>
         {
-            var candidates = new List<AdObject>();
-            using var root = new DirectoryEntry(PathFor(EffectiveBaseDn()));
+            string baseDn = EffectiveBaseDn();
+
+            // ADR-031 D3: the domain root is a first-class scope candidate, synthesized from
+            // the effective base DN and prepended to the OU+group candidates. LoadScopeAsync
+            // already accepts any baseDn (incl. the domain DN), so this is a candidate-LIST
+            // addition only — no load-path change. Modeled as a container (OrganizationalUnit
+            // kind) so it reads as a scope, not a group, and passes the picker's kind filter.
+            var candidates = new List<AdObject>
+            {
+                new()
+                {
+                    Dn = baseDn,
+                    Kind = AdObjectKind.OrganizationalUnit,
+                    Name = $"Whole domain ({baseDn})",
+                },
+            };
+
+            using var root = new DirectoryEntry(PathFor(baseDn));
             using var searcher = CreateSearcher(
                 root,
                 SearchScope.Subtree,

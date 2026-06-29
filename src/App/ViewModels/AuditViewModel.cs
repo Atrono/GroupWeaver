@@ -519,6 +519,12 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// report — gates the D2 triage caveat beside the band (parallel to <see cref="UncheckedPresent"/>).</summary>
     public bool HasTriaged => TriagedCount > 0;
 
+    /// <summary>The D2 triage-caveat sentence (ADR-030 / #188), pluralized in the VM so "1 finding" reads
+    /// grammatically where a raw <c>StringFormat</c> would emit "1 findings". Only shown when
+    /// <see cref="HasTriaged"/>; the rest of the sentence is identical for any count.</summary>
+    public string TriageCaveatText =>
+        $"{TriagedCount} {(TriagedCount == 1 ? "finding" : "findings")} acknowledged/suppressed — excluded from this score.";
+
     /// <summary>Error-severity finding count (<see cref="AuditSummary.Critical"/>).</summary>
     public int Critical => Summary.Critical;
 
@@ -555,6 +561,7 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(UncheckedPresent));
         OnPropertyChanged(nameof(TriagedCount));
         OnPropertyChanged(nameof(HasTriaged));
+        OnPropertyChanged(nameof(TriageCaveatText));
         RebuildCategories();
         RebuildFindings();
     }

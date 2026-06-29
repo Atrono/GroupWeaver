@@ -52,6 +52,32 @@
                    Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
                    TextWrapping="Wrap" TextAlignment="Center" />
 
+        <!-- ADR-031 D4: the pre-bind target confirmation — WHICH directory this connects to,
+             before binding. Tracks the Advanced fields below (or "the detected domain" when blank). -->
+        <TextBlock Classes="secondary"
+                   Text="{Binding TargetLine}"
+                   TextWrapping="Wrap" TextAlignment="Center" />
+
+        <!-- ADR-031 D1: collapsed-by-default "Advanced" disclosure to target a specific domain/DC.
+             Blank fields keep the zero-config serverless default (the card above is unchanged when
+             this stays untouched). Still integrated auth — no credential fields ever. -->
+        <Button Classes="ghost" Padding="0"
+                Command="{Binding ToggleAdvancedCommand}"
+                HorizontalAlignment="Center" Background="Transparent" BorderThickness="0">
+          <TextBlock Classes="secondary"
+                     Text="Advanced — target a specific domain or DC" />
+        </Button>
+        <StackPanel Spacing="8" IsVisible="{Binding IsAdvancedExpanded}">
+          <TextBox Watermark="Server / DC host (optional, e.g. dc1.corp.example)"
+                   Text="{Binding TargetServer}" />
+          <TextBox Watermark="Base DN (optional, e.g. OU=Groups,DC=corp,DC=example)"
+                   Text="{Binding TargetBaseDn}" />
+          <!-- ADR-031 D2: alternate credentials are an OS concern, never an in-app field. -->
+          <TextBlock Classes="secondary"
+                     Text="Binds as the current Windows user. For a domain that needs a different account, launch via runas /netonly — credentials are never stored in the app."
+                     TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+
         <Button Classes="ghost" Content="Demo mode"
                 Command="{Binding ConnectDemoCommand}"
                 Margin="0,8,0,0"
