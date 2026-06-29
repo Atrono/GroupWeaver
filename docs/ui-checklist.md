@@ -367,3 +367,25 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
       area shows "No findings match the current filters." — DISTINCT from the all-clear "No findings
       to list." (shown only when the scope produced zero findings) [S:audit-view] [T:AuditViewModel —
       HasNoMatches vs IsAllClear]
+- [ ] Run-history compare card (ADR-032 / #190): an eyebrow "Run history · drift" section at the
+      bottom of the page carries "Save audit run" + "Compare to previous run" buttons (read-only —
+      they only write run JSON under %APPDATA%\GroupWeaver\runs\) and, after a compare, a "vs. run
+      {timestamp} · ruleset '{name}'" context line. The whole card is HIDDEN until the shell installs
+      the run-store seam (CanCompare) [S:wp-audit-compare-{dark,light}] [T:AuditViewModel —
+      CanCompare / HasComparison gating]
+- [ ] Four drift bucket tiles: Fixed / New / Still open / Now unchecked, each a card with a big
+      count + label and a colored accent — Fixed=NamingOk green, New=Error red, Still open=Warning
+      amber, Now unchecked=neutral (the honesty bucket reads as a non-alarm). Counts are legible and
+      contrast-clear in BOTH themes (colour lives only in the accent border, never as text on a like
+      fill) [S:wp-audit-compare-{dark,light}] [T:AuditRunDiffTests — bucket partition; AuditRunStoreTests]
+- [B] Unchecked-honesty banner (the tri-state carried into drift): when EITHER run had unexpanded
+      areas, a tinted info block (the same treatment + glyph as the score's Unchecked caveat) reads
+      "One of these runs had unexpanded areas — this comparison is partial; a finding that vanished
+      under an unexpanded parent is counted as Now unchecked, not Fixed." — so a not-looked-at area is
+      never mis-read as remediation; hidden when both runs were fully checked [S:wp-audit-compare —
+      both variants] [T:AuditRunDiffTests — Now-unchecked never Fixed]
+- [ ] Ruleset-mismatch banner: when the two runs ran under different rulesets (differing content
+      hash), a warning-tinted block reads "The previous run used a different ruleset ('{prev}') than
+      this one ('{current}') — read this drift as a ruleset change, not pure remediation." so drift
+      under a changed ruleset is labelled, not blended; hidden when the hashes match [S:wp-audit-
+      compare — both variants] [T:AuditRunDiffTests — RulesetHashMismatch both ways]

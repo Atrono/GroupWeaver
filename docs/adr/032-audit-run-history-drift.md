@@ -1,6 +1,6 @@
 # ADR-032: Audit run history — persisted findings runs + drift comparison
 
-**Status:** Proposed · **Date:** 2026-06-29
+**Status:** Accepted · **Date:** 2026-06-29 (accepted 2026-06-30, implemented #190)
 **Decides:** issue #190 (UX fit-audit Lever 3) · **Phase:** 4 (feedback-driven)
 **Builds on:** ADR-009 (`RuleReport` / `AuditSummary` — the finding identity `RuleId` + `PrimaryDn`, `Dn.Comparer`-keyed; deterministic `RuleViolationComparer` order), ADR-013 (the export pipeline — the same data this artifact persists), ADR-015 + `.claude/rules/gap-diff.md` (`SnapshotDiff`'s static/pure/total discipline and the Added/Removed/Common/Unchecked vocabulary), ADR-008 / `RulesetLocator` (the `%APPDATA%\GroupWeaver\` persistence convention: atomic write, never-throw, injected-base-dir test seam), `.claude/rules/data-model.md` (DN identity, the null-vs-empty unchecked tri-state).
 

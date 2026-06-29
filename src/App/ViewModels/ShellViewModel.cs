@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Audit;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
@@ -38,6 +39,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// path exactly as <see cref="_locator"/> is; each workspace seeds + persists its rail state
     /// through it. Defaulted (pre-ADR-022 call sites/tests get the real <c>%APPDATA%</c> layout).</summary>
     private readonly UiStateStore _uiStateStore;
+
+    /// <summary>The ADR-032 (#190) audit run-history store, installed into each Audit step so its
+    /// Save-run + Compare commands persist/list runs under <c>%APPDATA%\GroupWeaver\runs\</c>.
+    /// Defaulted (pre-ADR-032 call sites/tests get the real <c>%APPDATA%</c> layout); a headless test
+    /// injects a temp-dir-backed store. The ONLY writes are run JSON files — never AD.</summary>
+    private readonly AuditRunStore _auditRunStore;
 
     /// <summary>Every disposable step the shell has created and must dispose at teardown
     /// (AP 4.2.2 dispose discipline): the Ist↔Plan switch keeps BOTH the workspace and the
@@ -129,7 +136,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         EffectiveRuleset? ruleset = null,
         RulesetLocator? locator = null,
         UiStateStore? uiStateStore = null,
-        Func<string?, string?, IDirectoryProvider>? targetedProviderFactory = null)
+        Func<string?, string?, IDirectoryProvider>? targetedProviderFactory = null,
+        AuditRunStore? auditRunStore = null)
     {
         _providerFactory = providerFactory;
         _targetedProviderFactory = targetedProviderFactory;
@@ -138,6 +146,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // ADR-022 D4: defaulted like the locator — the composition root passes the one store,
         // pre-ADR-022 tests omit it and get the real %APPDATA% layout.
         _uiStateStore = uiStateStore ?? new UiStateStore();
+        // ADR-032 (#190): defaulted like the other stores — the real %APPDATA%\GroupWeaver\runs\
+        // layout in production, a temp-dir seam in headless tests.
+        _auditRunStore = auditRunStore ?? new AuditRunStore();
         // ADR-026 D4: seed the app-chrome theme from the persisted state and apply the resolved
         // ThemeVariant on startup (a no-op when the app is not yet running, e.g. some headless
         // theories — the bound IsLightTheme still reflects the persisted choice).
@@ -631,6 +642,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // which fires RulesetApplied → OnRulesetApplied (re-thread audit + parked workspace). Writes
         // hit ONLY %APPDATA%\GroupWeaver\ruleset.jsonc + in-memory state — never AD.
         audit.UseTriageCallback(requests => ApplyTriage(requests, current));
+        // ADR-032 (#190): arm the run-history seam so the audit's Save-run + Compare commands persist /
+        // list runs under %APPDATA%\GroupWeaver\runs\ (read-only toward AD — the only writes are run JSON).
+        audit.UseRunStore(_auditRunStore);
         Track(audit);
 
         // #122 (ADR-025): PARK the workspace surface we will Back INTO — SYNCHRONOUSLY, BEFORE the
