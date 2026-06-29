@@ -138,6 +138,24 @@
               <TextBlock Text="Directory health" Classes="subheading" />
               <TextBlock Name="BandText" Text="{Binding Band}"
                          FontSize="18" FontWeight="SemiBold" />
+
+              <!-- Triage caveat (ADR-030 D2 / #188), gated on HasTriaged: the SAME honest treatment as
+                   the Unchecked caveat below — a tinted bordered block with a plain-text info glyph — so
+                   the headline discloses that the clean number excludes N acknowledged/suppressed
+                   findings. The band word stays the headline above; this qualifier travels with it. -->
+              <Border Margin="0,8,0,0" MaxWidth="240"
+                      Background="{DynamicResource CardBackgroundBrush}"
+                      BorderBrush="{DynamicResource CardBorderBrush}"
+                      BorderThickness="1" CornerRadius="6" Padding="8,6"
+                      IsVisible="{Binding HasTriaged}">
+                <Grid ColumnDefinitions="Auto,*">
+                  <TextBlock Grid.Column="0" Text="&#x2139;" Classes="secondary"
+                             VerticalAlignment="Top" Margin="0,0,8,0" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding TriagedCount, StringFormat='{}{0} findings acknowledged/suppressed — excluded from this score.'}"
+                             Classes="secondary" TextWrapping="Wrap" />
+                </Grid>
+              </Border>
             </StackPanel>
 
           </StackPanel>

@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -5,11 +7,13 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 
 using GroupWeaver.App.Graph;
+using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.App.Views;
 using GroupWeaver.Core.Model;
+using GroupWeaver.Core.Rules;
 using GroupWeaver.Providers;
 
 using Xunit;
@@ -54,7 +58,10 @@ public sealed class Wp5cAuditScreenshotTests
 
         // Demo baseline pins (so the screenshots judged are the documented scope).
         Assert.Equal(55, audit.Score);
-        Assert.Equal("Fair", audit.Band);
+        // ADR-030 (#188): the demo scope carries 4 live Errors (Critical > 0), so the band now gates to
+        // "Action required" at any score — the scalar Score 55 is unchanged, but the qualitative band is
+        // decoupled from it and led by the worst LIVE severity (was "Fair", the pure score band).
+        Assert.Equal("Action required", audit.Band);
         Assert.Equal(4, audit.Critical);
         Assert.Equal(3, audit.Warnings);
         Assert.Equal(24, audit.Passing);
@@ -75,6 +82,59 @@ public sealed class Wp5cAuditScreenshotTests
         window.Close();
     }
 
+    /// <summary>
+    /// ADR-030 D2 (#188) ui-verifier fixture: drives the demo workspace into the Audit step, arms the
+    /// shell triage seam (<see cref="ShellViewModel.OnAudit"/>) over a SANDBOXED temp-dir
+    /// <see cref="RulesetLocator"/> (so the Suppress write never touches real <c>%APPDATA%</c>), then
+    /// Suppresses one Open finding so <see cref="AuditViewModel.HasTriaged"/> flips true and the D2
+    /// triaged caveat renders beside the band. Captures BOTH theme variants —
+    /// artifacts/ui/wp5c-audit-triaged-{dark,light}.png — for the ui-verifier to judge against
+    /// docs/ui-checklist.md §Audit. PRODUCES the screenshots; it does NOT pixel-assert the caveat text.
+    /// </summary>
+    [AvaloniaFact(Timeout = 60_000)]
+    public async Task Audit_TriagedVariant()
+    {
+        // Sandbox the triage write: a temp-dir RulesetLocator (the gate writes ONLY here, never %APPDATA%).
+        var rulesetBase = Directory.CreateTempSubdirectory("groupweaver-wp5c-triaged-ruleset-").FullName;
+        var locator = new RulesetLocator(rulesetBase);
+
+        var (window, shell) = ShowShell(1280, 720, locator);
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // Into the Audit step via OnAudit (it ARMS the triage seam: audit.UseTriageCallback → ApplyTriage
+        // → the SettingsViewModel gate), so SuppressSelectedCommand actually drops a finding from the
+        // live report. (Audit_BothVariants uses the workspace AuditCommand, which does NOT arm triage.)
+        shell.OnAudit(workspace);
+        var audit = Assert.IsType<AuditViewModel>(shell.CurrentStep);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(audit.HasTriaged, "no finding is triaged before the Suppress");
+
+        // Suppress one Open finding => it drops from the LIVE report (TriagedCount > 0 => HasTriaged).
+        var openRow = audit.Findings.First(r => !r.IsTriaged);
+        openRow.IsSelected = true;
+        audit.SuppressSelectedCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(audit.HasTriaged, "suppressing a finding must flip HasTriaged so the D2 caveat renders");
+        Assert.True(audit.TriagedCount > 0);
+
+        Assert.False(shell.IsLightTheme);
+        Settle(window);
+        Capture(window, "wp5c-audit-triaged-dark", 1280, 720);
+
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.True(shell.IsLightTheme);
+        Settle(window);
+        Capture(window, "wp5c-audit-triaged-light", 1280, 720);
+
+        shell.ToggleThemeCommand.Execute(null);
+        Settle(window);
+        shell.Dispose();
+        window.Close();
+    }
+
     private static void Settle(Avalonia.Controls.Window window)
     {
         for (var i = 0; i < 4; i++)
@@ -86,12 +146,17 @@ public sealed class Wp5cAuditScreenshotTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static (MainWindow Window, ShellViewModel Shell) ShowShell(int width, int height)
+    private static (MainWindow Window, ShellViewModel Shell) ShowShell(int width, int height, RulesetLocator? locator = null)
     {
         var uiStateBase = Directory.CreateTempSubdirectory("groupweaver-wp5c-uistate-").FullName;
         var shell = new ShellViewModel(
             _ => new DemoProvider(), new StartupOptions(Demo: false), Present,
-            graphRendererFactory: null, ruleset: null, locator: null,
+            graphRendererFactory: null,
+            // The triaged variant injects a temp-dir RulesetLocator so the Suppress write is sandboxed
+            // (the gate's atomic temp+move never touches real %APPDATA%, lab-environment.md / #124); the
+            // ruleset seam follows it so the shell loads the same effective ruleset it will write back.
+            ruleset: locator?.LoadEffective(),
+            locator: locator,
             uiStateStore: new UiStateStore(uiStateBase));
 
         var window = new MainWindow { DataContext = shell, Width = width, Height = height };

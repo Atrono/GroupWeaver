@@ -175,11 +175,21 @@ public sealed class AuditExportTests
         Assert.Contains(WebUtilEncode(rootName), actual);
 
         // Byte-equality against the exporter for the VM's identity + a placeholder timestamp (the only
-        // field that legitimately differs run-to-run is GeneratedAt, normalised away).
+        // field that legitimately differs run-to-run is GeneratedAt, normalised away). ADR-030 D3 (#188):
+        // the VM threads the ruleset name + triaged count + unchecked count into the header, so the
+        // expected header carries the SAME three values (ruleset Name, this scope's TriagedCount, the
+        // live report's unchecked count) — byte-equality tracks the implementation, never a constant.
         var expected = ViolationReportExporter.ToHtml(
             report,
             ResolveNameOf(snapshot),
-            new ReportHeader(RootDn, rootName, connectionSummary, default));
+            new ReportHeader(
+                RootDn,
+                rootName,
+                connectionSummary,
+                default,
+                RulesetName: ruleset.Name,
+                TriagedCount: audit.TriagedCount,
+                UncheckedCount: report.UncheckedDns.Count));
         Assert.Equal(NormaliseGeneratedRow(expected), NormaliseGeneratedRow(actual));
     }
 
@@ -200,12 +210,23 @@ public sealed class AuditExportTests
         var fallback = $"{snapshot.Objects.Count} objects loaded";
         Assert.Contains(WebUtilEncode(fallback), actual);
 
-        // Byte-equality against the exporter using the SAME fallback line + placeholder timestamp.
+        // ADR-030 D3 (#188): the VM now threads the active ruleset name, the triaged count and the live
+        // report's unchecked count into the header (BuildReportHeader), so the exporter renders the three
+        // honesty meta rows. Build the expected header with the SAME values the VM passes — the ruleset's
+        // Name, this scope's TriagedCount (0 here — no triage entries) and the live report's unchecked
+        // count — so byte-equality still tracks the implementation, never a hardcoded constant.
         var rootName = SubjectNameResolver.Resolve(snapshot, RootDn);
         var expected = ViolationReportExporter.ToHtml(
             report,
             ResolveNameOf(snapshot),
-            new ReportHeader(RootDn, rootName, fallback, default));
+            new ReportHeader(
+                RootDn,
+                rootName,
+                fallback,
+                default,
+                RulesetName: ruleset.Name,
+                TriagedCount: audit.TriagedCount,
+                UncheckedCount: report.UncheckedDns.Count));
         Assert.Equal(NormaliseGeneratedRow(expected), NormaliseGeneratedRow(actual));
     }
 

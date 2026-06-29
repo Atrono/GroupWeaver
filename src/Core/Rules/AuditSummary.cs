@@ -14,8 +14,14 @@ namespace GroupWeaver.Core.Rules;
 /// .claude/rules/data-model.md, is untouched).
 /// </summary>
 /// <param name="Score">The clamped, rounded 0-100 health score (see <see cref="Compute"/>).</param>
-/// <param name="Band">The qualitative label for <paramref name="Score"/>:
-/// Excellent (>=90), Good (>=75), Fair (>=50), Poor (otherwise).</param>
+/// <param name="Band">The qualitative health label (ADR-030 / #188): GATED on the worst LIVE
+/// severity, decoupled from the scalar <paramref name="Score"/>, applied in priority order —
+/// <see cref="Critical"/> &gt; 0 => "Action required" (a top-priority band, at ANY score, so a
+/// green ring never sits over a live structural Error); else <see cref="Warnings"/> &gt; 0 => the
+/// score band capped below "Excellent" (max "Good" — a live Warning forbids the top "genuinely
+/// clean" band); else the pure score band (Excellent &gt;=90 / Good &gt;=75 / Fair &gt;=50 / Poor).
+/// Info-only findings do NOT cap. Computed, non-persisted (no schemaVersion bump) — see
+/// <see cref="BandFor"/>.</param>
 /// <param name="Critical">Count of <see cref="RuleReport.Violations"/> with
 /// <see cref="RuleSeverity.Error"/>.</param>
 /// <param name="Warnings">Count of <see cref="RuleReport.Violations"/> with
@@ -155,7 +161,7 @@ public sealed record AuditSummary(
 
         return new AuditSummary(
             Score: score,
-            Band: BandFor(score),
+            Band: BandFor(score, critical, warnings),
             Critical: critical,
             Warnings: warnings,
             Info: info,
@@ -166,8 +172,29 @@ public sealed record AuditSummary(
             ByRuleClass: byRuleClass);
     }
 
-    /// <summary>The qualitative band for a 0-100 score (pinned thresholds).</summary>
-    private static string BandFor(int score) => score switch
+    /// <summary>The health band (ADR-030 / #188): the score band GATED on the worst LIVE severity,
+    /// in priority order — <paramref name="critical"/> &gt; 0 => "Action required" (top priority, at
+    /// any score); else <paramref name="warnings"/> &gt; 0 => the score band capped below "Excellent"
+    /// (max "Good"); else the pure score band. Info-only findings do NOT cap.</summary>
+    private static string BandFor(int score, int critical, int warnings)
+    {
+        if (critical > 0)
+        {
+            return "Action required";
+        }
+
+        var band = ScoreBand(score);
+        // A live Warning forbids the top "genuinely clean" band: cap "Excellent" down to "Good".
+        if (warnings > 0 && band == "Excellent")
+        {
+            return "Good";
+        }
+
+        return band;
+    }
+
+    /// <summary>The pure qualitative band for a 0-100 score (pinned thresholds).</summary>
+    private static string ScoreBand(int score) => score switch
     {
         >= 90 => "Excellent",
         >= 75 => "Good",

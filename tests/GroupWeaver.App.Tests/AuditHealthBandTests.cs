@@ -88,10 +88,16 @@ public sealed class AuditHealthBandTests
         var expected = AuditSummary.Compute(report, snapshot, ruleset);
         using var audit = new AuditViewModel(snapshot, report, ruleset, RootDn, onBack: () => { });
 
-        Assert.Equal($"Directory health {expected.Score} of 100, {expected.Band}", audit.HealthAutomationName);
+        // ADR-030 (#188): this fixture trips a nesting Error (a DL with a direct User member), so it is
+        // Critical > 0 and the band gates to "Action required". The spoken name now LEADS with that
+        // verdict + the Critical count (the band is the headline, the diluted score secondary), not the
+        // score+band phrasing — derived from expected.Critical so it tracks the engine, never hardcoded.
+        Assert.True(expected.Critical > 0, "the findings fixture must surface a Critical (nesting Error)");
+        Assert.Equal($"Directory health: action required, {expected.Critical} critical", audit.HealthAutomationName);
 
-        // And a fully-pinned literal for an exact-score fixture so the format string itself is nailed
-        // down (not just the interpolation): a clean scope is Score 100 / "Excellent".
+        // And a fully-pinned literal for an exact-score fixture so the score+band format string itself
+        // is nailed down (not just the interpolation): a clean scope is Critical == 0 / Score 100 /
+        // "Excellent" => the score+band phrasing (the non-Critical arm).
         using var clean = AuditWithScore(100);
         Assert.Equal("Directory health 100 of 100, Excellent", clean.HealthAutomationName);
     }
