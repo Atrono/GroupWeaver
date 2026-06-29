@@ -4,7 +4,9 @@ using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using GroupWeaver.App.Audit;
 using GroupWeaver.App.Export;
+using GroupWeaver.Core.Audit;
 using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
@@ -310,6 +312,17 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// (the plain-field + manual-notify idiom of <see cref="WorkspaceViewModel.UseExportFileDialogs"/>).</summary>
     private IExportFileDialogs? _exportDialogs;
 
+    /// <summary>The run-history store seam (ADR-032 D2 / #190), installed by the shell via
+    /// <see cref="UseRunStore"/> once the audit step is current. Dead (the Save-run + Compare commands
+    /// are disarmed) until installed — a headless / un-wired audit never writes a run nor reads the
+    /// runs directory. The ONLY write target is <c>%APPDATA%\GroupWeaver\runs\</c> — never AD.</summary>
+    private AuditRunStore? _runStore;
+
+    /// <summary>The injected, deterministic run-stamp clock (ADR-032 / #190): the saved
+    /// <see cref="AuditRun.Timestamp"/> comes from this, so Core never reads an ambient clock and a
+    /// test pins the instant. Defaults to <c>() =&gt; DateTimeOffset.Now</c>.</summary>
+    private readonly Func<DateTimeOffset> _clock;
+
     /// <summary>The dashboard health roll-up the view binds (WP5). Recomputed from
     /// <see cref="AuditSummary.Compute"/> at construction and on every <see cref="ApplyRuleset"/>;
     /// the bound count/score props re-notify in <see cref="OnSummaryChanged"/>.</summary>
@@ -322,7 +335,8 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         Ruleset ruleset,
         string rootDn,
         Action onBack,
-        string connectionSummary = "")
+        string connectionSummary = "",
+        Func<DateTimeOffset>? clock = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(report);
@@ -335,6 +349,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         RootDn = rootDn;
         _onBack = onBack;
         _connectionSummary = connectionSummary;
+        // The injected, deterministic run-stamp clock (ADR-032 / #190): the saved AuditRun's Timestamp
+        // comes from this, never an ambient clock read inside Core. Defaults to the wall clock; a test
+        // injects a fixed instant. Core stays clock-free — the App supplies the instant.
+        _clock = clock ?? (() => DateTimeOffset.Now);
 
         _summary = AuditSummary.Compute(report, snapshot, ruleset);
         RebuildCategories();
@@ -358,6 +376,19 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         _exportDialogs = dialogs;
         ExportReportCsvCommand.NotifyCanExecuteChanged();
         ExportReportHtmlCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Installs the audit run-history store seam (ADR-032 D2 / #190; mirrors
+    /// <see cref="UseExportFileDialogs"/>): the production shell injects the real
+    /// <c>%APPDATA%\GroupWeaver\runs\</c>-backed <see cref="AuditRunStore"/>; a headless test injects a
+    /// temp-dir-backed one. Dead (the Save-run + Compare commands disarmed) until installed. Re-arms
+    /// both commands and re-projects <see cref="CanCompare"/>; idempotent — the last writer wins.</summary>
+    public void UseRunStore(AuditRunStore runStore)
+    {
+        _runStore = runStore;
+        SaveRunCommand.NotifyCanExecuteChanged();
+        CompareToPreviousRunCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanCompare));
     }
 
     /// <summary>The would-be report (ADR-028): re-evaluates over a clone of <paramref name="ruleset"/>
@@ -470,6 +501,19 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _snippetCopied;
 
+    /// <summary>The run-drift comparison the compare section binds (ADR-032 D4 / #190): the four
+    /// buckets + honesty/hash banners of the live findings against the most recent prior saved run for
+    /// <see cref="RootDn"/>. <c>null</c> until <see cref="CompareToPreviousRun"/> runs (or when no prior
+    /// run exists — gated by <see cref="HasComparison"/>). A pure projection of
+    /// <see cref="AuditRunDiff.Compute"/>; never persisted, never touches AD.</summary>
+    [ObservableProperty]
+    private AuditRunComparison? _comparison;
+
+    /// <summary>The transient "Saved" affordance after a successful <see cref="SaveRun"/>: the view shows
+    /// the written file confirmation. Cleared whenever the report changes (a re-thread invalidates it).</summary>
+    [ObservableProperty]
+    private bool _runSaved;
+
     /// <summary>True when at least one finding is selected — gates the selection bar's visibility.</summary>
     public bool HasSelection => SelectedCount > 0;
 
@@ -576,6 +620,18 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// <summary>True when a finding is selected for detail — gates the detail pane against its
     /// empty-state hint (WP5f / #160).</summary>
     public bool HasDetail => Detail is not null;
+
+    /// <summary>True once a run-history store is installed (ADR-032 / #190) — gates the Save-run +
+    /// Compare affordances against a headless / un-wired audit (where the store seam is null).</summary>
+    public bool CanCompare => _runStore is not null;
+
+    /// <summary>True when a run comparison has been computed — gates the compare section against its
+    /// empty/hint state (ADR-032 D4).</summary>
+    public bool HasComparison => Comparison is not null;
+
+    /// <summary>Re-gates the compare section + re-projects the no-comparison hint when the projection
+    /// swaps (ADR-032 D4).</summary>
+    partial void OnComparisonChanged(AuditRunComparison? value) => OnPropertyChanged(nameof(HasComparison));
 
     /// <summary>Re-projects <see cref="Detail"/> when the active (detail) row changes (WP5f / #160).
     /// Pure: derives the detail from the selected row's borrowed <see cref="AuditFindingRowModel.Violation"/>
@@ -688,6 +744,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         // A re-thread rebuilds the rows, so the prior detail selection no longer points at a live row;
         // clear it (the detail pane returns to its empty state). WP5f / #160.
         SelectedFinding = null;
+        // A re-thread also invalidates a stale run comparison + the "saved" affordance (the live
+        // findings just changed) — clear both so neither lingers over a new evaluation (ADR-032 D4).
+        Comparison = null;
+        RunSaved = false;
         // Rebuild the chips AFTER _allRows (severity/status counts derive from it); this preserves the
         // severity/status sets and prunes the rule-class set to surviving rule ids. The rule-class
         // filter is driven by the categories pane (WP-C/#180), not a separate chip group.
@@ -1078,6 +1138,78 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// borrowed snapshot is non-null by ctor contract and there is no loading state, so the seam +
     /// not-disposed are the only gates — pre-install the commands are inert.</summary>
     private bool CanExportReport() => !IsDisposed && _exportDialogs is not null;
+
+    /// <summary>"Save audit run" (ADR-032 D4 / #190): builds an <see cref="AuditRun"/> from the LIVE
+    /// post-suppression report (<see cref="_report"/> — the same findings the health score + sidebar
+    /// show), the live <see cref="Summary"/>, the active ruleset + its content hash, the root + the
+    /// connection summary, and the INJECTED <see cref="_clock"/> timestamp, then persists it via the
+    /// store. Read-only toward AD: the ONLY write is the run JSON under
+    /// <c>%APPDATA%\GroupWeaver\runs\</c>. A store I/O failure is swallowed (a failed save just leaves
+    /// <see cref="RunSaved"/> false) so a full disk can never crash the audit.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseRunStore))]
+    private void SaveRun()
+    {
+        if (IsDisposed || _runStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _runStore.Save(BuildCurrentRun());
+            RunSaved = true;
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            // Saving is a deliberate act but non-critical to the live audit: a torn / failed write can
+            // never destroy a prior run (atomic store) and must not crash the screen — just no-op.
+            RunSaved = false;
+        }
+    }
+
+    /// <summary>"Compare to previous run" (ADR-032 D4 / #190): diffs the LIVE findings (as a freshly
+    /// built <see cref="AuditRun"/>) against the most recent prior SAVED run for the same
+    /// <see cref="RootDn"/>, via the pure <see cref="AuditRunDiff.Compute"/>, and projects the four
+    /// buckets + honesty/hash banners into <see cref="Comparison"/>. With no prior run the projection is
+    /// the empty "no previous run" state. Read-only: lists the runs directory + computes a pure diff —
+    /// never a provider call, never an AD touch.</summary>
+    [RelayCommand(CanExecute = nameof(CanUseRunStore))]
+    private void CompareToPreviousRun()
+    {
+        if (IsDisposed || _runStore is null)
+        {
+            return;
+        }
+
+        var current = BuildCurrentRun();
+        var previous = _runStore.MostRecentFor(RootDn);
+        Comparison = previous is null
+            ? AuditRunComparison.NoPreviousRun(RootDn)
+            : AuditRunComparison.From(AuditRunDiff.Compute(previous, current), previous, current);
+    }
+
+    /// <summary>Armed iff the run-history store is installed and the step is live (ADR-032 / #190).</summary>
+    private bool CanUseRunStore() => !IsDisposed && _runStore is not null;
+
+    /// <summary>Builds the <see cref="AuditRun"/> for the CURRENT live audit state (ADR-032 D1): the live
+    /// post-suppression report's findings in canonical order, the live <see cref="Summary"/>, the active
+    /// ruleset's name + content hash, the root + connection summary, the unchecked DNs, and the injected
+    /// timestamp. Pure over the borrowed state — never mutates the snapshot/report/ruleset.</summary>
+    private AuditRun BuildCurrentRun()
+    {
+        var findings = _report.Violations.Select(AuditRun.ToFinding).ToList();
+        return new AuditRun(
+            AuditRun.CurrentSchemaVersion,
+            _clock(),
+            RootDn,
+            string.IsNullOrEmpty(_connectionSummary) ? $"{_snapshot.Objects.Count} objects loaded" : _connectionSummary,
+            _ruleset.Name,
+            AuditRun.ComputeRulesetHash(_ruleset),
+            Summary,
+            findings,
+            _report.UncheckedDns.ToList());
+    }
 
     /// <summary>The name-resolution closure handed to the exporter — identical to the findings table
     /// + sidebar: an in-snapshot object resolves to its <c>Name</c>, an absent DN falls back to the

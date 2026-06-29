@@ -80,11 +80,12 @@
          + scrolls internally for long lists. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <!-- Outer rows: 0 header / 1 ring+tiles / 2 categories pane / 3 WP1 filter-strip toolbar
-         (full width) / 4 table+detail split (Auto — the ListBox caps + scrolls) / 5 actions.
+         (full width) / 4 table+detail split (Auto — the ListBox caps + scrolls) / 5 run-history
+         compare card (ADR-032 / #190) / 6 actions.
          The 16px right margin reserves a GUTTER for the Auto vertical scrollbar so it never overlays
          the rightmost edge content (the 4th count tile clipped at 1280px). The gutter is constant —
          it does not over-inset at wider widths since it only reserves the scrollbar's fixed width. -->
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,16,0">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,16,0">
 
       <!-- 1. Header: "Audit · {RootDn}". -->
       <TextBlock Grid.Row="0" Text="{Binding Title}" Classes="heading" />
@@ -752,12 +753,141 @@
 
       </Grid>
 
+      <!-- 5b. Run-history compare card (ADR-032 / #190): "Save audit run" persists the LIVE findings
+           evidence under %APPDATA%\GroupWeaver\runs\ (read-only toward AD — the only write is the run
+           JSON); "Compare to previous run" diffs the live findings against the most recent prior saved
+           run for this root and renders the four drift buckets (Fixed / New / Still-open / Now-
+           unchecked) with counts. An HONESTY banner fires when either run had unchecked areas (the
+           comparison is partial — parallel to the Unchecked caveat above), and a RULESET-MISMATCH
+           banner fires when the two runs ran under different rulesets (drift labelled, not blended).
+           Mirrors the card/banner styling; theme-aware. The actions arm once the shell installs the
+           run-store seam (UseRunStore); CanCompare gates the whole card so a headless audit hides it. -->
+      <Border Grid.Row="5" Margin="0,16,0,0" Padding="16"
+              IsVisible="{Binding CanCompare}"
+              Background="{DynamicResource CardBackgroundBrush}"
+              BorderBrush="{DynamicResource CardBorderBrush}"
+              BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
+        <StackPanel Spacing="12">
+
+          <TextBlock Text="Run history · drift" Classes="eyebrow" />
+
+          <!-- Save + Compare actions + the transient "saved" confirmation. -->
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Name="SaveRunButton" Content="Save audit run"
+                    Command="{Binding SaveRunCommand}"
+                    ToolTip.Tip="Save this run's findings under %APPDATA%\GroupWeaver\runs\ (read-only — writes only that run file)" />
+            <Button Name="CompareRunButton" Content="Compare to previous run"
+                    Command="{Binding CompareToPreviousRunCommand}"
+                    ToolTip.Tip="Diff the live findings against the most recent prior saved run for this scope" />
+            <TextBlock Text="Saved." Classes="secondary" VerticalAlignment="Center"
+                       IsVisible="{Binding RunSaved}" />
+          </StackPanel>
+
+          <!-- Comparison result (gated on HasComparison). -->
+          <StackPanel Spacing="12" DataContext="{Binding Comparison}"
+                      x:CompileBindings="True" x:DataType="vm:AuditRunComparison"
+                      IsVisible="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).HasComparison}">
+
+            <!-- No-prior-run hint OR the "vs. run …" context label. -->
+            <TextBlock Text="{Binding PreviousRunLabel}" Classes="secondary" TextWrapping="Wrap" />
+
+            <!-- The four drift buckets, only when there IS a prior run to diff against.
+                 SURFACE: these tiles fill with PageBackgroundBrush (the OPAQUE page surface), NOT
+                 CardBackgroundBrush — unlike the band count tiles in Row 1, these sit INSIDE the
+                 compare CARD (itself a translucent CardBackgroundBrush). A CardBackgroundBrush tile
+                 there double-composites the translucent card tint over the card, darkening the light
+                 fill to ~#DADCDE where SecondaryForegroundBrush ink drops to 4.43:1 (WCAG 1.4.1 fail).
+                 The opaque page surface is the single-composite surface the band tiles effectively
+                 resolve to: SecondaryForegroundBrush clears 5.25:1 light / 8.01:1 dark with headroom.
+                 The colored left-border/dot accent stays the redundant non-text channel; the big
+                 count numbers stay theme-default (≈15:1 light / ≈16:1 dark). -->
+            <UniformGrid Columns="4" IsVisible="{Binding HasPreviousRun}">
+              <!-- Fixed (success green — remediation in a checked area). -->
+              <Border Margin="0,0,12,0" Padding="14,12"
+                      Background="{DynamicResource PageBackgroundBrush}"
+                      BorderBrush="{x:Static views:BrandTokens.NamingOk}"
+                      BorderThickness="3,0,0,0" CornerRadius="{StaticResource CardCornerRadius}">
+                <StackPanel Spacing="3">
+                  <TextBlock Name="FixedCount" Text="{Binding FixedCount}" FontSize="26" FontWeight="Bold" />
+                  <TextBlock Text="Fixed" FontSize="12" FontWeight="SemiBold"
+                             Foreground="{DynamicResource SecondaryForegroundBrush}" />
+                </StackPanel>
+              </Border>
+              <!-- New (Error red — newly surfaced findings). -->
+              <Border Margin="0,0,12,0" Padding="14,12"
+                      Background="{DynamicResource PageBackgroundBrush}"
+                      BorderBrush="{x:Static views:BrandTokens.Error}"
+                      BorderThickness="3,0,0,0" CornerRadius="{StaticResource CardCornerRadius}">
+                <StackPanel Spacing="3">
+                  <TextBlock Name="NewCount" Text="{Binding NewCount}" FontSize="26" FontWeight="Bold" />
+                  <TextBlock Text="New" FontSize="12" FontWeight="SemiBold"
+                             Foreground="{DynamicResource SecondaryForegroundBrush}" />
+                </StackPanel>
+              </Border>
+              <!-- Still-open (Warning amber — persists across both runs). -->
+              <Border Margin="0,0,12,0" Padding="14,12"
+                      Background="{DynamicResource PageBackgroundBrush}"
+                      BorderBrush="{x:Static views:BrandTokens.Warning}"
+                      BorderThickness="3,0,0,0" CornerRadius="{StaticResource CardCornerRadius}">
+                <StackPanel Spacing="3">
+                  <TextBlock Name="StillOpenCount" Text="{Binding StillOpenCount}" FontSize="26" FontWeight="Bold" />
+                  <TextBlock Text="Still open" FontSize="12" FontWeight="SemiBold"
+                             Foreground="{DynamicResource SecondaryForegroundBrush}" />
+                </StackPanel>
+              </Border>
+              <!-- Now-unchecked (neutral — vanished only because unexpanded; never counted as Fixed). -->
+              <Border Padding="14,12"
+                      Background="{DynamicResource PageBackgroundBrush}"
+                      BorderBrush="{DynamicResource CardBorderBrush}"
+                      BorderThickness="1" CornerRadius="{StaticResource CardCornerRadius}">
+                <StackPanel Spacing="3">
+                  <TextBlock Name="NowUncheckedCount" Text="{Binding NowUncheckedCount}" FontSize="26" FontWeight="Bold" />
+                  <TextBlock Text="Now unchecked" FontSize="12" FontWeight="SemiBold"
+                             Foreground="{DynamicResource SecondaryForegroundBrush}" />
+                </StackPanel>
+              </Border>
+            </UniformGrid>
+
+            <!-- Honesty banner (gated on UncheckedPresent): the SAME tinted info block + glyph as the
+                 score's Unchecked caveat — the comparison is partial because an area was not expanded. -->
+            <Border Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource CardBorderBrush}"
+                    BorderThickness="1" CornerRadius="6" Padding="8,6"
+                    IsVisible="{Binding UncheckedPresent}">
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Grid.Column="0" Text="&#x2139;" Classes="secondary"
+                           VerticalAlignment="Top" Margin="0,0,8,0" />
+                <TextBlock Grid.Column="1"
+                           Text="One of these runs had unexpanded areas — this comparison is partial; a finding that vanished under an unexpanded parent is counted as Now unchecked, not Fixed."
+                           Classes="secondary" TextWrapping="Wrap" />
+              </Grid>
+            </Border>
+
+            <!-- Ruleset-mismatch banner (gated on RulesetMismatch): drift under a CHANGED ruleset is a
+                 different claim — labelled, not blended. Warning-tinted to distinguish it from the
+                 neutral honesty banner above. -->
+            <Border Background="{x:Static views:BrandTokens.Warning}"
+                    CornerRadius="6" Padding="10,8"
+                    IsVisible="{Binding RulesetMismatch}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="&#x26A0;" FontWeight="Bold" VerticalAlignment="Top"
+                           Foreground="{x:Static views:BrandTokens.OnLightText}" />
+                <TextBlock Text="{Binding RulesetMismatchText}"
+                           TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{x:Static views:BrandTokens.OnLightText}" />
+              </StackPanel>
+            </Border>
+
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
       <!-- 6. Actions: Back to the workspace (left) + the export pair and "Show in graph" grouped right
            (WP2). Export CSV/HTML write the LIVE post-suppression report (matching the health score +
            sidebar) to a user-picked file — read-only toward AD; the buttons arm once the shell installs
            the export save-picker seam (UseExportFileDialogs). The right group is pushed to the trailing
            edge via a spacer so Back reads as the primary "leave" affordance on the left. -->
-      <Grid Grid.Row="5" Margin="0,16,0,0" ColumnDefinitions="Auto,*,Auto">
+      <Grid Grid.Row="6" Margin="0,16,0,0" ColumnDefinitions="Auto,*,Auto">
         <Button Grid.Column="0" Name="BackButton" Content="← Back"
                 ToolTip.Tip="Return to the explored structure"
                 Command="{Binding BackCommand}" />
