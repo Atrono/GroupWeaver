@@ -578,6 +578,28 @@
                      parent's composited opacity in Avalonia, so the dim must live below the row). -->
                 <Grid ColumnDefinitions="32,28,*,1.4*,Auto,Auto" Height="36">
 
+                  <!-- Per-row triage context menu (in-Audit): right-click a row for the same verbs the
+                       detail pane exposes. The row IS the DataContext here, so CommandParameter is the
+                       row itself ({Binding}); the commands live on the VM, reached via $parent[UserControl]
+                       (the same hop the categories-pane buttons use). Un-triage is enabled only on a
+                       triaged row. Read-only toward AD — routes through the ADR-028 ignore-entry seam. -->
+                  <Grid.ContextFlyout>
+                    <MenuFlyout>
+                      <MenuItem Header="Acknowledge"
+                                IsEnabled="{Binding !IsTriaged}"
+                                Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).AcknowledgeRowCommand}"
+                                CommandParameter="{Binding}" />
+                      <MenuItem Header="Suppress"
+                                IsEnabled="{Binding !IsTriaged}"
+                                Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SuppressRowCommand}"
+                                CommandParameter="{Binding}" />
+                      <MenuItem Header="Un-triage"
+                                IsEnabled="{Binding IsTriaged}"
+                                Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).UntriageRowCommand}"
+                                CommandParameter="{Binding}" />
+                    </MenuFlyout>
+                  </Grid.ContextFlyout>
+
                   <!-- Select (full opacity — the reversal affordance). -->
                   <CheckBox Grid.Column="0" VerticalAlignment="Center" Margin="0"
                             IsChecked="{Binding IsSelected, Mode=TwoWay}"
@@ -768,6 +790,39 @@
                   <TextBlock Text="Copied to clipboard"
                              Classes="secondary" VerticalAlignment="Center"
                              IsVisible="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SnippetCopied}" />
+                </StackPanel>
+              </StackPanel>
+
+              <!-- Triage actions (per-row, in-Audit): the detail pane's verbs for the SELECTED finding.
+                   These bind to the AuditViewModel (NOT this StackPanel's Detail DataContext) — the
+                   commands take the AuditFindingRowModel, which is the VM's SelectedFinding — via the
+                   SAME $parent[UserControl] hop the "Copied" caption above uses. Acknowledge/Suppress
+                   show only on an Open finding; Un-triage only on a triaged one. Acknowledge/Suppress
+                   append an equal-strength tagged global-ignore entry (ADR-028) so the finding drops
+                   from the LIVE report (read-only toward AD — the only write is the local ruleset),
+                   reversible via Un-triage. After any action the report re-evaluates and SelectedFinding
+                   clears, returning this pane to its empty state. -->
+              <StackPanel Spacing="6">
+                <TextBlock Text="TRIAGE" Classes="eyebrow" />
+                <TextBlock
+                    Text="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding.StatusLabel, StringFormat='Status: {0}'}"
+                    Classes="secondary" />
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <Button Name="AcknowledgeRowButton" Content="Acknowledge"
+                          IsVisible="{Binding !$parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding.IsTriaged}"
+                          Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).AcknowledgeRowCommand}"
+                          CommandParameter="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding}"
+                          ToolTip.Tip="Mark this finding acknowledged (a reversible ignore entry)" />
+                  <Button Name="SuppressRowButton" Content="Suppress"
+                          IsVisible="{Binding !$parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding.IsTriaged}"
+                          Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SuppressRowCommand}"
+                          CommandParameter="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding}"
+                          ToolTip.Tip="Suppress this finding (a reversible ignore entry)" />
+                  <Button Name="UntriageRowButton" Content="Un-triage"
+                          IsVisible="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding.IsTriaged}"
+                          Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).UntriageRowCommand}"
+                          CommandParameter="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).SelectedFinding}"
+                          ToolTip.Tip="Reopen this acknowledged/suppressed finding" />
                 </StackPanel>
               </StackPanel>
 
