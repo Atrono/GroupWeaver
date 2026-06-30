@@ -95,13 +95,22 @@ public sealed class WorkspaceRailStateTests
     public async Task Ctor_Seeding_DoesNotImmediatelyRewriteTheStore()
     {
         using var dir = new TempDir();
-        new UiStateStore(dir.Path).Save(new UiState(400, true));
+        var store = new UiStateStore(dir.Path);
+        store.Save(new UiState(400, true));
+        var bytesBeforeCtor = File.ReadAllBytes(store.StatePath);
 
         using var vm = await NewWorkspaceAsync(new UiStateStore(dir.Path));
 
-        // The ctor's _seeding gate means applying the loaded values must NOT write them
-        // straight back as a change; the persisted state is untouched after construction.
-        Assert.Equal(new UiState(400, true), new UiStateStore(dir.Path).Load());
+        // The ctor's _seeding gate means applying the loaded values must NOT write them straight back as a
+        // change; the persisted state is untouched after construction. Assert the FILE BYTES are unchanged
+        // — the truest "untouched store" check, and (unlike the original whole-record Assert.Equal) it does
+        // NOT depend on UiState record equality, which the "persist view state" change broke for the new
+        // init list fields: they default to string[] but deserialize to List<string>, and the record's
+        // equality is reference-based over IReadOnlyList<string>, so two equal-but-empty lists never compare
+        // equal (audit-summary.md: compare PROJECTIONS, never whole-record identity).
+        Assert.Equal(bytesBeforeCtor, File.ReadAllBytes(store.StatePath));
+        var persisted = new UiStateStore(dir.Path).Load();
+        Assert.Equal((400.0, true), (persisted.RailWidth, persisted.RailCollapsed));
         Assert.Equal(400, vm.RailWidth);
     }
 

@@ -112,6 +112,34 @@ public sealed record UiState(double RailWidth, bool RailCollapsed)
     /// the JSON stays forward/back compatible (the never-throw load contract).</summary>
     public double RailFindingsFraction { get; init; } = 0.5;
 
+    /// <summary>The persisted Audit-screen severity filter (WP "persist view state"): the active
+    /// <see cref="ViewModels.AuditViewModel"/> severity-axis chips, as <see cref="Core.Rules.RuleSeverity"/>
+    /// enum names. EMPTY = no constraint (the fail-open default). A NON-positional <c>init</c> list
+    /// (like <see cref="RailFindingsFraction"/>) so the two-arg ctor keeps compiling and an old
+    /// <c>ui-state.json</c> without it deserializes to <c>[]</c> — forward/back compatible. Names that
+    /// no longer parse are dropped on restore (the never-throw load contract).</summary>
+    public IReadOnlyList<string> AuditSeverityFilter { get; init; } = [];
+
+    /// <summary>The persisted Audit-screen triage-status filter (WP "persist view state"): the active
+    /// status-axis chips, as <see cref="ViewModels.TriageStatus"/> enum names. EMPTY = no constraint.
+    /// Same forward/back-compatible non-positional list contract as <see cref="AuditSeverityFilter"/>.</summary>
+    public IReadOnlyList<string> AuditStatusFilter { get; init; } = [];
+
+    /// <summary>The persisted Audit-screen rule-class filter (WP "persist view state"): the active
+    /// categories-pane facet, as rule ids. EMPTY = no constraint. A stale id self-heals — the
+    /// <see cref="ViewModels.AuditViewModel"/>'s rebuild prunes ids absent from the current report —
+    /// so an obsolete rule id is harmless. Same non-positional list contract.</summary>
+    public IReadOnlyList<string> AuditRuleClassFilter { get; init; } = [];
+
+    /// <summary>The persisted Audit-screen sort column (WP "persist view state"): a
+    /// <see cref="ViewModels.AuditSortColumn"/> enum name; <c>"None"</c> = the canonical report order
+    /// (the default). A name that no longer parses falls back to <c>None</c> on restore (never throws).</summary>
+    public string AuditSortColumn { get; init; } = "None";
+
+    /// <summary>The persisted Audit-screen sort direction (WP "persist view state"): paired with
+    /// <see cref="AuditSortColumn"/>, ignored when that is <c>"None"</c>. Defaults to ascending.</summary>
+    public bool AuditSortDescending { get; init; }
+
     /// <summary>The seed values when no state has been persisted yet — the ADR-022 D3
     /// defaults (rail 340 px, expanded), the ADR-026 dark-first default theme, and the WP-B
     /// 1:1 findings/detail split.</summary>
