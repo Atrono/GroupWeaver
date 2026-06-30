@@ -18,6 +18,12 @@ public enum ExportKind
 
     /// <summary>Plan Mode proposed structure as an inert PowerShell script (<c>*.ps1</c>).</summary>
     Ps1,
+
+    /// <summary>Gap-mode Plan-vs-Ist diff report as RFC-4180 CSV (<c>*.csv</c>).</summary>
+    DiffCsv,
+
+    /// <summary>Gap-mode Plan-vs-Ist diff report as a self-contained HTML file (<c>*.html</c>).</summary>
+    DiffHtml,
 }
 
 /// <summary>
