@@ -645,6 +645,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // ADR-032 (#190): arm the run-history seam so the audit's Save-run + Compare commands persist /
         // list runs under %APPDATA%\GroupWeaver\runs\ (read-only toward AD — the only writes are run JSON).
         audit.UseRunStore(_auditRunStore);
+        // WP "persist view state": arm the UI-preference seam with the shell's SHARED UiStateStore so the
+        // audit RESTORES its persisted filters + sort (the VM is built fresh each step-open) and persists
+        // every later change. Read-only toward AD — the only write is %APPDATA%\GroupWeaver\ui-state.json.
+        audit.UseUiStateStore(_uiStateStore);
         Track(audit);
 
         // #122 (ADR-025): PARK the workspace surface we will Back INTO — SYNCHRONOUSLY, BEFORE the

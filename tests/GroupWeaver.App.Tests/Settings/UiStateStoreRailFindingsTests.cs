@@ -33,7 +33,15 @@ public sealed class UiStateStoreRailFindingsTests
         var loaded = new UiStateStore(dir.Path).Load();
 
         Assert.Equal(0.7, loaded.RailFindingsFraction);
-        Assert.Equal(UiState.Default with { RailFindingsFraction = 0.7 }, loaded);
+        // Scalar projection, not the whole record: the "persist view state" change added init list fields
+        // that default to string[] but deserialize to List<string>, and UiState's record equality is
+        // reference-based over IReadOnlyList<string>, so a whole-record Assert.Equal on otherwise-equal
+        // values is never true. This matches the projection-comparison discipline (audit-summary.md). The
+        // round-trip's intent — the RailFindingsFraction field plus the other scalars staying at default —
+        // is preserved.
+        Assert.Equal((340.0, false, "Dark", 0.7), (loaded.RailWidth, loaded.RailCollapsed, loaded.Theme, loaded.RailFindingsFraction));
+        Assert.Empty(loaded.AuditSeverityFilter);
+        Assert.Equal("None", loaded.AuditSortColumn);
     }
 
     // --- forward/back compat: an old ui-state.json without the field defaults to 0.5 ----

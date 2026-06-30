@@ -49,7 +49,16 @@ public sealed class UiStateStoreTests
 
         Assert.Equal(420, loaded.RailWidth);
         Assert.True(loaded.RailCollapsed);
-        Assert.Equal(new UiState(420, true), loaded);
+        // Compare the SCALAR projection, not the whole record: the "persist view state" change added
+        // init list fields (AuditSeverityFilter etc.) that default to a string[] but DESERIALIZE to a
+        // List<string>; UiState's record equality is reference-based over IReadOnlyList<string>, so a
+        // whole-record Assert.Equal on two equal-content-but-empty lists is never true. This matches the
+        // codebase's projection-comparison discipline (audit-summary.md: "compare PROJECTIONS, never
+        // whole-record identity"). The remaining (non-list) fields are pinned via their own defaults below.
+        Assert.Equal((420.0, true, "Dark", 0.5), (loaded.RailWidth, loaded.RailCollapsed, loaded.Theme, loaded.RailFindingsFraction));
+        Assert.Empty(loaded.AuditSeverityFilter);
+        Assert.Equal("None", loaded.AuditSortColumn);
+        Assert.False(loaded.AuditSortDescending);
     }
 
     // --- never-throw: missing file ⇒ Default --------------------------------------------
@@ -103,7 +112,13 @@ public sealed class UiStateStoreTests
         var loaded = new UiStateStore(dir.Path).Load();
 
         Assert.Equal("Light", loaded.Theme);
-        Assert.Equal(UiState.Default with { Theme = "Light" }, loaded);
+        // Scalar projection, not whole-record (see Save_ThenLoad_ReturnsTheSameValues): the round-trip's
+        // intent here is the Theme field + that the OTHER scalars stayed at their defaults; whole-record
+        // equality is meaningless now that the init list fields differ by representation only (string[]
+        // default vs deserialized List<string>).
+        Assert.Equal((340.0, false, "Light", 0.5), (loaded.RailWidth, loaded.RailCollapsed, loaded.Theme, loaded.RailFindingsFraction));
+        Assert.Empty(loaded.AuditSeverityFilter);
+        Assert.Equal("None", loaded.AuditSortColumn);
     }
 
     [Fact]
@@ -146,7 +161,10 @@ public sealed class UiStateStoreTests
         // The only file in the dir is the state file itself — re-Load confirms the bytes.
         var file = Assert.Single(Directory.GetFiles(groupWeaverDir));
         Assert.Equal(store.StatePath, file);
-        Assert.Equal(new UiState(360, false), store.Load());
+        // Scalar projection of the re-Loaded bytes (see Save_ThenLoad_ReturnsTheSameValues): whole-record
+        // equality no longer holds across the string[]-default vs List<string>-deserialized list fields.
+        var loaded = store.Load();
+        Assert.Equal((360.0, false, "Dark", 0.5), (loaded.RailWidth, loaded.RailCollapsed, loaded.Theme, loaded.RailFindingsFraction));
     }
 
     // --- helpers ------------------------------------------------------------------------

@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 
 using GroupWeaver.App.Audit;
 using GroupWeaver.App.Export;
+using GroupWeaver.App.Settings;
 using GroupWeaver.Core.Audit;
 using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Model;
@@ -318,6 +319,18 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// runs directory. The ONLY write target is <c>%APPDATA%\GroupWeaver\runs\</c> — never AD.</summary>
     private AuditRunStore? _runStore;
 
+    /// <summary>The UI-preference store seam (WP "persist view state"), installed by the shell via
+    /// <see cref="UseUiStateStore"/> when the audit step is entered. Dead (no restore, no persist) until
+    /// installed — a headless / un-wired audit behaves exactly as before (empty filters, canonical
+    /// order). The ONLY write target is <c>%APPDATA%\GroupWeaver\ui-state.json</c> — never AD; mirrors
+    /// the rail's <see cref="WorkspaceViewModel.PersistUiState"/> read-modify-write best-effort idiom.</summary>
+    private UiStateStore? _uiStateStore;
+
+    /// <summary>Suppresses the persist-on-change hooks while <see cref="UseUiStateStore"/> applies the
+    /// just-loaded values (mirrors <see cref="WorkspaceViewModel"/>'s ctor-seeding guard): restoring the
+    /// persisted filters/sort must not write them straight back. Cleared once restore completes.</summary>
+    private bool _restoring;
+
     /// <summary>The injected, deterministic run-stamp clock (ADR-032 / #190): the saved
     /// <see cref="AuditRun.Timestamp"/> comes from this, so Core never reads an ambient clock and a
     /// test pins the instant. Defaults to <c>() =&gt; DateTimeOffset.Now</c>.</summary>
@@ -389,6 +402,97 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         SaveRunCommand.NotifyCanExecuteChanged();
         CompareToPreviousRunCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanCompare));
+    }
+
+    /// <summary>Installs the UI-preference store seam (WP "persist view state"; mirrors
+    /// <see cref="UseExportFileDialogs"/>/<see cref="UseRunStore"/>): the production shell injects its
+    /// shared <see cref="UiStateStore"/> when the audit step is entered. On install it RESTORES the
+    /// persisted Audit filters + sort from <see cref="UiStateStore.Load"/> (the VM is built fresh each
+    /// time the step opens, so this is the only restore hook), then re-projects the view so the chips +
+    /// table reflect it. Thereafter every filter toggle / clear / sort PERSISTS through the store
+    /// (read-modify-write, best-effort — <see cref="UiStateStore.Save"/> never throws). A name that no
+    /// longer parses (a renamed enum / removed value) is IGNORED — the never-throw load contract; a stale
+    /// rule id self-heals via the <see cref="RebuildFilterChips"/> prune. Idempotent: the last writer
+    /// wins, and re-installing re-restores (harmless — the same values reapply). Until called the audit
+    /// neither restores nor persists (headless / un-wired = today's behaviour).</summary>
+    public void UseUiStateStore(UiStateStore store)
+    {
+        _uiStateStore = store;
+        RestoreView(store.Load());
+    }
+
+    /// <summary>Applies the persisted Audit filters + sort to the live sets / sort props, then
+    /// re-projects (rebuild chips so their <see cref="AuditFilterChip.IsActive"/> mirrors the restored
+    /// sets, then <see cref="ApplyView"/> so the table + categories reflect them). Names that don't
+    /// parse are skipped (never throws); the stale rule-id prune in <see cref="RebuildFilterChips"/>
+    /// self-heals an obsolete class id. Guarded by <see cref="_restoring"/> so the persist-on-change
+    /// hooks don't write the just-loaded values straight back.</summary>
+    private void RestoreView(UiState state)
+    {
+        _restoring = true;
+        try
+        {
+            _severityFilter.Clear();
+            foreach (var name in state.AuditSeverityFilter)
+            {
+                if (Enum.TryParse<RuleSeverity>(name, ignoreCase: true, out var severity))
+                {
+                    _severityFilter.Add(severity);
+                }
+            }
+
+            _statusFilter.Clear();
+            foreach (var name in state.AuditStatusFilter)
+            {
+                if (Enum.TryParse<TriageStatus>(name, ignoreCase: true, out var status))
+                {
+                    _statusFilter.Add(status);
+                }
+            }
+
+            _ruleClassFilter.Clear();
+            foreach (var ruleId in state.AuditRuleClassFilter)
+            {
+                _ruleClassFilter.Add(ruleId);
+            }
+
+            SortColumn = Enum.TryParse<AuditSortColumn>(state.AuditSortColumn, ignoreCase: true, out var column)
+                ? column
+                : AuditSortColumn.None;
+            SortDescending = state.AuditSortDescending;
+        }
+        finally
+        {
+            _restoring = false;
+        }
+
+        // Re-project so the chips/categories active state + the table order reflect the restored values.
+        // RebuildFilterChips also prunes a stale rule-class id to the surviving ids (self-healing).
+        RebuildFilterChips();
+        RebuildCategories();
+        ApplyView();
+    }
+
+    /// <summary>Writes the current Audit filters + sort to the shared UI-state store (read-modify-write,
+    /// best-effort — <see cref="UiStateStore.Save"/> never throws). Preserves every field the rail /
+    /// theme own (load then mutate only the Audit fields), exactly like
+    /// <see cref="WorkspaceViewModel.PersistUiState"/>. A no-op when no store is installed (headless /
+    /// un-wired) or while <see cref="_restoring"/> the just-loaded values.</summary>
+    private void PersistView()
+    {
+        if (_uiStateStore is null || _restoring)
+        {
+            return;
+        }
+
+        _uiStateStore.Save(_uiStateStore.Load() with
+        {
+            AuditSeverityFilter = _severityFilter.Select(s => s.ToString()).ToList(),
+            AuditStatusFilter = _statusFilter.Select(s => s.ToString()).ToList(),
+            AuditRuleClassFilter = _ruleClassFilter.ToList(),
+            AuditSortColumn = SortColumn.ToString(),
+            AuditSortDescending = SortDescending,
+        });
     }
 
     /// <summary>The would-be report (ADR-028): re-evaluates over a clone of <paramref name="ruleset"/>
@@ -653,11 +757,21 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// executes the snippet — copying is a pure clipboard write the view owns.</summary>
     public void MarkSnippetCopied() => SnippetCopied = true;
 
-    /// <summary>A header click re-filters + re-orders the live <see cref="Findings"/> collection in place.</summary>
-    partial void OnSortColumnChanged(AuditSortColumn value) => ApplyView();
+    /// <summary>A header click re-filters + re-orders the live <see cref="Findings"/> collection in place
+    /// and persists the sort (best-effort — a no-op while restoring / un-wired).</summary>
+    partial void OnSortColumnChanged(AuditSortColumn value)
+    {
+        ApplyView();
+        PersistView();
+    }
 
-    /// <summary>A direction flip re-filters + re-orders the live <see cref="Findings"/> collection in place.</summary>
-    partial void OnSortDescendingChanged(bool value) => ApplyView();
+    /// <summary>A direction flip re-filters + re-orders the live <see cref="Findings"/> collection in place
+    /// and persists the sort (best-effort — a no-op while restoring / un-wired).</summary>
+    partial void OnSortDescendingChanged(bool value)
+    {
+        ApplyView();
+        PersistView();
+    }
 
     /// <summary>Repopulates <see cref="Categories"/> in place from the current <see cref="Summary"/>
     /// + report. The display name + canonical order come from <see cref="Ruleset.EnumerateRules"/>;
@@ -887,6 +1001,7 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         }
 
         ApplyView();
+        PersistView();
     }
 
     /// <summary>Toggles the rule-class filter from a categories-pane row (WP-C/#180): flips the row's
@@ -900,6 +1015,7 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         row.IsActive = !row.IsActive;
         ToggleKey(_ruleClassFilter, row.RuleId, row.IsActive);
         ApplyView();
+        PersistView();
     }
 
     private static void ToggleKey<T>(HashSet<T> set, T key, bool active)
@@ -939,6 +1055,7 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         }
 
         ApplyView();
+        PersistView();
     }
 
     /// <summary>A column header click (WP5d): selecting the same column flips the direction;
