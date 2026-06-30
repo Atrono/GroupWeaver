@@ -136,9 +136,9 @@
             </Panel>
 
             <StackPanel VerticalAlignment="Center" Spacing="2">
-              <TextBlock Text="Directory health" Classes="subheading" />
+              <TextBlock Text="Directory health" Classes="eyebrow" />
               <TextBlock Name="BandText" Text="{Binding Band}"
-                         FontSize="18" FontWeight="SemiBold" />
+                         FontSize="22" FontWeight="SemiBold" />
 
               <!-- Triage caveat (ADR-030 D2 / #188), gated on HasTriaged: the SAME honest treatment as
                    the Unchecked caveat below — a tinted bordered block with a plain-text info glyph — so

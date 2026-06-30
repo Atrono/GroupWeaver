@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
 using GroupWeaver.Providers;
@@ -47,8 +49,10 @@ public sealed record AuditChip(string Label, RuleSeverity Severity, int Count, b
 /// whitelist bug must become visible, not masked. Pinned by
 /// <c>tests/GroupWeaver.App.Tests/WorkspaceDetailTests.cs</c>.
 /// </summary>
-public sealed record DetailPanelModel
+public sealed record DetailPanelModel : INotifyPropertyChanged
 {
+    private bool _copiedDn;
+
     /// <summary>The selected DN, verbatim — never canonicalized (data-model rule).</summary>
     public required string Dn { get; init; }
 
@@ -92,6 +96,38 @@ public sealed record DetailPanelModel
     public string PrivacyNote =>
         $"Showing {Rows.Count} whitelisted attribute{(Rows.Count == 1 ? "" : "s")} — "
         + "all others are hidden by the privacy baseline.";
+
+    /// <summary>
+    /// The transient "Copied" affordance for the one-click DN copy (Slice B / UX polish),
+    /// mirroring <see cref="AuditViewModel.SnippetCopied"/>: the view sets it via
+    /// <see cref="MarkDnCopied"/> AFTER it writes the verbatim <see cref="Dn"/> to the CLIPBOARD
+    /// (the only side effect — never an AD write). The projection is rebuilt fresh on every node
+    /// selection (<see cref="Build"/> is the choke point; <c>WorkspaceViewModel.DetailPanel</c> is
+    /// reassigned each selection), so the default <c>false</c> already resets it when the DN changes —
+    /// no per-DN reset handler is needed. The DN is a typed member, so copying it adds no
+    /// non-whitelisted binding.
+    /// </summary>
+    public bool CopiedDn
+    {
+        get => _copiedDn;
+        private set
+        {
+            if (_copiedDn != value)
+            {
+                _copiedDn = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CopiedDn)));
+            }
+        }
+    }
+
+    /// <summary>The view calls this AFTER it has written the verbatim DN to the clipboard: flips the
+    /// transient <see cref="CopiedDn"/> affordance. The model never touches the clipboard itself —
+    /// copying is a pure clipboard write the view owns (mirrors <see cref="AuditViewModel.MarkSnippetCopied"/>).</summary>
+    public void MarkDnCopied() => CopiedDn = true;
+
+    /// <summary>Change notification for the single mutable affordance (<see cref="CopiedDn"/>). The
+    /// record stays an otherwise-immutable projection; only the transient copy flag notifies.</summary>
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>
     /// Projects <paramref name="dn"/> from <paramref name="snapshot"/> — a pure,

@@ -145,12 +145,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>True when a live preview is currently available to bind.</summary>
     public bool HasPreview => Preview is not null;
 
+    /// <summary>The transient success line beside the footer (Slice B / UX polish): set to a verbatim
+    /// confirmation only after a GATE-CLEAN <see cref="Apply"/> ("Applied to the open workspace.") or
+    /// <see cref="Save"/> ("Saved to ruleset.jsonc."); never set when the gate refuses. Cleared on the
+    /// next ruleset edit so a stale message never lingers — the structured editors do not notify this
+    /// VM, so the available edit seams clear it: a re-run of the gate (each Apply/Save clears it first)
+    /// and an Advanced-tab keystroke (<see cref="OnRawEditorTextChanged"/>). Distinct from the
+    /// validation band (errors) — this is the success twin. Empty by default.</summary>
+    [ObservableProperty]
+    private string _lastActionStatus = string.Empty;
+
     /// <summary>Re-validates the raw editor text on every keystroke (the loader is
     /// cheap — ADR-009; a full re-Load is ms): never-throw <see cref="RulesetLoader.Load"/>,
     /// errors surfaced verbatim, no apply/persist. Auto-invoked by the generated
     /// <c>OnRawEditorTextChanged</c> partial.</summary>
     partial void OnRawEditorTextChanged(string value)
     {
+        // A new edit invalidates the prior Apply/Save success line (Slice B / UX polish) — this is the
+        // one structured-VM edit seam (the structured-tab editors mutate their own ObservableObjects
+        // and do not notify this VM; their stale line is cleared on the next gate run via Apply/Save).
+        LastActionStatus = string.Empty;
         var result = RulesetLoader.Load(value);
         RawEditorErrors.Clear();
         foreach (var error in result.Errors)
@@ -362,6 +376,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// failure nothing is written and the errors surface. Returns true on success.</summary>
     public bool Save()
     {
+        // A new gate run supersedes any prior success line; clear it so a refused gate never leaves a
+        // stale "Saved"/"Applied" message beside the fresh validation errors (Slice B / UX polish).
+        LastActionStatus = string.Empty;
         if (!RunGate(out var reparsed))
         {
             return false;
@@ -373,6 +390,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         RulesetSerializer.Save(reparsed, _locator.UserRulesetPath);
         RunningOnDefaultBecauseInvalid = false;
         RulesetApplied?.Invoke(reparsed);
+        LastActionStatus = "Saved to ruleset.jsonc.";
         return true;
     }
 
@@ -383,12 +401,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// Returns true on success.</summary>
     public bool Apply()
     {
+        // Clear any prior success line before the gate (Slice B / UX polish) — see Save().
+        LastActionStatus = string.Empty;
         if (!RunGate(out var reparsed))
         {
             return false;
         }
 
         RulesetApplied?.Invoke(reparsed);
+        LastActionStatus = "Applied to the open workspace.";
         return true;
     }
 
