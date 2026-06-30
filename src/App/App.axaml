@@ -106,6 +106,70 @@
       <Setter Property="BorderBrush" Value="{DynamicResource AccentTextBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
     </Style>
+
+    <!-- ADR-033: app-wide KEYBOARD-focus-visible ring on the native chrome (WCAG 2.4.7 / 2.4.11).
+         The ring REPLACES each control's default Fluent focus visual with a custom accent FocusAdorner:
+         a 2px {DynamicResource AccentTextBrush} Border (dark #A99BFF / light #4A3CC8 — >=3:1 non-text on
+         both card and page in both themes, ADR-021/026), transparent fill, drawn EDGE-HUGGING (Margin=0)
+         so it hugs the control's own outline. The FocusAdorner shows via the AdornerLayer, which DOES
+         composite in the headless Skia capture (the default Fluent FocusAdorner composites there too —
+         its WHITE-in-dark / dark ring, and the ComboBox's solid blue, visually dominated an earlier
+         BoxShadow attempt; REPLACING the whole FocusAdorner is what makes the accent the dominant
+         indicator). Margin=0 (not a negative outward margin) is deliberate: a control with
+         ClipToBounds=true — ComboBox does — clips an OUTWARD adorner away (only a corner speck survived),
+         but an edge-hugging one is never clipped. Shown ONLY on keyboard/programmatic focus (the
+         :focus-visible-gated FocusAdorner; never on a pointer press) — keyboard-only by construction. No
+         fill change, no animation. DynamicResource brush re-resolves on a live ThemeVariant flip. The
+         Border CornerRadius matches each control's own radius (so the radius-12 chip ring rounds too —
+         its chip/segment-specific radius parity lives in AuditView.axaml). The segment/chip filter
+         controls are Buttons with bound Classes, so the Button rule covers them. -->
+    <Style Selector="Button:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="4" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ToggleButton:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="4" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="CheckBox:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="4" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ListBoxItem:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="4" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <!-- ComboBox: the accent FocusAdorner ring AND a keyboard-focus suppression of Fluent's solid blue
+         focus highlight (Border#HighlightBackground turns opaque #0078D7 on focus, which would fill the
+         box and mask the accent). Neutralizing it only under :focus-visible keeps the accent dominant on
+         keyboard focus while leaving pointer interaction untouched. -->
+    <Style Selector="ComboBox:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="4" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ComboBox:focus-visible /template/ Border#HighlightBackground">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
   </Application.Styles>
 
 </Application>

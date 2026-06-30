@@ -21,6 +21,18 @@
       <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource SecondaryForegroundBrush}" />
     </Style>
+    <!-- ADR-033 corner-radius parity: the segment is a square (radius 0) flush button, so its
+         keyboard-focus accent FocusAdorner (App.axaml) is re-set here with a SQUARE ring (radius 0),
+         overriding the App-wide radius-4 default so the ring matches the segment's own corners.
+         Edge-hugging (Margin=0), as App.axaml — never clipped. -->
+    <Style Selector="Button.segment:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="0" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
 
     <!-- WP1 filter chip: a flat, ghost toggle Button (NOT a ToggleButton — avoids double-toggle). The
          INACTIVE chip is a ghost pill (transparent fill, card border, secondary ink); the ACTIVE chip
@@ -45,6 +57,19 @@
       <Setter Property="Foreground" Value="{DynamicResource ChipActiveForegroundBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource SecondaryForegroundBrush}" />
       <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <!-- ADR-033 corner-radius parity: the chip is a radius-12 pill, so its keyboard-focus accent
+         FocusAdorner (App.axaml) is re-set here with a matching radius-12 rounded ring, overriding the
+         App-wide radius-4 default so the ring rides the pill's own corners. Edge-hugging (Margin=0), as
+         App.axaml — never clipped, and the Border CornerRadius rounds the ring (resolving the earlier
+         square-corner limitation on the radius-12 chip). -->
+    <Style Selector="Button.chip:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="12" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
     </Style>
     <!-- WP1 chip count: tabular numerals at FULL opacity (NOT Classes="dn", whose 0.8 opacity drops
          the meaningful count below 4.5:1 in light; WCAG 1.4.3). Inherits the chip's foreground (the
