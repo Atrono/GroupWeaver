@@ -43,7 +43,7 @@ public sealed class WorkspaceLoadTests
     private const string ExternalDn = "CN=Ext,DC=elsewhere,DC=lab";
 
     /// <summary>GraphHost placeholder when no renderer factory was supplied.</summary>
-    private const string UnavailablePlaceholder = "Graph view is unavailable in this environment.";
+    private const string UnavailablePlaceholder = "The graph preview will appear here.";
 
     /// <summary>ADR-022 D3 re-baseline: the rail moved <c>*,300</c> ⇒ <c>*, Auto, {rail}</c> with
     /// a 340px default rail and a 14px <c>Auto</c> seam (GridSplitter + ◂/▸ chevron) BESIDE
@@ -440,11 +440,12 @@ public sealed class WorkspaceLoadTests
         Dispatcher.UIThread.RunJobs();
 
         // The named header button (a seam-name pin like GraphHost/DetailPanelRegion),
-        // labelled "Refresh" — shipped UI strings are English (ADR-005 D4).
+        // labelled "Refresh node" — shipped UI strings are English (ADR-005 D4). Slice A
+        // renamed the content "Refresh" → "Refresh node" (the tooltip is unchanged).
         var refresh = Assert.Single(
             view.GetVisualDescendants().OfType<Button>(), b => b.Name == "RefreshButton");
         Assert.True(refresh.IsEffectivelyVisible);
-        Assert.Contains("Refresh", VisibleTexts(refresh));
+        Assert.Contains("Refresh node", VisibleTexts(refresh));
 
         // Native chrome at the TOP of the right detail column: inside the column,
         // ABOVE the AP 2.5 DetailPanelRegion seam (a future detail panel must not be
@@ -531,18 +532,31 @@ public sealed class WorkspaceLoadTests
             reloadTop.Value.Y + reload.Bounds.Height <= regionTop.Value.Y + 0.5,
             "the Reload scope button belongs ABOVE the DetailPanelRegion seam");
 
-        // Order in the shared header row: Reload scope is the LEFT sibling of Refresh
-        // (the surviving header invariant — Reload then Refresh, never the reverse).
+        // Order in the shared header WrapPanel: Reload scope PRECEDES Refresh (the surviving
+        // header invariant — Reload then Refresh, never the reverse). The action row is a
+        // right-aligned WrapPanel that reflows at the rail minimum (WorkspaceView D5), so the
+        // adjacency is reading-order (row-major: top row first, then left-to-right within a
+        // row), NOT a same-row raw-X comparison. Slice A widened "Refresh" → "Refresh node",
+        // which can push Refresh onto the next wrap row on the 340px rail — Reload still
+        // PRECEDES it in document order, which is what this pins.
         var refresh = Assert.Single(
             view.GetVisualDescendants().OfType<Button>(), b => b.Name == "RefreshButton");
-        var reloadLeft = reload.TranslatePoint(new Point(0, 0), view);
-        var refreshLeft = refresh.TranslatePoint(new Point(0, 0), view);
-        Assert.NotNull(reloadLeft);
-        Assert.NotNull(refreshLeft);
+        var reloadTopLeft = reload.TranslatePoint(new Point(0, 0), view);
+        var refreshTopLeft = refresh.TranslatePoint(new Point(0, 0), view);
+        Assert.NotNull(reloadTopLeft);
+        Assert.NotNull(refreshTopLeft);
+        // Reading-order precedence: a row break (Reload on an earlier/higher row) OR, on the
+        // SAME row, Reload's right edge at/left of Refresh's left edge with no overlap.
+        const double rowEpsilon = 1.0;
+        var sameRow = Math.Abs(reloadTopLeft.Value.Y - refreshTopLeft.Value.Y) <= rowEpsilon;
+        var reloadPrecedes = sameRow
+            ? reloadTopLeft.Value.X + reload.Bounds.Width <= refreshTopLeft.Value.X + 0.5
+            : reloadTopLeft.Value.Y < refreshTopLeft.Value.Y;
         Assert.True(
-            reloadLeft.Value.X + reload.Bounds.Width <= refreshLeft.Value.X + 0.5,
-            $"Reload scope must sit LEFT of Refresh with no overlap (Reload right edge "
-            + $"{reloadLeft.Value.X + reload.Bounds.Width}, Refresh left {refreshLeft.Value.X})");
+            reloadPrecedes,
+            $"Reload scope must PRECEDE Refresh in the header reflow order (Reload at "
+            + $"{reloadTopLeft.Value}, right edge {reloadTopLeft.Value.X + reload.Bounds.Width}; "
+            + $"Refresh at {refreshTopLeft.Value})");
 
         // Tooltip: pinned present and non-empty; the wording is the implementer's.
         var tip = Assert.IsType<string>(ToolTip.GetTip(reload));

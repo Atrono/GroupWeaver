@@ -404,7 +404,7 @@ public sealed class WorkspaceViolationsTests
 
         Assert.Empty(vm.Report.Violations);
         Assert.Empty(vm.Violations);
-        Assert.False(vm.HasViolations); // drives the "No rule violations found." surface
+        Assert.False(vm.HasViolations); // drives the "No findings." all-clear surface
 
         Assert.Equal(new[] { DomainAdminsDn, PrintOperatorsDn }, vm.Report.UncheckedDns);
         Assert.True(vm.HasUncheckedAreas, "clean != fully checked: the unchecked hint still shows");

@@ -18,7 +18,7 @@ namespace GroupWeaver.App.Tests;
 /// <item>one chip per finding-bearing rule class (<c>nesting</c>/<c>circular</c>/<c>empty-group</c>
 /// to their names; EVERY naming kebab-id collapses to "Naming"), carrying that class's MAX
 /// severity and its finding count, emitted in the fixed <c>ClassOrder</c>
-/// (Nesting → Circular → Naming → Empty group);</item>
+/// (Nesting → Circular → Naming → Empty groups);</item>
 /// <item>a single green <c>HasFindings:false</c> "No findings" chip for a clean DN under a real report;</item>
 /// <item>an EMPTY list when <c>Build</c> is called without a report (Plan/Gap/frontier paths) — no chips, no throw.</item>
 /// </list>
@@ -38,7 +38,7 @@ public sealed class DetailPanelAuditChipTests
 
     // Demo DNs with KNOWN baseline findings (see RuleEngineDemoBaselineTests.ExpectedBaseline).
     // DL_Nested_RO is BOTH the member endpoint of a DL<-DL nesting Error AND an empty-group Info
-    // subject => a two-class chip set (Nesting Error + Empty group Info). The cleanest
+    // subject => a two-class chip set (Nesting Error + Empty groups Info). The cleanest
     // multi-class flagged DN in the fixture.
     private const string DlNestedRoDn = "CN=DL_Nested_RO" + GroupSuffix;
 
@@ -46,7 +46,7 @@ public sealed class DetailPanelAuditChipTests
     // Nesting chip.
     private const string DlFsSalesRwDn = "CN=DL_FS-Sales_RW" + GroupSuffix;
 
-    // GG_X: naming-gg Warning + empty-group Info => Naming + Empty group chips (the single-naming
+    // GG_X: naming-gg Warning + empty-group Info => Naming + Empty groups chips (the single-naming
     // demo case; the >=2-naming collapse is proven below on a hand-built report — no demo DN
     // carries two naming findings).
     private const string GgXDn = "CN=GG_X" + GroupSuffix;
@@ -69,13 +69,13 @@ public sealed class DetailPanelAuditChipTests
         var model = DetailPanelModel.Build(snapshot, DlNestedRoDn, report);
         Assert.NotNull(model);
 
-        // Two finding-bearing classes, in the fixed presentation order Nesting then Empty group
+        // Two finding-bearing classes, in the fixed presentation order Nesting then Empty groups
         // (Circular/Naming absent here): max severity per class + a count of 1 each.
         Assert.Equal(
             new[]
             {
                 ("Nesting", RuleSeverity.Error, 1, true),
-                ("Empty group", RuleSeverity.Info, 1, true),
+                ("Empty groups", RuleSeverity.Info, 1, true),
             },
             Projection(model.AuditChips));
     }
@@ -100,7 +100,7 @@ public sealed class DetailPanelAuditChipTests
         var (snapshot, report) = await DemoEvaluateAsync();
 
         // GG_X: a naming-gg Warning AND an empty-group Info — its user-chosen "naming-gg" id maps
-        // to the "Naming" class label (NEVER the raw rule id), beside the Empty group chip.
+        // to the "Naming" class label (NEVER the raw rule id), beside the Empty groups chip.
         var findings = report.ViolationsFor(GgXDn);
         Assert.Equal(2, findings.Count);
         Assert.Contains(findings, v => v.RuleId == "naming-gg" && v.Severity == RuleSeverity.Warning);
@@ -112,7 +112,7 @@ public sealed class DetailPanelAuditChipTests
             new[]
             {
                 ("Naming", RuleSeverity.Warning, 1, true),
-                ("Empty group", RuleSeverity.Info, 1, true),
+                ("Empty groups", RuleSeverity.Info, 1, true),
             },
             Projection(model.AuditChips));
 

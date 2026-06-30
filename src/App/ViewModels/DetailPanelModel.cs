@@ -189,7 +189,7 @@ public sealed record DetailPanelModel
     }
 
     /// <summary>Fixed presentation order of the audit chip classes.</summary>
-    private static readonly string[] ClassOrder = ["Nesting", "Circular", "Naming", "Empty group"];
+    private static readonly string[] ClassOrder = ["Nesting", "Circular", "Naming", "Empty groups"];
 
     /// <summary>Maps a <see cref="RuleViolation.RuleId"/> to its chip class label: the three
     /// fixed ids to their names, every user-chosen naming id to "Naming".</summary>
@@ -197,7 +197,7 @@ public sealed record DetailPanelModel
     {
         RuleIds.Nesting => "Nesting",
         RuleIds.Circular => "Circular",
-        RuleIds.EmptyGroup => "Empty group",
+        RuleIds.EmptyGroup => "Empty groups",
         _ => "Naming",
     };
 

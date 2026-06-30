@@ -285,7 +285,7 @@
           </ItemsControl>
 
           <!-- All-clear: no class produced a finding. -->
-          <TextBlock Grid.Row="1" Text="No rule violations found."
+          <TextBlock Grid.Row="1" Text="No findings."
                      IsVisible="{Binding !HasCategories}"
                      Classes="secondary" TextWrapping="Wrap" />
 

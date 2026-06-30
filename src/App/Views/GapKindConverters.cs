@@ -81,7 +81,8 @@ public static class GapKindConverters
 /// <summary>
 /// The single-line GapView summary projector (ADR-015 / #66): renders a <see cref="GapSummary"/>
 /// into the one legible line the gap header carries — node deltas, membership deltas, and the
-/// unchecked-edge tally. Null-safe by contract: a <c>null</c> summary (before the first
+/// unchecked-areas tally (distinct known-but-unloaded Ist parents, matching the changes list and
+/// banner — NOT the edge count). Null-safe by contract: a <c>null</c> summary (before the first
 /// <c>GapViewModel.RefreshAsync</c>) renders the empty string, and the view's <c>IsVisible</c>
 /// binds the null-check so the line shows nothing until a diff is computed. Compiled-bindings-safe;
 /// mirrors the <see cref="GapKindConverters"/> shape.
@@ -96,10 +97,10 @@ public static class GapSummaryConverter
         ? string.Empty
         : string.Format(
             CultureInfo.InvariantCulture,
-            "+{0} / −{1} objects · +{2} / −{3} memberships · {4} unchecked",
+            "+{0} / −{1} objects · +{2} / −{3} memberships · {4} unchecked areas",
             summary.AddedNodes,
             summary.RemovedNodes,
             summary.AddedEdges,
             summary.RemovedEdges,
-            summary.UncheckedEdges);
+            summary.UncheckedParents);
 }

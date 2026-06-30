@@ -104,6 +104,53 @@ public sealed class GapKindConvertersTests
         Assert.Equal(Color.Parse(hex), brush.Color);
     }
 
+    // --- the single-line summary projector (GapSummaryConverter.ToLine) ---------------------
+
+    /// <summary>
+    /// The gap-header summary line (ADR-015 / #66): pins the rendered one-liner the header carries.
+    /// Slice A corrected the trailing tally — it now counts <see cref="GapSummary.UncheckedParents"/>
+    /// (distinct known-but-unloaded Ist AREAS) and reads "{N} unchecked areas", NOT the old
+    /// <see cref="GapSummary.UncheckedEdges"/> tally that read "{N} unchecked". The fixture
+    /// deliberately gives UncheckedEdges (5) ≠ UncheckedParents (2) so the assertion FAILS if the
+    /// converter ever reverts to the edge count: the line must show 2 (parents), never 5 (edges),
+    /// and must carry the "areas" word.
+    /// </summary>
+    [Fact]
+    public void ToLine_RendersTheCorrectedUncheckedAreasTally_FromUncheckedParents_NotUncheckedEdges()
+    {
+        // (Added, Removed, Common) nodes; (Added, Removed, Common) edges; UncheckedEdges; UncheckedParents.
+        var summary = new GapSummary(
+            AddedNodes: 3,
+            RemovedNodes: 1,
+            CommonNodes: 7,
+            AddedEdges: 4,
+            RemovedEdges: 2,
+            CommonEdges: 9,
+            UncheckedEdges: 5,    // the OLD, now-WRONG source — must NOT appear in the line
+            UncheckedParents: 2); // the CORRECTED source — the line counts these AREAS
+
+        var line = Assert.IsType<string>(Line(summary));
+
+        // The corrected line: node deltas, membership deltas, then the unchecked-AREAS tally.
+        Assert.Equal(
+            "+3 / −1 objects · +4 / −2 memberships · 2 unchecked areas",
+            line);
+
+        // Belt-and-braces against a silent revert to the edge count / old wording: the parents
+        // count + the "areas" word are present, the edge count is not the tally.
+        Assert.Contains("2 unchecked areas", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("5 unchecked", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("unchecked areas areas", line, StringComparison.Ordinal); // no double word
+    }
+
+    /// <summary>A <c>null</c> summary (before the first diff is computed) renders the empty
+    /// string — the view's IsVisible binds the null-check so nothing shows yet (ADR-015 / #66).</summary>
+    [Fact]
+    public void ToLine_RendersEmptyString_ForANullSummary()
+    {
+        Assert.Equal(string.Empty, Assert.IsType<string>(Line(null)));
+    }
+
     /// <summary>Invoke the on-badge text-ink converter through its binding seam exactly as XAML does.</summary>
     private static object? TextBrush(GapKind kind) =>
         GapKindConverters.ToTextBrush.Convert(
@@ -113,4 +160,9 @@ public sealed class GapKindConvertersTests
     private static object? Brush(GapKind kind) =>
         GapKindConverters.ToBrush.Convert(
             kind, typeof(IBrush), null, CultureInfo.InvariantCulture);
+
+    /// <summary>Invoke the summary-line converter through its binding seam exactly as XAML does.</summary>
+    private static object? Line(GapSummary? summary) =>
+        GapSummaryConverter.ToLine.Convert(
+            summary, typeof(string), null, CultureInfo.InvariantCulture);
 }

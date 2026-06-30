@@ -19,7 +19,7 @@
 
         <StackPanel IsVisible="{Binding !WebView2Missing}" Spacing="8"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock Text="Gap preview is unavailable in this environment."
+          <TextBlock Text="The gap preview will appear here."
                      FontSize="20" HorizontalAlignment="Center" />
           <TextBlock Text="{Binding RootDn}"
                      Classes="dn" TextWrapping="Wrap" TextAlignment="Center" />
@@ -38,16 +38,16 @@
 
     <!-- The gap chrome (beside GraphHost, never over it - ADR-001 guardrail 5): header + the
          summary line + the unchecked banner + the changes list. Mirrors ViolationsSidebarView. -->
-    <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
+    <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{DynamicResource CardBorderBrush}">
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,12,12,8">
 
         <!-- 1. Header: "Gap" title + Back. Both in the chrome column, never over GraphHost. -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
           <TextBlock Grid.Column="0" Text="Gap" Classes="heading"
                      VerticalAlignment="Center" />
-          <Button Grid.Column="1" Name="BackButton" Content="← Back to explore"
+          <Button Grid.Column="1" Name="BackButton" Content="← Back to plan"
                   Padding="8,4" FontSize="12"
-                  ToolTip.Tip="Return to the explored Ist structure"
+                  ToolTip.Tip="Return to the plan editor"
                   Command="{Binding BackCommand}" />
         </Grid>
 
@@ -60,11 +60,21 @@
 
         <!-- 3. The unchecked-areas honesty banner (ADR-015 D5): visible whenever the diff has a
              known-but-unloaded Ist parent - the load-state honesty note, mirroring the workspace
-             "unexpanded areas are unchecked" hint (the word "unexpanded" is load-bearing). -->
-        <TextBlock Grid.Row="2" Margin="0,8,0,0"
-                   Text="Some current-structure areas are unexpanded and were not compared — reload or expand the structure for a complete diff."
-                   IsVisible="{Binding HasUncheckedAreas}"
-                   Foreground="#B26B00" Opacity="0.95" FontSize="12" TextWrapping="Wrap" />
+             "unexpanded areas are unchecked" hint (the word "unexpanded" is load-bearing). The
+             shared tinted-card + info-glyph caveat idiom (ViolationsSidebarView). -->
+        <Border Grid.Row="2" Margin="0,8,0,0"
+                Background="{DynamicResource CardBackgroundBrush}"
+                BorderBrush="{DynamicResource CardBorderBrush}"
+                BorderThickness="1" CornerRadius="6" Padding="8,6"
+                IsVisible="{Binding HasUncheckedAreas}">
+          <Grid ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Column="0" Text="&#x2139;" Classes="secondary"
+                       VerticalAlignment="Top" Margin="0,0,8,0" />
+            <TextBlock Grid.Column="1"
+                       Text="Some current-structure areas are unexpanded and were not compared — reload or expand the structure for a complete diff."
+                       Classes="secondary" TextWrapping="Wrap" />
+          </Grid>
+        </Border>
 
         <!-- 4. The changes list (canonical report order, unshuffled - ADR-015 D6). Header
              "Changes (n)" + the rows: a GapKind glyph badge in the diff palette (color + the
