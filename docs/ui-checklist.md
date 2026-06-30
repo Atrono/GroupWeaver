@@ -244,8 +244,9 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
 - [ ] Airspace held: GraphHost (the live preview, left) is the reserved region; the editor
       panel sits BESIDE it in its own column, never floating/layering over the graph
       (ADR-001 guardrail 5) [S:plan-editor]
-- [ ] Header: "Plan" title + "← Back to explore" button; the editor column scrolls without
-      clipping at both sizes (no overlapping or cut-off controls) [S:plan-editor]
+- [ ] Header: "Plan" title on its own row, then a WrapPanel of actions — New plan / Gap analysis /
+      Export script / "← Back to explore" — that reflows across rows without clipping or squeezing
+      out the title at the 380px editor column; the column scrolls without clipping at both sizes [S:plan-editor]
 - [ ] Add-object form: kind selector (User / Global group / Domain-local group / Universal
       group), Name field, SAM field shown ONLY for User; "Add" button; kind labels legible
       [S:plan-editor]
@@ -263,8 +264,9 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
       shows a plain-text red message; the form keeps the user's input to fix [I — PlanModeEditorTests]
 - [ ] Selection sync: a graph node click selects the matching Objects-list row (and vice
       versa), and highlights matching findings rows [I — PlanModeEditorTests]
-- [ ] No AD-write affordance anywhere in Plan Mode; export is a separate, explicit action
-      (AP 4.2.4) — this slice has no Export button yet [I — design rule / CLAUDE.md]
+- [ ] No AD-write affordance anywhere in Plan Mode; "Export script" writes only the .ps1 the user
+      picks (read-only — GroupWeaver never runs it) and "New plan" only clears the in-memory draft
+      (keeps the base OU) [I — design rule / CLAUDE.md]
 
 ### Gap mode view (AP / ADR-015)
 

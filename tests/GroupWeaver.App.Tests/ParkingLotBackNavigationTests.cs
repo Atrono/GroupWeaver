@@ -158,8 +158,17 @@ public sealed class ParkingLotBackNavigationTests
     /// The parked-surface budget the reclaim logic guarantees, read off the LIVE <c>ParkingLot</c>
     /// panel: after Workspace→Plan→Gap exactly 2 surfaces are parked (Workspace + Plan); after
     /// Gap→Back→Plan exactly 1 (Workspace stays parked, Plan unparked on re-mount); after
-    /// Plan→Back→Workspace exactly 0 (Workspace unparked on re-mount). The count is the parking
-    /// lot's own <c>Children.Count</c> — the structural proof live surfaces never accumulate.
+    /// Plan→Back→Workspace exactly 1 (Workspace unparked on re-mount, but the kept-alive Plan's
+    /// surface is now PARKED). The count is the parking lot's own <c>Children.Count</c> — the
+    /// structural proof live surfaces stay BOUNDED (≤ Workspace + current Plan), never accumulating.
+    ///
+    /// <para><b>UPDATED for the #122 plan KEEP-ALIVE fix.</b> The final assertion was
+    /// <c>Assert.Empty</c> (0 parked) under the pre-keep-alive contract where Plan→Back-to-Workspace
+    /// DISPOSED the plan, so its surface left the lot entirely. Keep-alive now PARKS the plan surface
+    /// on Back (the plan + its graph preview survive the round-trip, mirroring how the workspace
+    /// surface is parked when leaving it), so exactly 1 surface (the parked plan) remains. This is the
+    /// intended truth: the bound (≤ 2 live surfaces) is unchanged; only the resting count after a
+    /// Plan→Workspace Back reflects that the plan is no longer thrown away.</para>
     /// </summary>
     [AvaloniaFact(Timeout = 60_000)]
     public async Task ForwardThenBack_KeepsParkedSurfacesBounded()
@@ -177,6 +186,7 @@ public sealed class ParkingLotBackNavigationTests
         var plan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
         ForceLayoutPass(window);
         Assert.Single(parkingLot.Children); // Workspace parked
+        var planSurface = plan.GraphRenderer!.View!;
 
         shell.OnGapAnalysis(plan, workspace);
         var gap = Assert.IsType<GapViewModel>(shell.CurrentStep);
@@ -191,7 +201,11 @@ public sealed class ParkingLotBackNavigationTests
         plan.BackCommand.Execute(null);
         Assert.Same(workspace, shell.CurrentStep);
         ForceLayoutPass(window);
-        Assert.Empty(parkingLot.Children); // Workspace unparked (re-mounted)
+        // Keep-alive: the Workspace surface is unparked (re-mounted), and the kept-alive Plan's
+        // surface is now parked — exactly 1 surface, still within the bound (never 2 live at rest).
+        Assert.Single(parkingLot.Children);
+        Assert.Contains(planSurface, parkingLot.Children);
+        Assert.False(plan.IsDisposed, "Plan→Back keeps the plan alive (#122) — its surface is parked, not torn down");
 
         shell.Dispose();
         window.Close();
@@ -238,14 +252,23 @@ public sealed class ParkingLotBackNavigationTests
     }
 
     /// <summary>
-    /// Workspace→Plan→Back→Workspace→Plan: the FIRST Plan is abandoned on Back-to-Workspace, then a
-    /// fresh SECOND Plan is authored on the next Design-plan — so the first Plan's renderer must be
-    /// <c>Disposed</c> (its WebView freed). The (re-entered, same-instance) workspace renderer and
-    /// the live second Plan's renderer must NOT be disposed. This is the superseded-Plan reclaim arm
-    /// (<c>DisposeAndUntrack(stale)</c> in <c>OnDesignPlan</c>) AND the Back-abandon arm together.
+    /// Workspace→Plan→Back→Workspace→Plan: under the #122 PLAN KEEP-ALIVE fix this no longer
+    /// abandons + rebuilds the Plan. Back-to-Workspace PARKS the plan surface but KEEPS the plan
+    /// alive (mirroring the workspace's own never-disposed-on-Back lifecycle), so the next
+    /// Design-plan over the SAME workspace root re-enters the SAME plan instance + renderer (its
+    /// authored content survives) — never a fresh second VM.
+    ///
+    /// <para><b>UPDATED from the pre-keep-alive contract</b> (was
+    /// <c>PlanBackWorkspacePlanAgain_DisposesTheFirstAbandonedPlanRenderer</c>): it asserted Back
+    /// disposed Plan #1's renderer and re-entry yielded a different Plan #2. The keep-alive change
+    /// (<c>ShellViewModel.OnDesignPlan</c> no longer disposes/replaces a same-base-OU plan on Back)
+    /// makes that the WRONG behavior — it caused silent data loss of the authored plan on Back. The
+    /// assertions are inverted to the intended truth: NOT disposed, SAME instance, SAME renderer.
+    /// The superseded-Plan reclaim arm (a DIFFERENT base OU disposes + rebuilds) is pinned in
+    /// <see cref="PlanModeTests"/>'s base-OU-change test.</para>
     /// </summary>
     [AvaloniaFact(Timeout = 60_000)]
-    public async Task PlanBackWorkspacePlanAgain_DisposesTheFirstAbandonedPlanRenderer()
+    public async Task PlanBackWorkspacePlanAgain_KeepsTheSamePlanAlive_NotDisposed()
     {
         var (window, shell) = ShowShellWithRealGraphSurface();
 
@@ -259,19 +282,23 @@ public sealed class ParkingLotBackNavigationTests
         ForceLayoutPass(window);
         var plan1Renderer = (FakeGraphRenderer)plan1.GraphRenderer!;
 
-        // Back to the SAME workspace — abandons Plan #1 (its onBack disposes + untracks it).
+        // Back to the SAME workspace — KEEP-ALIVE: the plan is parked, NOT disposed.
         plan1.BackCommand.Execute(null);
         Assert.Same(workspace, shell.CurrentStep);
         ForceLayoutPass(window);
-        Assert.True(plan1Renderer.Disposed, "Back-to-Workspace must dispose the abandoned first Plan renderer (#122)");
+        Assert.False(
+            plan1Renderer.Disposed,
+            "Back-to-Workspace must KEEP the plan alive (keep-alive #122 — its renderer is not disposed)");
+        Assert.False(plan1.IsDisposed, "Back-to-Workspace must not dispose the plan VM (keep-alive #122)");
 
-        // A fresh SECOND Plan: a brand-new VM + renderer (the first was already abandoned).
+        // Re-enter Plan over the SAME workspace root: the SAME plan instance + renderer comes back
+        // (re-threaded, content intact) — never a fresh second VM.
         shell.OnDesignPlan(workspace);
         var plan2 = Assert.IsType<PlanViewModel>(shell.CurrentStep);
         ForceLayoutPass(window);
-        Assert.NotSame(plan1, plan2);
-        Assert.NotSame(plan1.GraphRenderer, plan2.GraphRenderer);
-        Assert.False(((FakeGraphRenderer)plan2.GraphRenderer!).Disposed); // the live second Plan
+        Assert.Same(plan1, plan2);
+        Assert.Same(plan1.GraphRenderer, plan2.GraphRenderer);
+        Assert.False(((FakeGraphRenderer)plan2.GraphRenderer!).Disposed); // the kept-alive plan
         Assert.False(((FakeGraphRenderer)workspace.GraphRenderer!).Disposed); // the survivor Workspace
 
         shell.Dispose();

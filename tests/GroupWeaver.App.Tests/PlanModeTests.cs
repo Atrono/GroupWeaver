@@ -424,6 +424,261 @@ public sealed class PlanModeTests
         shell.Dispose();
     }
 
+    // === (6) #122 plan KEEP-ALIVE: Back parks (never disposes); re-entry re-enters the same =====
+
+    /// <summary>
+    /// THE core keep-alive fix (the silent-data-loss-on-Back regression): drive Workspace → Plan,
+    /// author content (a node + a self-edge through the plan's add commands), then
+    /// <see cref="PlanViewModel.BackCommand"/>. Back must PARK the plan (NOT dispose it) and return
+    /// the SAME workspace instance as <see cref="ShellViewModel.CurrentStep"/>; the plan VM stays
+    /// alive (<c>IsDisposed == false</c>). Re-entering via <see cref="ShellViewModel.OnDesignPlan"/>
+    /// over the SAME workspace root re-enters the EXACT SAME <see cref="PlanViewModel"/> instance
+    /// (<see cref="Assert.Same(object?,object?)"/>) with its authored Nodes/Edges intact — never a
+    /// fresh empty plan. Before keep-alive this round-trip disposed the plan and rebuilt it empty,
+    /// silently dropping the user's authored structure.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task KeepAlive_RoundTrip_ParksPlanNotDisposed_ReEntersSameInstance_ContentIntact()
+    {
+        var (shell, workspace) = await DemoShellWithLiveWorkspaceAsync();
+
+        shell.OnDesignPlan(workspace);
+        var plan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+
+        // Author content through the plan's own add commands (the production seam).
+        var groupDn = await AddNodeAsync(plan, PlanCreatableKind.GlobalGroup, "GG_KeepAlive");
+        var childDn = await AddNodeAsync(plan, PlanCreatableKind.GlobalGroup, "GG_KeepAlive_Child");
+        plan.MemberParentRow = plan.GroupNodes.Single(r => Dn.Comparer.Equals(r.Dn, groupDn));
+        plan.MemberChildRow = plan.Nodes.Single(r => Dn.Comparer.Equals(r.Dn, childDn));
+        await plan.AddMemberCommand.ExecuteAsync(null);
+
+        var nodesBefore = plan.Plan.Nodes.Count;
+        var edgesBefore = plan.Plan.Edges.Count;
+        Assert.Equal(2, nodesBefore);
+        Assert.Equal(1, edgesBefore);
+
+        // Back: the plan is PARKED, not disposed; the SAME workspace returns.
+        plan.BackCommand.Execute(null);
+        Assert.Same(workspace, shell.CurrentStep);
+        Assert.False(
+            plan.IsDisposed,
+            "Back must KEEP the plan alive (keep-alive #122) — the authored content must survive");
+
+        // Re-enter Plan over the SAME workspace root: the SAME instance, content intact.
+        shell.OnDesignPlan(workspace);
+        var planAgain = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+        Assert.Same(plan, planAgain);
+        Assert.False(planAgain.IsDisposed);
+        Assert.Equal(nodesBefore, planAgain.Plan.Nodes.Count);
+        Assert.Equal(edgesBefore, planAgain.Plan.Edges.Count);
+        Assert.True(planAgain.Plan.TryGetNode(groupDn, out _), "the authored group survives the round-trip");
+        Assert.True(planAgain.Plan.TryGetNode(childDn, out _), "the authored child survives the round-trip");
+        Assert.Contains(
+            planAgain.Plan.Edges,
+            e => Dn.Comparer.Equals(e.ParentDn, groupDn) && Dn.Comparer.Equals(e.ChildDn, childDn));
+
+        shell.Dispose();
+    }
+
+    /// <summary>
+    /// Keep-alive re-entry parks the workspace surface we Back INTO, then re-mounts the kept-alive
+    /// plan as the current step — it must NEVER re-build a fresh empty plan as long as the base OU
+    /// is unchanged. Pinned at the seam: two <see cref="ShellViewModel.OnDesignPlan"/> calls with a
+    /// Back between them yield <see cref="Assert.Same(object?,object?)"/> the same plan, and its
+    /// renderer is the same alive instance (never disposed).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task KeepAlive_ReEntry_SameBaseOu_ReusesTheSamePlanRendererInstance()
+    {
+        var rendererCount = 0;
+        IGraphRenderer Factory()
+        {
+            rendererCount++;
+            return new FakeGraphRenderer();
+        }
+
+        var shell = Shell(new DemoProvider(), Factory);
+        var workspace = await DriveShellToWorkspaceAsync(shell);
+
+        shell.OnDesignPlan(workspace);
+        var plan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+        var planRenderer = plan.GraphRenderer;
+        Assert.NotNull(planRenderer);
+        var rendererCountAfterFirstPlan = rendererCount; // workspace + plan = 2
+
+        plan.BackCommand.Execute(null);
+        Assert.Same(workspace, shell.CurrentStep);
+
+        shell.OnDesignPlan(workspace);
+        var planAgain = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+
+        Assert.Same(plan, planAgain);
+        Assert.Same(planRenderer, planAgain.GraphRenderer); // the SAME renderer, never rebuilt
+        Assert.Equal(rendererCountAfterFirstPlan, rendererCount); // re-entry minted NO new renderer
+        Assert.False(((FakeGraphRenderer)planAgain.GraphRenderer!).Disposed);
+
+        shell.Dispose();
+    }
+
+    /// <summary>
+    /// Base-OU change DISCARDS + rebuilds (the only sanctioned reset, besides teardown): after a
+    /// keep-alive round-trip with authored content, calling <see cref="ShellViewModel.OnDesignPlan"/>
+    /// with a workspace that has a DIFFERENT <see cref="WorkspaceViewModel.RootDn"/> (the path a fresh
+    /// RootChosen / a Reload-scope takes — both yield a new <see cref="WorkspaceViewModel"/> with a new
+    /// RootDn) must build a DIFFERENT, fresh, EMPTY plan and dispose the old one. A plan is bound to
+    /// its base OU, so it cannot survive a base-OU change.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task KeepAlive_BaseOuChange_DisposesOldPlan_RebuildsFreshEmptyPlan()
+    {
+        var provider = new DemoProvider();
+        var shell = Shell(provider, () => new FakeGraphRenderer());
+        var workspace = await DriveShellToWorkspaceAsync(shell);
+
+        shell.OnDesignPlan(workspace);
+        var plan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+
+        // Author content into the first plan, then Back (keep-alive parks it).
+        plan.Plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_OldRoot");
+        await plan.RevalidateAsync();
+        Assert.NotEmpty(plan.Plan.Nodes);
+        plan.BackCommand.Execute(null);
+        Assert.False(plan.IsDisposed); // kept alive by the round-trip
+
+        // A second workspace rooted at a DIFFERENT OU — the shape a fresh RootChosen / Reload-scope
+        // produces (a new WorkspaceViewModel with a new RootDn). Constructed directly (deterministic),
+        // never re-driving the picker; a fresh temp-dir UiStateStore (#124 — never real %APPDATA%).
+        var otherRoot = new AdObject
+        {
+            Dn = "OU=Other-Demo,DC=weavedemo,DC=example",
+            Kind = AdObjectKind.OrganizationalUnit,
+            Name = "Other-Demo",
+        };
+        using var otherWorkspace = new WorkspaceViewModel(
+            provider,
+            otherRoot,
+            await provider.ConnectAsync(),
+            webView2Missing: false,
+            () => new FakeGraphRenderer(),
+            uiStateStore: new UiStateStore(
+                System.IO.Directory.CreateTempSubdirectory("groupweaver-keepalive-otherroot-").FullName));
+        Assert.NotEqual(workspace.RootDn, otherWorkspace.RootDn, Dn.Comparer); // a genuinely different base OU
+
+        // Design-plan over the DIFFERENT-root workspace: the old plan is superseded.
+        shell.OnDesignPlan(otherWorkspace);
+        var freshPlan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+
+        Assert.NotSame(plan, freshPlan); // a brand-new plan VM
+        Assert.True(plan.IsDisposed, "a base-OU change must dispose the superseded (different-base-OU) plan");
+        Assert.Empty(freshPlan.Plan.Nodes); // fresh + empty
+        Assert.Empty(freshPlan.Plan.Edges);
+        Assert.Equal(otherWorkspace.RootDn, freshPlan.BaseOuDn, Dn.Comparer); // bound to the NEW base OU
+
+        shell.Dispose();
+    }
+
+    /// <summary>
+    /// The "New plan" reset (#122): with authored content, <see cref="PlanViewModel.NewPlanCommand"/>
+    /// clears <see cref="PlanModel.Nodes"/>/<see cref="PlanModel.Edges"/> in place (the same instance —
+    /// never disposed), keeps the <see cref="PlanViewModel.BaseOuDn"/>, re-gates the Export command to
+    /// disabled at zero nodes, and re-runs the live validation (a fresh empty Report). This is the one
+    /// way to empty a kept-alive plan on purpose.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task NewPlan_ClearsContent_KeepsBaseOu_ReGatesExportDisabled_RevalidatesEmpty()
+    {
+        var plan = HeadlessPlan();
+        // Arm the export seam so CanExportPlanScript is gated ONLY by the node count (proving the
+        // re-gate to disabled is the zero-node arm, not a missing-dialogs arm). UseExportFileDialogs
+        // re-gates the command, so it tracks the node count from here on.
+        plan.UseExportFileDialogs(new FakeExportDialogs());
+
+        var baseOuBefore = plan.BaseOuDn;
+
+        // Author content through the production add commands (which re-gate Export across the
+        // zero-node boundary): a group + a user + a membership.
+        var groupDn = await AddNodeAsync(plan, PlanCreatableKind.GlobalGroup, "GG_Reset");
+        var userDn = await AddNodeAsync(plan, PlanCreatableKind.User, "Reset User");
+        plan.MemberParentRow = plan.GroupNodes.Single(r => Dn.Comparer.Equals(r.Dn, groupDn));
+        plan.MemberChildRow = plan.Nodes.Single(r => Dn.Comparer.Equals(r.Dn, userDn));
+        await plan.AddMemberCommand.ExecuteAsync(null);
+        Assert.NotEmpty(plan.Plan.Nodes);
+        Assert.NotEmpty(plan.Plan.Edges);
+        Assert.True(
+            plan.ExportPlanScriptCommand.CanExecute(null),
+            "with nodes + dialogs the export command is armed before the reset");
+
+        await plan.NewPlanCommand.ExecuteAsync(null);
+
+        // Content gone, base OU kept, the SAME instance (NewPlan never disposes).
+        Assert.Empty(plan.Plan.Nodes);
+        Assert.Empty(plan.Plan.Edges);
+        Assert.Equal(baseOuBefore, plan.BaseOuDn, Dn.Comparer);
+        Assert.False(plan.IsDisposed);
+
+        // Export re-gated to disabled at zero nodes; validation re-ran to the empty-plan shape.
+        Assert.False(
+            plan.ExportPlanScriptCommand.CanExecute(null),
+            "NewPlan must re-gate Export to disabled at zero nodes");
+        Assert.Empty(plan.Report.Violations);
+        Assert.False(plan.HasViolations);
+        Assert.Null(plan.EditError);
+        Assert.Null(plan.SelectedNodeRow);
+        Assert.Null(plan.SelectedDn);
+
+        plan.Dispose();
+    }
+
+    /// <summary>
+    /// No double-track / dispose-once: after SEVERAL Workspace↔Plan round-trips (each Back parks the
+    /// kept-alive plan, each re-entry returns the SAME instance), the shell must still track the plan
+    /// exactly once — so shell teardown disposes it exactly once. Observed via the plan renderer's
+    /// idempotent <c>Disposed</c> flag PLUS the structural guarantee that re-entry never mints a new
+    /// renderer (so there is only ever ONE plan to dispose). The workspace is disposed too.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task KeepAlive_MultipleRoundTrips_ShellTeardownDisposesThePlanOnce()
+    {
+        var rendererCount = 0;
+        IGraphRenderer Factory()
+        {
+            rendererCount++;
+            return new FakeGraphRenderer();
+        }
+
+        var shell = Shell(new DemoProvider(), Factory);
+        var workspace = await DriveShellToWorkspaceAsync(shell);
+
+        shell.OnDesignPlan(workspace);
+        var plan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+        var planRenderer = (FakeGraphRenderer)plan.GraphRenderer!;
+        var rendererCountAfterFirstPlan = rendererCount;
+
+        // Three full round-trips — every re-entry must reuse the SAME plan (no second renderer).
+        for (var i = 0; i < 3; i++)
+        {
+            plan.BackCommand.Execute(null);
+            Assert.Same(workspace, shell.CurrentStep);
+            shell.OnDesignPlan(workspace);
+            Assert.Same(plan, shell.CurrentStep);
+        }
+
+        Assert.True(
+            rendererCount == rendererCountAfterFirstPlan,
+            "no round-trip may mint a second plan renderer (the plan is kept alive, not rebuilt)");
+        Assert.False(planRenderer.Disposed);
+
+        // Teardown disposes BOTH the workspace and the (single, kept-alive) plan exactly once.
+        shell.Dispose();
+        Assert.True(workspace.IsDisposed, "teardown disposes the workspace");
+        Assert.True(plan.IsDisposed, "teardown disposes the kept-alive plan");
+        Assert.True(planRenderer.Disposed, "teardown disposes the kept-alive plan's renderer");
+
+        // A second teardown is a no-op (idempotent overall — proves no double-track).
+        var ex = Record.Exception(() => shell.Dispose());
+        Assert.Null(ex);
+    }
+
     // === helpers ========================================================================
 
     /// <summary>The embedded default with ONLY the GG←GG matrix cell flipped to Error —
@@ -452,6 +707,20 @@ public sealed class PlanModeTests
     /// null-renderer-safe. Rooted at the lab base OU, default ruleset.</summary>
     private static PlanViewModel HeadlessPlan() =>
         new(PlanBaseOuDn, DefaultEffectiveRuleset());
+
+    /// <summary>Authors a node through the add-object COMMAND (the production seam, mirroring
+    /// <c>PlanModeEditorTests.AddNodeAsync</c>) so the export-gate re-evaluation fires across the
+    /// zero-node boundary; returns its DN.</summary>
+    private static async Task<string> AddNodeAsync(
+        PlanViewModel plan, PlanCreatableKind kind, string name, string? sam = null)
+    {
+        plan.NewObjectKind = kind;
+        plan.NewObjectName = name;
+        plan.NewObjectSam = sam ?? string.Empty;
+        await plan.AddObjectCommand.ExecuteAsync(null);
+        Assert.Null(plan.EditError); // the helper authors only valid nodes
+        return plan.Plan.FormDn(name);
+    }
 
     /// <summary>A shell over a provider with the WebView2 probe forced present (never the
     /// live registry — that would make the banner machine-dependent) and a temp-dir
