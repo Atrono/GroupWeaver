@@ -165,7 +165,7 @@ public sealed class AuditNavigationTests
     /// from invalid thread") off-thread; the added <c>Dispatcher.UIThread.CheckAccess()</c> guard
     /// (ShellViewModel.cs ~line 339) skips the global setter when not on the UI thread.
     ///
-    /// <para>The bound <see cref="ShellViewModel.IsLightTheme"/> still reflects the PERSISTED choice
+    /// <para>The bound <see cref="ShellViewModel.ThemeChoice"/> still reflects the PERSISTED choice
     /// (seeded Light here) even though the off-thread global variant apply was skipped — the seam keeps
     /// VM state honest without touching UI-thread-affine app state.</para>
     ///
@@ -181,7 +181,7 @@ public sealed class AuditNavigationTests
     public async Task Ctor_OffUiThread_DoesNotThrow_AndHonorsPersistedLightTheme()
     {
         // Seed a previously-persisted Light theme through a fresh temp-dir store BEFORE constructing
-        // the shell (the Ctor_SeedsIsLightTheme_FromPersistedLight idiom) — never touches %APPDATA%.
+        // the shell (the Ctor_SeedsThemeChoice_FromPersistedLight idiom) — never touches %APPDATA%.
         var uiStateBase = System.IO.Directory
             .CreateTempSubdirectory("groupweaver-audit-offthread-uistate-").FullName;
         new UiStateStore(uiStateBase).Save(UiState.Default with { Theme = "Light" });
@@ -203,10 +203,9 @@ public sealed class AuditNavigationTests
 
         // (b) The persisted Light choice is still honored despite the skipped global variant apply.
         Assert.NotNull(shell);
-        Assert.True(
-            shell!.IsLightTheme,
-            "the persisted Light theme must survive off-thread construction (only the global "
-            + "RequestedThemeVariant apply is skipped, never the bound IsLightTheme)");
+        Assert.Equal(
+            AppThemeChoice.Light,
+            shell!.ThemeChoice);
 
         shell.Dispose();
     }

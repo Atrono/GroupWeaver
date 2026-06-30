@@ -132,16 +132,19 @@ public sealed class AuditRunCompareScreenshotTests
         // 720px fold — scroll it into view so the captured frame actually shows the bucket tiles + banners.
         ScrollCompareCardIntoView(window);
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp-audit-compare-dark", 1280, 960);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp-audit-compare-light", 1280, 960);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         shell.Dispose();
         window.Close();

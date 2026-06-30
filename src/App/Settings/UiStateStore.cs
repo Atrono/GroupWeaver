@@ -96,11 +96,13 @@ public sealed class UiStateStore
 /// width and whether it is collapsed, plus the ADR-026 D4 app-chrome theme. Best-effort.</summary>
 public sealed record UiState(double RailWidth, bool RailCollapsed)
 {
-    /// <summary>The app-chrome theme variant (ADR-026 D4): <c>"Dark"</c> | <c>"Light"</c>,
-    /// dark-first default. A NON-positional <c>init</c> property (not a ctor param) so the
-    /// existing two-arg <c>new UiState(width, collapsed)</c> call sites keep compiling and an
-    /// old <c>ui-state.json</c> with no <c>theme</c> field deserializes to the default — the
-    /// JSON stays forward/back compatible (ADR-026 D4, the never-throw load contract).</summary>
+    /// <summary>The app-chrome theme choice (ADR-026 D4, extended for System/auto): the
+    /// <see cref="AppThemeChoice"/> enum NAME — <c>"Dark"</c> | <c>"Light"</c> | <c>"System"</c>,
+    /// dark-first default. A NON-positional <c>init</c> property (not a ctor param) so the existing
+    /// two-arg <c>new UiState(width, collapsed)</c> call sites keep compiling and an old
+    /// <c>ui-state.json</c> with no <c>theme</c> field deserializes to the default — the JSON stays
+    /// forward/back compatible (ADR-026 D4, the never-throw load contract). An unparseable / legacy
+    /// name falls back to <c>"Dark"</c> on restore (<see cref="ViewModels.ShellViewModel"/>).</summary>
     public string Theme { get; init; } = "Dark";
 
     /// <summary>The findings sidebar's share of the rail's findings+detail vertical space

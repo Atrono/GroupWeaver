@@ -68,16 +68,19 @@ public sealed class Wp5cAuditScreenshotTests
         Assert.Equal(6, audit.RuleClasses);
         Assert.True(audit.UncheckedPresent, "demo scope has unchecked areas");
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp5c-audit-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp5c-audit-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }
@@ -120,16 +123,19 @@ public sealed class Wp5cAuditScreenshotTests
         Assert.True(audit.HasTriaged, "suppressing a finding must flip HasTriaged so the D2 caveat renders");
         Assert.True(audit.TriagedCount > 0);
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp5c-audit-triaged-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp5c-audit-triaged-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         shell.Dispose();
         window.Close();

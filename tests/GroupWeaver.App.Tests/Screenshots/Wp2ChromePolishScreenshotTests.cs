@@ -58,17 +58,20 @@ public sealed class Wp2ChromePolishScreenshotTests
 
         // The demo path set IsDemoMode (so the DEMO badge shows); the Read-only pill is always on.
         Assert.True(shell.IsDemoMode, "the demo connection must flag IsDemoMode so the DEMO badge shows");
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
 
         Settle(window);
         Capture(window, "wp2-strip-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp2-strip-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }
@@ -81,15 +84,19 @@ public sealed class Wp2ChromePolishScreenshotTests
         Assert.IsType<ConnectionViewModel>(shell.CurrentStep);
         Dispatcher.UIThread.RunJobs();
 
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp2-connection-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp2-connection-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }

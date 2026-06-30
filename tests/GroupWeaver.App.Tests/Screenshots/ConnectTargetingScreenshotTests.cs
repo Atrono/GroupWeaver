@@ -60,16 +60,19 @@ public sealed class ConnectTargetingScreenshotTests
             $"as {connect.CurrentUserContext} against dc1.corp.example — OU=Groups,DC=corp,DC=example",
             connect.TargetLine);
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "connect-advanced-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "connect-advanced-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }

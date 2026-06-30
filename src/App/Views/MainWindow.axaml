@@ -133,7 +133,7 @@
                     Spacing="8" VerticalAlignment="Center">
           <Button Name="ThemeToggleButton" Padding="10,4"
                   Command="{Binding ToggleThemeCommand}"
-                  ToolTip.Tip="Toggle light / dark theme">
+                  ToolTip.Tip="{Binding ThemeTooltip}">
             <TextBlock Text="{Binding ThemeGlyph}" />
           </Button>
           <Button Name="FocusModeButton" Padding="10,4"

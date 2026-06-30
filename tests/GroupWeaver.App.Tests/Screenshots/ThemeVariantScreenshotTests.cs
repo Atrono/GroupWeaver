@@ -52,15 +52,19 @@ public sealed class ThemeVariantScreenshotTests
         await DriveToWorkspaceAsync(shell);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         CapturePng(window, "wp1a-workspace-rail-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         CapturePng(window, "wp1a-workspace-rail-light", 1280, 720);
 
+        // Restore Dark through the toggle seam (the cycle is Dark->Light->System->Dark, so two
+        // hops from Light) so the shared global RequestedThemeVariant never leaks into sibling fixtures.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }
@@ -73,13 +77,18 @@ public sealed class ThemeVariantScreenshotTests
         Dispatcher.UIThread.RunJobs();
         Assert.True(workspace.HasViolations);
 
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         CapturePng(window, "wp1a-workspace-violations-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         CapturePng(window, "wp1a-workspace-violations-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }
@@ -91,13 +100,18 @@ public sealed class ThemeVariantScreenshotTests
         Assert.IsType<ConnectionViewModel>(shell.CurrentStep);
         Dispatcher.UIThread.RunJobs();
 
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         CapturePng(window, "wp1a-connection-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         CapturePng(window, "wp1a-connection-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }

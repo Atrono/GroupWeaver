@@ -116,19 +116,66 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isDemoMode;
 
-    /// <summary>ADR-026 D4: the app-chrome theme is Light when true (Dark otherwise). Seeded in the
-    /// ctor from the persisted <see cref="UiState.Theme"/> and flipped by <see cref="ToggleTheme"/>;
-    /// the top strip's theme button binds its glyph to <see cref="ThemeGlyph"/>. Shell-level because
-    /// the toggle is shell chrome reachable on every step (unlike Focus, which is workspace-only).</summary>
+    /// <summary>ADR-026 D4 (extended — System/auto): the app-chrome theme choice — Dark / Light /
+    /// System. Seeded in the ctor from the persisted <see cref="UiState.Theme"/> (enum name) and
+    /// cycled by <see cref="ToggleTheme"/>; the top strip's theme button binds its glyph to
+    /// <see cref="ThemeGlyph"/> and its tooltip to <see cref="ThemeTooltip"/>. Shell-level because
+    /// the toggle is shell chrome reachable on every step (unlike Focus, which is workspace-only).
+    /// <see cref="System"/> follows the OS preference (resolved via <see cref="_platformThemeProvider"/>).</summary>
     [ObservableProperty]
-    private bool _isLightTheme;
+    private AppThemeChoice _themeChoice;
 
-    /// <summary>ADR-026 D4: the theme-toggle button's glyph — a sun in light mode (tap to go dark),
-    /// a moon in dark mode (tap to go light); change-notified off <see cref="IsLightTheme"/>.</summary>
-    public string ThemeGlyph => IsLightTheme ? "☀" : "☾";
+    /// <summary>The OS light/dark-preference seam (ADR-026 extension): production reads
+    /// <c>PlatformSettings</c>, tests inject a fake. Used to RESOLVE <see cref="AppThemeChoice.System"/>
+    /// to a concrete variant and to fire a live re-apply on an OS switch. Defaulted to the production
+    /// impl, exactly like <see cref="_uiStateStore"/>.</summary>
+    private readonly IPlatformThemeProvider _platformThemeProvider;
 
-    /// <summary>Keeps <see cref="ThemeGlyph"/> in sync whenever <see cref="IsLightTheme"/> flips.</summary>
-    partial void OnIsLightThemeChanged(bool value) => OnPropertyChanged(nameof(ThemeGlyph));
+    /// <summary>True only while subscribed to <see cref="IPlatformThemeProvider.OsPreferenceChanged"/>
+    /// — i.e. while <see cref="ThemeChoice"/> is <see cref="AppThemeChoice.System"/>. Tracked so the
+    /// subscription is added/removed exactly once as the choice enters/leaves System and torn down on
+    /// <see cref="Dispose"/>.</summary>
+    private bool _subscribedToOsPreference;
+
+    /// <summary>The resolved app-chrome variant: System resolves through the OS preference, Dark/Light
+    /// pass through. True ⇒ Light. The single source of truth for both the applied
+    /// <c>RequestedThemeVariant</c> and the WebView canvas sync.</summary>
+    private bool ResolvedIsLight => ThemeChoice switch
+    {
+        AppThemeChoice.Light => true,
+        AppThemeChoice.Dark => false,
+        _ => _platformThemeProvider.GetOsPreference() == Avalonia.Styling.ThemeVariant.Light,
+    };
+
+    /// <summary>ADR-026 D4: the theme-toggle button's glyph — a sun for Light, a moon for Dark, a
+    /// half-filled circle for System (all from the same symbol family that already renders in the
+    /// app font); change-notified off <see cref="ThemeChoice"/>.</summary>
+    public string ThemeGlyph => ThemeChoice switch
+    {
+        AppThemeChoice.Light => "☀",
+        AppThemeChoice.System => "◐",
+        _ => "☾",
+    };
+
+    /// <summary>ADR-026 D4: the theme-toggle button's tooltip — names the current state and the next
+    /// one the toggle will cycle to (Dark → Light → System → Dark); change-notified off
+    /// <see cref="ThemeChoice"/>.</summary>
+    public string ThemeTooltip => ThemeChoice switch
+    {
+        AppThemeChoice.Light => "Theme: Light — tap for System",
+        AppThemeChoice.System => "Theme: System — tap for Dark",
+        _ => "Theme: Dark — tap for Light",
+    };
+
+    /// <summary>Keeps <see cref="ThemeGlyph"/>/<see cref="ThemeTooltip"/> in sync whenever
+    /// <see cref="ThemeChoice"/> changes, and (un)subscribes to the OS-preference event so the live
+    /// follow is active exactly while the choice is System.</summary>
+    partial void OnThemeChoiceChanged(AppThemeChoice value)
+    {
+        OnPropertyChanged(nameof(ThemeGlyph));
+        OnPropertyChanged(nameof(ThemeTooltip));
+        UpdateOsPreferenceSubscription();
+    }
 
     public ShellViewModel(
         Func<bool, IDirectoryProvider> providerFactory,
@@ -139,7 +186,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         RulesetLocator? locator = null,
         UiStateStore? uiStateStore = null,
         Func<string?, string?, IDirectoryProvider>? targetedProviderFactory = null,
-        AuditRunStore? auditRunStore = null)
+        AuditRunStore? auditRunStore = null,
+        IPlatformThemeProvider? platformThemeProvider = null)
     {
         _providerFactory = providerFactory;
         _targetedProviderFactory = targetedProviderFactory;
@@ -151,11 +199,19 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // ADR-032 (#190): defaulted like the other stores — the real %APPDATA%\GroupWeaver\runs\
         // layout in production, a temp-dir seam in headless tests.
         _auditRunStore = auditRunStore ?? new AuditRunStore();
-        // ADR-026 D4: seed the app-chrome theme from the persisted state and apply the resolved
-        // ThemeVariant on startup (a no-op when the app is not yet running, e.g. some headless
-        // theories — the bound IsLightTheme still reflects the persisted choice).
-        _isLightTheme = string.Equals(_uiStateStore.Load().Theme, "Light", StringComparison.OrdinalIgnoreCase);
+        // ADR-026 extension (System/auto): the OS-preference seam, defaulted to the production impl
+        // (reads PlatformSettings) exactly like the stores above — tests inject a fake.
+        _platformThemeProvider = platformThemeProvider ?? new DefaultPlatformThemeProvider();
+        // ADR-026 D4: seed the app-chrome theme choice from the persisted state (enum name; an
+        // unparseable / legacy / missing name falls back to Dark — dark-first) and apply the
+        // resolved ThemeVariant on startup (a no-op when the app is not yet running, e.g. some
+        // headless theories — the bound ThemeChoice still reflects the persisted choice). Set the
+        // backing field directly so OnThemeChoiceChanged's OS-subscription arm runs ONCE, below.
+        _themeChoice = ParseThemeChoice(_uiStateStore.Load().Theme);
         ApplyThemeVariant();
+        // Subscribe to OS-preference changes iff the seeded choice is System (the OnThemeChoiceChanged
+        // hook does not fire for the backing-field seed). Idempotent — guarded by _subscribedToOsPreference.
+        UpdateOsPreferenceSubscription();
         // Defaulted (AP 3.3 / ADR-011 §1): App.axaml.cs passes the one composition-root
         // locator; pre-S8 tests omit it and get the real %APPDATA% layout. Settings
         // Save persists to its UserRulesetPath; the headless tests inject a temp-dir seam.
@@ -378,15 +434,23 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>ADR-026 D4: flips the app-chrome theme live and persists it. Toggles
-    /// <see cref="IsLightTheme"/>, applies the resolved <c>ThemeVariant</c> to the running app
-    /// (so every native screen re-themes via the DynamicResource brushes), and writes
-    /// <see cref="UiState.Theme"/> through the shared store (read-modify-write so the rail state
-    /// the workspace owns is preserved). Reachable on every step (the top strip's theme button).</summary>
+    /// <summary>ADR-026 D4 (extended — System/auto): cycles the app-chrome theme choice live and
+    /// persists it. The cycle is Dark → Light → System → Dark; setting <see cref="ThemeChoice"/>
+    /// re-raises the glyph/tooltip and (un)subscribes the OS-preference follow via
+    /// <see cref="OnThemeChoiceChanged"/>. Applies the RESOLVED <c>ThemeVariant</c> to the running
+    /// app (so every native screen re-themes via the DynamicResource brushes), re-tones the graph
+    /// canvas(es), and writes the enum name to <see cref="UiState.Theme"/> through the shared store
+    /// (read-modify-write so the rail state the workspace owns is preserved). Reachable on every
+    /// step (the top strip's theme button).</summary>
     [RelayCommand]
     private void ToggleTheme()
     {
-        IsLightTheme = !IsLightTheme;
+        ThemeChoice = ThemeChoice switch
+        {
+            AppThemeChoice.Dark => AppThemeChoice.Light,
+            AppThemeChoice.Light => AppThemeChoice.System,
+            _ => AppThemeChoice.Dark,
+        };
         ApplyThemeVariant();
         // ADR-026 WP1b: re-theme the graph canvas(es) live. The WebView2 bundle does not observe
         // RequestedThemeVariant — it must be pushed the variant explicitly. Re-theme EVERY tracked
@@ -395,21 +459,23 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // return in the stale theme (a re-mount does NOT re-render). Fire-and-forget, never-throw.
         ApplyCanvasTheme();
         // Preserve the ADR-022 rail fields the workspace owns: read-modify-write the shared store.
-        _uiStateStore.Save(_uiStateStore.Load() with { Theme = IsLightTheme ? "Light" : "Dark" });
+        _uiStateStore.Save(_uiStateStore.Load() with { Theme = ThemeChoice.ToString() });
     }
 
-    /// <summary>ADR-026 WP1b: pushes the current <see cref="IsLightTheme"/> variant to every tracked
-    /// graph-bearing step's renderer (Workspace/Plan/Gap). Fire-and-forget (the renderer's
-    /// <see cref="IGraphRenderer.SetThemeAsync"/> is itself never-throw and no-ops before its bundle
-    /// is ready — a not-yet-rendered renderer converges anyway because each render prepends the
-    /// current theme). Covers parked surfaces too, so returning to a Back-target finds it themed.</summary>
+    /// <summary>ADR-026 WP1b: pushes the RESOLVED light/dark variant (<see cref="ResolvedIsLight"/> —
+    /// System syncs the OS-resolved variant) to every tracked graph-bearing step's renderer
+    /// (Workspace/Plan/Gap). Fire-and-forget (the renderer's <see cref="IGraphRenderer.SetThemeAsync"/>
+    /// is itself never-throw and no-ops before its bundle is ready — a not-yet-rendered renderer
+    /// converges anyway because each render prepends the current theme). Covers parked surfaces too,
+    /// so returning to a Back-target finds it themed.</summary>
     private void ApplyCanvasTheme()
     {
+        var isLight = ResolvedIsLight;
         foreach (var step in _disposableSteps)
         {
             if (RendererOf(step) is { } renderer)
             {
-                _ = renderer.SetThemeAsync(IsLightTheme);
+                _ = renderer.SetThemeAsync(isLight);
             }
         }
     }
@@ -424,23 +490,63 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _ => null,
     };
 
-    /// <summary>Applies <see cref="IsLightTheme"/> to <c>Application.Current.RequestedThemeVariant</c>
-    /// (Light ⇒ <see cref="Avalonia.Styling.ThemeVariant.Light"/>, else Dark). A no-op under two
-    /// guards: (1) no app is running (some headless theories), and (2) the caller is NOT on the
-    /// Avalonia UI thread — <c>RequestedThemeVariant</c> is a UI-thread-affine setter that throws
-    /// "Call from invalid thread" off-thread. In production both the ctor (during
-    /// <c>OnFrameworkInitializationCompleted</c>) and <c>ToggleTheme</c> run on the UI thread, so the
-    /// apply still happens; off-thread (tests, any non-UI caller) it safely skips the global setter
-    /// while the bound <see cref="IsLightTheme"/> still reflects the persisted choice. Synchronous
-    /// skip — never dispatched (that would reorder startup).</summary>
+    /// <summary>Applies the RESOLVED variant (<see cref="ResolvedIsLight"/> — Dark/Light pass
+    /// through, System reads <see cref="IPlatformThemeProvider.GetOsPreference"/>) to
+    /// <c>Application.Current.RequestedThemeVariant</c> (Light ⇒
+    /// <see cref="Avalonia.Styling.ThemeVariant.Light"/>, else Dark). A no-op under two guards:
+    /// (1) no app is running (some headless theories), and (2) the caller is NOT on the Avalonia UI
+    /// thread — <c>RequestedThemeVariant</c> is a UI-thread-affine setter that throws "Call from
+    /// invalid thread" off-thread. In production both the ctor (during
+    /// <c>OnFrameworkInitializationCompleted</c>), <c>ToggleTheme</c>, and the OS-change handler run
+    /// on the UI thread, so the apply still happens; off-thread (tests, any non-UI caller) it safely
+    /// skips the global setter while the bound <see cref="ThemeChoice"/> still reflects the persisted
+    /// choice. Synchronous skip — never dispatched (that would reorder startup).</summary>
     private void ApplyThemeVariant()
     {
         if (Application.Current is { } app && Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
         {
-            app.RequestedThemeVariant = IsLightTheme
+            app.RequestedThemeVariant = ResolvedIsLight
                 ? Avalonia.Styling.ThemeVariant.Light
                 : Avalonia.Styling.ThemeVariant.Dark;
         }
+    }
+
+    /// <summary>Parses a persisted <see cref="UiState.Theme"/> name into an <see cref="AppThemeChoice"/>,
+    /// case-insensitively. An unparseable / legacy / empty name falls back to
+    /// <see cref="AppThemeChoice.Dark"/> (dark-first — the ADR-026 D4 never-throw load contract); the
+    /// original <c>"Light"</c> still round-trips.</summary>
+    private static AppThemeChoice ParseThemeChoice(string? persisted) =>
+        Enum.TryParse<AppThemeChoice>(persisted, ignoreCase: true, out var choice)
+            ? choice
+            : AppThemeChoice.Dark;
+
+    /// <summary>(Un)subscribes to <see cref="IPlatformThemeProvider.OsPreferenceChanged"/> so the live
+    /// OS follow is active exactly while <see cref="ThemeChoice"/> is <see cref="AppThemeChoice.System"/>.
+    /// Idempotent (guarded by <see cref="_subscribedToOsPreference"/>) — called from the ctor seed, the
+    /// <see cref="OnThemeChoiceChanged"/> hook, and <see cref="Dispose"/>.</summary>
+    private void UpdateOsPreferenceSubscription()
+    {
+        var wantSystem = ThemeChoice == AppThemeChoice.System;
+        if (wantSystem && !_subscribedToOsPreference)
+        {
+            _platformThemeProvider.OsPreferenceChanged += OnOsPreferenceChanged;
+            _subscribedToOsPreference = true;
+        }
+        else if (!wantSystem && _subscribedToOsPreference)
+        {
+            _platformThemeProvider.OsPreferenceChanged -= OnOsPreferenceChanged;
+            _subscribedToOsPreference = false;
+        }
+    }
+
+    /// <summary>The OS flipped its light/dark preference while the choice is System: re-apply the
+    /// resolved variant to the native chrome and re-tone the graph canvas(es). UI-thread-guarded
+    /// inside <see cref="ApplyThemeVariant"/>; <see cref="ApplyCanvasTheme"/> is fire-and-forget /
+    /// never-throw, so the OS event handler never throws back into the platform.</summary>
+    private void OnOsPreferenceChanged(object? sender, EventArgs e)
+    {
+        ApplyThemeVariant();
+        ApplyCanvasTheme();
     }
 
     /// <summary>The desktop main window, the modal owner for <see cref="OpenSettingsAsync"/>;
@@ -722,6 +828,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// </summary>
     public void Dispose()
     {
+        // ADR-026 extension: drop the OS-preference subscription if the choice was System (no-op
+        // otherwise) — so the shell never outlives its hook on the platform event.
+        if (_subscribedToOsPreference)
+        {
+            _platformThemeProvider.OsPreferenceChanged -= OnOsPreferenceChanged;
+            _subscribedToOsPreference = false;
+        }
+
         foreach (var step in _disposableSteps)
         {
             step.Dispose();
