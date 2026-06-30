@@ -193,6 +193,30 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
     /// task to model an in-flight export.</summary>
     public Task<byte[]?> ExportPngResult { get; set; } = Task.FromResult<byte[]?>(PngMagicBytes);
 
+    /// <summary>Every <c>isLightTheme</c> value pushed via <see cref="SetThemeAsync"/>, in call order
+    /// (ADR-026 WP1b live canvas re-tone). The shell's <c>ApplyCanvasTheme</c> pushes the RESOLVED
+    /// light/dark variant to every tracked graph-bearing step — recording it here lets ShellThemeTests
+    /// observe the System-resolved variant deterministically WITHOUT touching the shared global
+    /// <c>Application.Current.RequestedThemeVariant</c> (flaky under parallel headless theories).</summary>
+    public List<bool> SetThemeCalls { get; } = [];
+
+    /// <summary>The cancellation token observed by each <see cref="SetThemeAsync"/> call.</summary>
+    public List<CancellationToken> SetThemeTokens { get; } = [];
+
+    /// <summary>Task returned by <see cref="SetThemeAsync"/>: completed (default), never-completing, or faulted.</summary>
+    public Task SetThemeResult { get; set; } = Task.CompletedTask;
+
+    /// <summary>ADR-026 WP1b: records the pushed <paramref name="isLightTheme"/> + observed token on the
+    /// theme channel (NEVER <see cref="FocusCalls"/>) and returns the injected <see cref="SetThemeResult"/>.
+    /// Overrides the <see cref="IGraphRenderer.SetThemeAsync"/> default no-op so the live canvas re-tone
+    /// (and the System OS-resolved variant) is pinnable.</summary>
+    public Task SetThemeAsync(bool isLightTheme, CancellationToken cancellationToken = default)
+    {
+        SetThemeCalls.Add(isLightTheme);
+        SetThemeTokens.Add(cancellationToken);
+        return SetThemeResult;
+    }
+
     public event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
     public event EventHandler<GraphNodeEventArgs>? NodeExpandRequested;

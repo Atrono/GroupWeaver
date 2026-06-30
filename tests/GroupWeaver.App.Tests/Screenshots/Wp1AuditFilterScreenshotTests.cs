@@ -92,16 +92,19 @@ public sealed class Wp1AuditFilterScreenshotTests
         Assert.Equal(3, audit.VisibleCount); // the 3 nesting errors
         Assert.Equal($"Showing 3 of {audit.TotalCount}", audit.FilterSummary);
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp1-audit-filtered-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp1-audit-filtered-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }
@@ -138,16 +141,19 @@ public sealed class Wp1AuditFilterScreenshotTests
         Assert.Equal(0, audit.VisibleCount);
         Assert.Equal($"Showing 0 of {audit.TotalCount}", audit.FilterSummary);
 
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp1-audit-nomatch-dark", 1280, 720);
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp1-audit-nomatch-light", 1280, 720);
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }

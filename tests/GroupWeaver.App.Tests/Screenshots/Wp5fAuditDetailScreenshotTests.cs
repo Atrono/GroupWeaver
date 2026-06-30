@@ -61,7 +61,7 @@ public sealed class Wp5fAuditDetailScreenshotTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(audit.HasDetail);
-        Assert.False(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         Capture(window, "wp5f-detail-empty-dark", width, height);
 
@@ -78,10 +78,13 @@ public sealed class Wp5fAuditDetailScreenshotTests
         CaptureDetailTriptych(window, "dark");
 
         shell.ToggleThemeCommand.Execute(null);
-        Assert.True(shell.IsLightTheme);
+        Assert.Equal(AppThemeChoice.Light, shell.ThemeChoice);
         CaptureDetailTriptych(window, "light");
 
+        // Restore Dark via the toggle seam (two hops Light->System->Dark) — no global-state leak.
         shell.ToggleThemeCommand.Execute(null);
+        shell.ToggleThemeCommand.Execute(null);
+        Assert.Equal(AppThemeChoice.Dark, shell.ThemeChoice);
         Settle(window);
         window.Close();
     }
