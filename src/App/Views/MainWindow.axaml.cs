@@ -180,6 +180,9 @@ public sealed partial class MainWindow : Window
             case AuditViewModel audit:
                 audit.UseExportFileDialogs(_exportDialogs);
                 break;
+            case GapViewModel gap:
+                gap.UseExportFileDialogs(_exportDialogs);
+                break;
         }
     }
 

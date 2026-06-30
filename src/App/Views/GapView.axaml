@@ -41,14 +41,28 @@
     <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{DynamicResource CardBorderBrush}">
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,12,12,8">
 
-        <!-- 1. Header: "Gap" title + Back. Both in the chrome column, never over GraphHost. -->
+        <!-- 1. Header: "Gap" title + the export pair + Back. All in the chrome column, never over
+             GraphHost (ADR-001 guardrail 5). The two-column split keeps the title clear of the
+             action buttons; the export buttons mirror ViolationsSidebarView's export StackPanel and
+             are disabled until the first RefreshAsync computes a non-empty diff (CanExportDiff). -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
           <TextBlock Grid.Column="0" Text="Gap" Classes="heading"
                      VerticalAlignment="Center" />
-          <Button Grid.Column="1" Name="BackButton" Content="← Back to plan"
-                  Padding="8,4" FontSize="12"
-                  ToolTip.Tip="Return to the plan editor"
-                  Command="{Binding BackCommand}" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                      VerticalAlignment="Center">
+            <Button Name="ExportDiffCsvButton" Content="Export CSV"
+                    Padding="8,4" FontSize="12"
+                    ToolTip.Tip="Export the gap diff as CSV"
+                    Command="{Binding ExportDiffCsvCommand}" />
+            <Button Name="ExportDiffHtmlButton" Content="Export HTML"
+                    Padding="8,4" FontSize="12"
+                    ToolTip.Tip="Export the gap diff as a self-contained HTML file"
+                    Command="{Binding ExportDiffHtmlCommand}" />
+            <Button Name="BackButton" Content="← Back to plan"
+                    Padding="8,4" FontSize="12"
+                    ToolTip.Tip="Return to the plan editor"
+                    Command="{Binding BackCommand}" />
+          </StackPanel>
         </Grid>
 
         <!-- 2. The gap-summary line (ADR-015 D6): node deltas, membership deltas, unchecked

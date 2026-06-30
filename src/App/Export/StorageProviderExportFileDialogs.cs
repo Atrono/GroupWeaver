@@ -54,6 +54,8 @@ public sealed class StorageProviderExportFileDialogs : IExportFileDialogs
             ExportKind.Csv => ("Export violation report (CSV)", "csv", CsvFileType),
             ExportKind.Html => ("Export violation report (HTML)", "html", HtmlFileType),
             ExportKind.Png => ("Export graph image (PNG)", "png", PngFileType),
+            ExportKind.DiffCsv => ("Export gap diff (CSV)", "csv", CsvFileType),
+            ExportKind.DiffHtml => ("Export gap diff (HTML)", "html", HtmlFileType),
             _ => ("Export plan as a PowerShell script", "ps1", Ps1FileType),
         };
 

@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
+using System.Text;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.Core.Diff;
+using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Plan;
@@ -42,11 +45,19 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
     private readonly PlanModel _plan;
     private readonly Action? _onBack;
 
+    /// <summary>The export save-dialog seam (mirrors <see cref="WorkspaceViewModel"/>): supplied by
+    /// <c>MainWindow.WireExport</c> from the workspace window's <see cref="Avalonia.Controls.TopLevel"/>
+    /// once attached (via <see cref="UseExportFileDialogs"/>); <c>null</c> in tests until wired, so the
+    /// export commands stay disarmed (<see cref="CanExportDiff"/>).</summary>
+    private IExportFileDialogs? _exportDialogs;
+
     /// <summary>The synthesized "what changed" report the Gap sidebar binds; recomputed on every
     /// <see cref="RefreshAsync"/>. <see cref="OnReportChanged"/> re-projects <see cref="GapRows"/>
     /// and re-evaluates <see cref="HasFindings"/>. Starts at the empty singleton.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFindings))]
+    [NotifyCanExecuteChangedFor(nameof(ExportDiffCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportDiffHtmlCommand))]
     private GapReport _report = GapReport.Empty;
 
     /// <summary>DN of the last tapped gap node — the selection seam (carried verbatim; DN strings
@@ -195,6 +206,96 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
             await renderer.FocusAsync([row.PrimaryDn], _cts.Token);
         }
     }
+
+    /// <summary>Installs the real export save-picker seam (mirrors
+    /// <see cref="WorkspaceViewModel.UseExportFileDialogs"/>): the production <c>MainWindow</c> calls
+    /// this from its own <see cref="Avalonia.Controls.TopLevel"/> (<c>StorageProviderExportFileDialogs</c>)
+    /// once attached, so the gap-export commands reach the OS picker. Headless tests inject a fake here.
+    /// Re-arms both export commands (the gate includes <c>_exportDialogs is not null</c>); idempotent —
+    /// the last writer wins.</summary>
+    public void UseExportFileDialogs(IExportFileDialogs dialogs)
+    {
+        _exportDialogs = dialogs;
+        ExportDiffCsvCommand.NotifyCanExecuteChanged();
+        ExportDiffHtmlCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Exports the current gap <see cref="Report"/> + <see cref="Summary"/> as RFC-4180 CSV to a
+    /// user-picked path (mirrors <see cref="WorkspaceViewModel.ExportReportCsvAsync"/>). Re-guards in
+    /// the body (a stale-armed Execute ignores CanExecute), picks via the seam, and on a non-null pick
+    /// writes the pure-Core <see cref="GapReportExporter.ToCsv"/> output (UTF-8, no BOM) to ONLY that
+    /// path — a cancelled pick is a no-op. Read-only toward AD: the only write target is the picked
+    /// local file; the directory is never touched (the name closure reads the union snapshot only).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportDiff))]
+    private async Task ExportDiffCsvAsync()
+    {
+        if (IsDisposed || _exportDialogs is null || ReferenceEquals(Report, GapReport.Empty) || Summary is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.DiffCsv, _cts.Token);
+        if (path is null)
+        {
+            return;
+        }
+
+        var csv = GapReportExporter.ToCsv(Report, Summary, ResolveSubjectName);
+        await WriteUtf8Async(path, csv, _cts.Token);
+    }
+
+    /// <summary>
+    /// Exports the current gap <see cref="Report"/> + <see cref="Summary"/> as a self-contained HTML
+    /// file to a user-picked path (mirrors <see cref="WorkspaceViewModel.ExportReportHtmlAsync"/>). Same
+    /// re-guard, pick and write-once discipline as <see cref="ExportDiffCsvAsync"/>; the HTML carries a
+    /// <see cref="DiffReportHeader"/> built from the root identity + the current wall clock
+    /// (<see cref="BuildDiffReportHeader"/>).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExportDiff))]
+    private async Task ExportDiffHtmlAsync()
+    {
+        if (IsDisposed || _exportDialogs is null || ReferenceEquals(Report, GapReport.Empty) || Summary is null)
+        {
+            return;
+        }
+
+        var path = await _exportDialogs.PickSavePathAsync(ExportKind.DiffHtml, _cts.Token);
+        if (path is null)
+        {
+            return;
+        }
+
+        var html = GapReportExporter.ToHtml(Report, Summary, ResolveSubjectName, BuildDiffReportHeader());
+        await WriteUtf8Async(path, html, _cts.Token);
+    }
+
+    /// <summary>Armed iff the export seam is installed, the VM is not disposed, and a non-empty gap
+    /// report has been computed (<c>Report</c> is no longer the <see cref="GapReport.Empty"/> sentinel —
+    /// the same "a refresh has produced a diff" signal <see cref="HasFindings"/> tracks). Pre-refresh
+    /// the commands are inert.</summary>
+    private bool CanExportDiff() =>
+        !IsDisposed && _exportDialogs is not null && !ReferenceEquals(Report, GapReport.Empty);
+
+    /// <summary>The name-resolution closure handed to the exporter — mirrors
+    /// <see cref="OnReportChanged"/> exactly: an in-union object resolves to its <c>Name</c>, an absent
+    /// DN falls back to the DN itself (never a provider call, so export stays read-only toward AD). Core
+    /// stays App-free: it takes this delegate, never the snapshot.</summary>
+    private string ResolveSubjectName(string dn) =>
+        Snapshot is not null && Snapshot.TryGetObject(dn, out var obj) ? obj.Name : dn;
+
+    /// <summary>Builds the gap HTML report header: the root DN, the root's union-resolved name, a
+    /// deterministic gap-source summary, and <see cref="DateTimeOffset.Now"/> as the INJECTED generation
+    /// timestamp (the exporter keeps no ambient clock — keeping it deterministic for tests).</summary>
+    private DiffReportHeader BuildDiffReportHeader() =>
+        new(RootDn, ResolveSubjectName(RootDn), "Gap analysis: plan compared against the current structure", DateTimeOffset.Now);
+
+    /// <summary>Writes <paramref name="content"/> to <paramref name="path"/> as UTF-8 WITHOUT a BOM —
+    /// the exact bytes the CSV/HTML exporter pinned tests expect (mirrors
+    /// <see cref="WorkspaceViewModel.WriteUtf8Async"/>).</summary>
+    private static Task WriteUtf8Async(string path, string content, CancellationToken cancellationToken) =>
+        File.WriteAllTextAsync(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
 
     /// <summary>Re-projects <see cref="Report"/>'s findings into <see cref="GapRows"/>: canonical
     /// report order, subject name resolved against the union <see cref="Snapshot"/> (absent DN

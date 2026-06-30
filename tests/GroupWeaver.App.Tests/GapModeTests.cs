@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 using Avalonia.Headless.XUnit;
 
+using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Tests.Fakes;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Diff;
+using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Plan;
@@ -488,6 +492,267 @@ public sealed class GapModeTests
         Assert.Equal(planEdgesBefore, plan.Edges.Count);
     }
 
+    // === (8) gap-diff export (ADR-015 / #66): CanExportDiff gate + write-once discipline ===
+    //
+    // ExportDiffCsvCommand / ExportDiffHtmlCommand: the App-side seam between the computed gap
+    // Report+Summary and the pure-Core GapReportExporter. The exporter is the byte-authority
+    // (pinned by tests/GroupWeaver.Tests/Export/GapReportExporterTests.cs); these tests pin the
+    // VM wiring: CanExportDiff = not disposed && Report != GapReport.Empty && a seam is
+    // installed; a refresh ARMS export (incl. a clean diff); the command writes EXACTLY the
+    // exporter bytes (UTF-8, NO BOM) to ONLY the dialog-returned path; a cancelled pick / a
+    // disposed VM is a no-op. The fake export-dialogs pattern (FakeExportDialogs) + a per-test
+    // temp dir mirror WorkspaceExportTests.
+
+    /// <summary>
+    /// <see cref="GapViewModel.CanExportDiff"/> is FALSE before any refresh (Report is still the
+    /// <c>GapReport.Empty</c> sentinel) EVEN with a seam installed — the pre-refresh commands are
+    /// inert (the gate is "a refresh has produced a diff", the same signal <c>HasFindings</c>
+    /// tracks).
+    /// </summary>
+    [Fact]
+    public void CanExportDiff_FalseBeforeRefresh_EvenWithSeamInstalled()
+    {
+        var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        gap.UseExportFileDialogs(new FakeExportDialogs());
+
+        Assert.Same(GapReport.Empty, gap.Report); // no refresh yet
+        Assert.False(gap.ExportDiffCsvCommand.CanExecute(null), "CSV export is disarmed before a refresh");
+        Assert.False(gap.ExportDiffHtmlCommand.CanExecute(null), "HTML export is disarmed before a refresh");
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// <see cref="GapViewModel.CanExportDiff"/> is FALSE after a refresh while NO seam is
+    /// installed (<c>_exportDialogs is null</c>): a diff exists but there is nowhere to pick a
+    /// path, so the commands stay disarmed until <see cref="GapViewModel.UseExportFileDialogs"/>
+    /// runs.
+    /// </summary>
+    [Fact]
+    public async Task CanExportDiff_FalseAfterRefresh_WhenSeamNotInstalled()
+    {
+        var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+
+        await gap.RefreshAsync();
+
+        Assert.NotSame(GapReport.Empty, gap.Report); // a diff WAS computed...
+        Assert.False(gap.ExportDiffCsvCommand.CanExecute(null), "no seam => disarmed");
+        Assert.False(gap.ExportDiffHtmlCommand.CanExecute(null), "no seam => disarmed");
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// <see cref="GapViewModel.CanExportDiff"/> ARMS after a <see cref="GapViewModel.RefreshAsync"/>
+    /// + a seam install — including the order where the seam is installed FIRST then a refresh
+    /// arrives (the <c>NotifyCanExecuteChangedFor</c> on <c>Report</c> re-arms on the refresh).
+    /// </summary>
+    [Fact]
+    public async Task CanExportDiff_TrueAfterRefreshAndSeam_BothInstallOrders()
+    {
+        // Order A: seam first, then refresh (Report change re-arms via NotifyCanExecuteChangedFor).
+        var gapA = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        gapA.UseExportFileDialogs(new FakeExportDialogs());
+        await gapA.RefreshAsync();
+        Assert.True(gapA.ExportDiffCsvCommand.CanExecute(null));
+        Assert.True(gapA.ExportDiffHtmlCommand.CanExecute(null));
+        gapA.Dispose();
+
+        // Order B: refresh first, then seam (UseExportFileDialogs re-arms both commands).
+        var gapB = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        await gapB.RefreshAsync();
+        gapB.UseExportFileDialogs(new FakeExportDialogs());
+        Assert.True(gapB.ExportDiffCsvCommand.CanExecute(null));
+        Assert.True(gapB.ExportDiffHtmlCommand.CanExecute(null));
+        gapB.Dispose();
+    }
+
+    /// <summary>
+    /// A CLEAN (zero-finding) refresh STILL arms export: <see cref="GapViewModel.RefreshAsync"/>
+    /// always assigns a fresh <c>GapReport.Build</c> result, so even an all-Common diff leaves
+    /// <c>Report</c> distinct from the <c>GapReport.Empty</c> sentinel — a clean diff has an
+    /// exportable summary. (Intended per the slice contract.)
+    /// </summary>
+    [Fact]
+    public async Task CanExportDiff_TrueAfterCleanRefresh_AClassDiffStillExports()
+    {
+        var plan = BuildCleanPlan();
+        var ist = PlanProjection.ToSnapshot(plan); // ist IS the projection => all-Common diff
+        var gap = HeadlessGap(ist, plan);
+        gap.UseExportFileDialogs(new FakeExportDialogs());
+
+        await gap.RefreshAsync();
+
+        Assert.False(gap.HasFindings);                 // genuinely clean...
+        Assert.NotSame(GapReport.Empty, gap.Report);   // ...but a fresh (non-sentinel) report
+        Assert.True(gap.ExportDiffCsvCommand.CanExecute(null), "a clean diff still arms CSV export");
+        Assert.True(gap.ExportDiffHtmlCommand.CanExecute(null), "a clean diff still arms HTML export");
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// Executing <see cref="GapViewModel.ExportDiffCsvCommand"/> writes EXACTLY the
+    /// <see cref="GapReportExporter.ToCsv"/> bytes for the VM's Report + Summary + name closure
+    /// to the dialog-returned path, encoded UTF-8 WITHOUT a BOM (asserted on the raw bytes).
+    /// </summary>
+    [Fact]
+    public async Task ExportDiffCsv_WritesExporterOutput_ToThePickedPath_Utf8NoBom()
+    {
+        var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        await gap.RefreshAsync();
+        using var temp = new TempExportDir("csv");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.DiffCsv, temp.Path);
+        gap.UseExportFileDialogs(dialogs);
+
+        await gap.ExportDiffCsvCommand.ExecuteAsync(null);
+
+        Assert.Contains(ExportKind.DiffCsv, dialogs.RequestedKinds);
+        Assert.True(File.Exists(temp.Path), "the CSV command must write the picked file");
+
+        // The exporter is the byte-authority; the VM must write ToCsv(Report, Summary, resolveName).
+        var expected = GapReportExporter.ToCsv(gap.Report, gap.Summary!, ResolveNameOf(gap));
+        Assert.Equal(expected, ReadAllUtf8(temp.Path));
+
+        // UTF-8 with NO BOM: the raw bytes must not begin with the EF BB BF preamble.
+        AssertNoBom(temp.Path);
+
+        // Read-only invariant: ONLY the picked path was written, nothing else.
+        Assert.True(
+            temp.WrittenFiles().SequenceEqual(new[] { temp.Path }, StringComparer.OrdinalIgnoreCase),
+            "CSV export must write ONLY the picked path");
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// Executing <see cref="GapViewModel.ExportDiffHtmlCommand"/> writes the
+    /// <see cref="GapReportExporter.ToHtml"/> output (UTF-8, no BOM) to the dialog-returned path.
+    /// The injected <c>GeneratedAt</c> is the only field that differs run-to-run, so the file is
+    /// compared to a re-render with the Generated row normalised; the rest is byte-identical.
+    /// </summary>
+    [Fact]
+    public async Task ExportDiffHtml_WritesExporterOutput_ToThePickedPath_Utf8NoBom()
+    {
+        var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        await gap.RefreshAsync();
+        using var temp = new TempExportDir("html");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.DiffHtml, temp.Path);
+        gap.UseExportFileDialogs(dialogs);
+
+        await gap.ExportDiffHtmlCommand.ExecuteAsync(null);
+
+        Assert.Contains(ExportKind.DiffHtml, dialogs.RequestedKinds);
+        Assert.True(File.Exists(temp.Path), "the HTML command must write the picked file");
+        var actual = ReadAllUtf8(temp.Path);
+
+        // Re-render with the VM's identity and a placeholder timestamp; the Generated row is the
+        // only run-to-run difference (the VM injects DateTimeOffset.Now), so normalise it on both.
+        var expected = GapReportExporter.ToHtml(
+            gap.Report,
+            gap.Summary!,
+            ResolveNameOf(gap),
+            new DiffReportHeader(
+                gap.RootDn,
+                ResolveNameOf(gap)(gap.RootDn),
+                "Gap analysis: plan compared against the current structure",
+                default));
+        Assert.Equal(NormaliseGeneratedRow(expected), NormaliseGeneratedRow(actual));
+
+        AssertNoBom(temp.Path);
+        Assert.True(
+            temp.WrittenFiles().SequenceEqual(new[] { temp.Path }, StringComparer.OrdinalIgnoreCase),
+            "HTML export must write ONLY the picked path");
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// A clean (zero-finding) refresh exports an all-clear gap report: the CSV is the exporter's
+    /// header-only bytes, written once to the picked path — proving export arms and writes after a
+    /// clean diff (the intended behaviour).
+    /// </summary>
+    [Fact]
+    public async Task ExportDiffCsv_AfterCleanRefresh_WritesTheAllClearExport()
+    {
+        var plan = BuildCleanPlan();
+        var ist = PlanProjection.ToSnapshot(plan);
+        var gap = HeadlessGap(ist, plan);
+        await gap.RefreshAsync();
+        using var temp = new TempExportDir("csv");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.DiffCsv, temp.Path);
+        gap.UseExportFileDialogs(dialogs);
+
+        Assert.False(gap.HasFindings); // genuinely clean
+        await gap.ExportDiffCsvCommand.ExecuteAsync(null);
+
+        Assert.True(File.Exists(temp.Path));
+        Assert.Equal(
+            GapReportExporter.ToCsv(gap.Report, gap.Summary!, ResolveNameOf(gap)),
+            ReadAllUtf8(temp.Path));
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// A CANCELLED pick (the fake returns <c>null</c>) is a no-op: the picker WAS consulted (the
+    /// gate let the command run) but nothing is written anywhere — for both CSV and HTML.
+    /// </summary>
+    [Fact]
+    public async Task ExportDiff_CancelledPick_WritesNothing()
+    {
+        var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        await gap.RefreshAsync();
+        using var csv = new TempExportDir("csv");
+        using var html = new TempExportDir("html");
+        var dialogs = new FakeExportDialogs()
+            .SavePathFor(ExportKind.DiffCsv, null)   // cancelled
+            .SavePathFor(ExportKind.DiffHtml, null); // cancelled
+        gap.UseExportFileDialogs(dialogs);
+
+        await gap.ExportDiffCsvCommand.ExecuteAsync(null);
+        await gap.ExportDiffHtmlCommand.ExecuteAsync(null);
+
+        // The picker was consulted for both kinds...
+        Assert.Contains(ExportKind.DiffCsv, dialogs.RequestedKinds);
+        Assert.Contains(ExportKind.DiffHtml, dialogs.RequestedKinds);
+        // ...but a null pick is a no-op: nothing written under either isolation dir.
+        Assert.Empty(csv.WrittenFiles());
+        Assert.Empty(html.WrittenFiles());
+
+        gap.Dispose();
+    }
+
+    /// <summary>
+    /// A DISPOSED VM is a no-op on a stale-armed Execute: the body's re-guard
+    /// (<c>IsDisposed</c>) drops the command before it consults the picker or writes — for both
+    /// CSV and HTML. (RelayCommand.Execute ignores CanExecute, so the body must re-guard.)
+    /// </summary>
+    [Fact]
+    public async Task ExportDiff_AfterDispose_WritesNothing_NoPick()
+    {
+        var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
+        await gap.RefreshAsync();
+        using var csv = new TempExportDir("csv");
+        using var html = new TempExportDir("html");
+        var dialogs = new FakeExportDialogs()
+            .SavePathFor(ExportKind.DiffCsv, csv.Path)
+            .SavePathFor(ExportKind.DiffHtml, html.Path);
+        gap.UseExportFileDialogs(dialogs);
+
+        gap.Dispose();
+
+        await gap.ExportDiffCsvCommand.ExecuteAsync(null);
+        await gap.ExportDiffHtmlCommand.ExecuteAsync(null);
+
+        // A disposed VM never consults the picker and never writes.
+        Assert.Empty(dialogs.RequestedKinds);
+        Assert.False(File.Exists(csv.Path));
+        Assert.False(File.Exists(html.Path));
+        Assert.Empty(csv.WrittenFiles());
+        Assert.Empty(html.WrittenFiles());
+    }
+
     // === fixtures + helpers ==============================================================
 
     /// <summary>
@@ -557,6 +822,73 @@ public sealed class GapModeTests
     /// must be null-renderer-safe. Rooted at the lab OU.</summary>
     private static GapViewModel HeadlessGap(DirectorySnapshot ist, PlanModel plan) =>
         new(ist, plan, RootDn);
+
+    /// <summary>The name-resolution closure the VM hands the exporter — mirrors
+    /// <c>GapViewModel.ResolveSubjectName</c> exactly: an in-union object resolves to its
+    /// <c>Name</c>, an absent DN falls back to the DN itself (never a provider call).</summary>
+    private static ViolationReportExporter.ResolveName ResolveNameOf(GapViewModel gap) =>
+        dn => gap.Snapshot is not null && gap.Snapshot.TryGetObject(dn, out var o) ? o.Name : dn;
+
+    private static string ReadAllUtf8(string path) =>
+        File.ReadAllText(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+    /// <summary>Asserts the file's raw bytes do NOT start with the UTF-8 BOM (EF BB BF) — the
+    /// VM writes UTF-8 WITHOUT a BOM (the exact bytes the exporter's pinned tests expect).</summary>
+    private static void AssertNoBom(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        Assert.False(hasBom, "the export must be UTF-8 without a BOM");
+    }
+
+    /// <summary>Replaces the single "Generated" metadata row's value with a placeholder so two
+    /// HTML renderings that differ ONLY in the injected timestamp compare equal — pins that every
+    /// other byte of the VM-written HTML matches the exporter output.</summary>
+    private static string NormaliseGeneratedRow(string html) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            html,
+            "<tr><th>Generated</th><td>.*?</td></tr>",
+            "<tr><th>Generated</th><td>TS</td></tr>",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+    /// <summary>A temp file under its OWN per-instance isolation directory so the read-only
+    /// invariant can be pinned by scanning that directory for stray writes
+    /// (<see cref="WrittenFiles"/>) without cross-test interference (mirrors
+    /// <c>WorkspaceExportTests.TempFile</c>). The PATH is computed but the file is NOT created —
+    /// a no-op/cancelled export must leave it absent, and the directory then scans empty.</summary>
+    private sealed class TempExportDir : IDisposable
+    {
+        private readonly string _dir;
+
+        public TempExportDir(string extension)
+        {
+            _dir = Directory.CreateTempSubdirectory("groupweaver-gap-export-tests-").FullName;
+            Path = System.IO.Path.Combine(_dir, $"diff.{extension}");
+        }
+
+        public string Path { get; }
+
+        /// <summary>Every file under THIS instance's isolation directory — used to assert export
+        /// wrote ONLY the picked path and nothing else.</summary>
+        public string[] WrittenFiles() =>
+            Directory.Exists(_dir)
+                ? Directory.GetFiles(_dir, "*", SearchOption.AllDirectories)
+                : [];
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(_dir, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
 
     /// <summary>A hand-built object whose Name is its CN (mirrors the Core diff tests' idiom).</summary>
     private static AdObject Obj(string dn, AdObjectKind kind) => new()
