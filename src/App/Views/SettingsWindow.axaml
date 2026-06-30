@@ -175,6 +175,11 @@
     <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}"
             Padding="12,8">
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <!-- Transient success line beside the buttons (Slice B / UX polish): set after a gate-clean
+             Apply/Save, cleared on the next edit. Distinct from the validation band (errors) above. -->
+        <TextBlock Classes="secondary" VerticalAlignment="Center"
+                   Text="{Binding LastActionStatus}"
+                   IsVisible="{Binding LastActionStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         <Button Classes="ghost" Content="Apply" MinWidth="84" Command="{Binding ApplyActionCommand}" />
         <Button Classes="accent" Content="Save" MinWidth="84" IsDefault="True" Command="{Binding SaveActionCommand}" />
         <Button Classes="ghost" Content="Cancel" MinWidth="84" IsCancel="True" Click="OnCancelClick" />

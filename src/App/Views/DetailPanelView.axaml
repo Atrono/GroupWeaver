@@ -28,14 +28,37 @@
                    IsVisible="{Binding Name, Converter={x:Static ObjectConverters.IsNotNull}}" />
       </StackPanel>
 
-      <TextBlock Classes="dn" Text="{Binding SamAccountName}"
-                 TextWrapping="Wrap"
-                 IsVisible="{Binding SamAccountName, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      <!-- sAMAccountName: a dimmed caption label (parity with the attribute-row
+           DataTemplate below, which captions every whitelisted attribute) above the
+           verbatim value, so the bare directory string is no longer unlabeled. The
+           whole block keeps the original null-check visibility on the SAM line. -->
+      <StackPanel IsVisible="{Binding SamAccountName, Converter={x:Static ObjectConverters.IsNotNull}}">
+        <TextBlock Classes="caption" Text="sAMAccountName" />
+        <TextBlock Classes="dn" Text="{Binding SamAccountName}"
+                   TextWrapping="Wrap" />
+      </StackPanel>
 
       <!-- The DN, verbatim (never canonicalized) and text-selectable: the one
-           copy-source for the full identity of the object. -->
-      <SelectableTextBlock Classes="dn-strong" Text="{Binding Dn}"
-                           TextWrapping="Wrap" />
+           copy-source for the full identity of the object. The ghost Copy button
+           writes the verbatim DN string to the clipboard (code-behind) and flips a
+           transient "Copied" affordance — a pure clipboard write, never an AD write;
+           the DN is a typed member, so no non-whitelisted binding is introduced. -->
+      <!-- The DN gets the FULL panel width so it wraps across lines (ADR-007 D4: the
+           panel is the full-value surface, never truncated); the Copy affordance sits
+           on its own row BELOW it so it can never constrain or clip the wrapping DN.
+           (A horizontal StackPanel beside the value would measure with infinite width
+           and make TextWrapping inert — pushing a long DN and the button off the rail.) -->
+      <StackPanel Spacing="4">
+        <SelectableTextBlock Classes="dn-strong" Text="{Binding Dn}"
+                             TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Name="CopyDnButton" Classes="ghost" Content="Copy"
+                  Click="OnCopyDnClick"
+                  ToolTip.Tip="Copy this distinguished name to the clipboard" />
+          <TextBlock Text="Copied" Classes="secondary"
+                     VerticalAlignment="Center" IsVisible="{Binding CopiedDn}" />
+        </StackPanel>
+      </StackPanel>
 
       <!-- WP4 (#148) audit-state chips: one chip per finding-bearing rule class
            (max severity + count), or a single green "No findings" chip when clean.
