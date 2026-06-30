@@ -131,7 +131,7 @@ public sealed class GapViewScreenshotTests
         //     Summary is the precondition; the rendered frame is what the verifier reads it from).
         Assert.NotNull(gap.Summary);
 
-        // (b) The Back button is realized (the "← Back to explore" affordance the gap header carries).
+        // (b) The Back button is realized (the "← Back to plan" affordance the gap header carries).
         var backButton = Assert.Single(
             gapView.GetVisualDescendants().OfType<Button>(), b => b.Name == "BackButton");
         Assert.True(backButton.IsEffectivelyVisible, "the Back button must be realized");

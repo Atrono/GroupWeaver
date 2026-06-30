@@ -47,6 +47,7 @@
 
         <Button Classes="accent" Content="Connect to domain"
                 Command="{Binding ConnectCommand}"
+                IsDefault="True"
                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
         <TextBlock Classes="secondary"
                    Text="{Binding CurrentUserContext, StringFormat='Uses integrated Windows authentication as {0} — no credentials asked.'}"
@@ -91,7 +92,7 @@
 
         <TextBlock Text="{Binding ErrorMessage}"
                    IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
-                   Foreground="#C42B1C" TextWrapping="Wrap"
+                   Foreground="{DynamicResource ValidationErrorTextBrush}" TextWrapping="Wrap"
                    Margin="0,8,0,0" />
 
       </StackPanel>

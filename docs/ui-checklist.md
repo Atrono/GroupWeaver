@@ -141,11 +141,11 @@ badges use the stronger `BrandTokens.OnLightTextStrong` (#000000) ink, not the p
 
 ### Workspace
 
-- [ ] GraphHost placeholder ("Graph view is unavailable in this environment." plus the chosen root DN) appears ONLY when no renderer is wired — headless tests / null factory; a missing WebView2 Runtime shows the missing-runtime variant instead, and the real app mounts the WebView (section A, workspace-live-graph) [S:workspace-demo]
+- [ ] GraphHost placeholder ("The graph preview will appear here." plus the chosen root DN) appears ONLY when no renderer is wired — headless tests / null factory; a missing WebView2 Runtime shows the missing-runtime variant instead, and the real app mounts the WebView (section A, workspace-live-graph) [S:workspace-demo]
 - [ ] DetailPanelRegion sits BESIDE GraphHost in its own right-hand column with a visible separator — never overlapping the graph region (ADR-001 airspace) [S:workspace-demo]
 - [ ] Status bar below the graph region: connection summary ("connected, n groups loaded — …") left, "root: <DN>" right, single dimmed line, no clipping [S:workspace-demo]
 - [ ] Status bar shows the drawn-graph summary ("<n> objects, <m> edges"), dimmed, between the connection summary and the root DN, only once the load completed [S:workspace-demo] [S:workspace-live-graph]
-- [ ] Refresh button tops the right detail column — above the DetailPanelRegion seam, native chrome, never over GraphHost (ADR-005 D4); label "Refresh" (shipped UI strings are English), tooltip present [S:workspace-demo — disabled there: nothing selected]
+- [ ] Refresh button tops the right detail column — above the DetailPanelRegion seam, native chrome, never over GraphHost (ADR-005 D4); label "Refresh node" (shipped UI strings are English), tooltip present [S:workspace-demo — disabled there: nothing selected]
 - [ ] Refresh enablement: armed iff the selection is a fetchable kind (GG/DL/UG/External frontier — loaded or not; refresh is a FORCED re-fetch) and nothing is loading; disarmed for users/computers/OUs, with no selection, and while any load/expand is in flight [I — pinned by WorkspaceLoadTests (button wiring) and WorkspaceExpandTests (command matrix)]
 - [ ] "Export image" button (AP 4.1, ADR-013 §3) sits in the same header row beside Reload scope / Refresh — native chrome, never over GraphHost; label "Export image", tooltip present; armed once a load completes with a renderer wired (CanExportGraphImage), greyed pre-load / while loading [S:workspace-demo] [I — enablement pinned by WorkspaceExportTests]
 - [ ] Nothing floats, pops up, or layers over GraphHost; anything modal is its own Window [I — design rule, re-check on every workspace change]
@@ -157,7 +157,7 @@ gains a real presentation surface. All new chrome is native and stays right of /
 GraphHost — nothing floats over the WebView2 HWND (ADR-001 airspace held).
 
 - [ ] Adaptive rail default 340px: the right rail defaults to 340px (not the old 300) with a thin `Auto` seam holding the GridSplitter; the graph canvas still gets the bulk of the width (~933px usable at 1280) and nothing in the rail clips [S:workspace-demo]
-- [ ] Action-button WrapPanel reflow: the four actions (Design plan / Reload scope / Refresh / Export image) sit in a right-aligned WrapPanel that wraps to a second row only at the rail minimum — never clipped, never a forced fixed two-row stack [S:workspace-demo]
+- [ ] Action-button WrapPanel reflow: the graph/mode actions (Design plan / Reload scope / Refresh node / Export image) sit in a right-aligned WrapPanel that reflows across rows as the rail narrows — with the wider "Refresh node" label this already wraps at the 340px default into a balanced grid (e.g. 2×2 with Audit detached last), never clipped, never a forced fixed stack, and document order (Reload scope precedes Refresh node) preserved [S:workspace-demo]
 - [ ] Promoted Audit button (WP3 / #152): the headline health-verdict destination reads as a distinct third tier — an accent-OUTLINE button (accent hairline border + accent-ink "Audit" label, hollow at rest, subtle accent-soft hover wash), NOT a grey ghost and NOT a clone of the filled-accent Refresh. It carries a leading shield-check glyph (inline vector Path, negative-space checkmark — must render as a recognizable shield+tick in headless Skia, never a missing-glyph box). The accent ink clears 4.5:1 in both themes (dark 6.93:1 page / 5.48:1 card; light 6.52:1 / 6.00:1). It stays LAST in the WrapPanel with a touch of extra left margin detaching it from the graph-action cluster, and the reflow stays intact (no separator element) [S:workspace-demo]
 - [ ] Scope-summary void-fill: with no node selected the lower rail shows a compact "Scope summary" card — the active ruleset name (`Ruleset: <name>`), object/edge totals, and a "Click a node to inspect it." hint — so empty rail reads as information, not a void, with NO echo of the graph legend (kinds) or the findings chip strip (severity) [S:workspace-scope-summary]
 - [ ] Rail collapse: the rail collapses to 0 leaving the native seam; a legible ◂/▸ chevron toggle (readable glyph + direction, tooltip "Collapse/Expand rail (Ctrl+B)", reads as an interactive control, never colliding with the GridSplitter); the graph host reflows to fill [S:workspace-rail-collapsed] [S:workspace-demo — ◂ present]
@@ -206,7 +206,7 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 - [ ] Rows in canonical report order: severity glyph (color + per-hue ink + redundant letter E/W/i, 20×20), wrapping message, dimmed subject name; glyph colors match the graph halos [S:workspace-violations]
 - [ ] Findings scroll-clip reads as a SCROLL region (#92): the list fades softly at its bottom edge (render-only OpacityMask, opaque to ~0.92) so a finding clipped at the fold reads as scrollable, not a guillotined render bug — the topmost findings stay crisp, geometry unchanged (the 18×18 chip strip is outside the mask) [S:workspace-violations]
 - [ ] "Unexpanded areas are unchecked" hint is a DISTINCT affordance (chrome#10, #92): a tinted/bordered info block (the #91 card tokens) with a plain-text ⓘ glyph, not easy-to-miss dimmed body copy; visible whenever UncheckedDns is non-empty (demo: the two ignored builtin DNs), shown even in the all-clear state [S:workspace-violations]
-- [ ] All-clear: "No rule violations found." when Violations is empty; the unchecked info block still shows if areas remain unchecked [I — WorkspaceViolationsTests]
+- [ ] All-clear: "No findings." when Violations is empty; the unchecked info block still shows if areas remain unchecked [I — WorkspaceViolationsTests]
 - [ ] Jump-to-node: a row frames the node (FocusAsync) AND drives the canvas selection (`:selected` + neighborhood dim via the #96 reverse-sync `select` command) and the detail panel; disabled while loading; raw-External anchors never error; the jump stays exactly one FocusAsync (select rides its own channel) [I — WorkspaceViolationsTests] [P select-command parity, section A]
 - [ ] Selection sync: a graph nodeClick highlights matching sidebar row(s) AND a sidebar selection drives the graph `:selected` (bidirectional, ADR-018 + ADR-020); multiple findings on one DN all highlight [I — WorkspaceViolationsTests]
 
@@ -340,7 +340,7 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
 - [ ] Categories pane: a read-only list of the rule classes that produced findings, one row each
       = max-severity dot (colour) + the class display name + count, in canonical rule order
       (nesting → naming rules → circular → empty-group); the demo lists Nesting / Naming / Circular
-      / Empty groups with their counts; all-clear shows "No rule violations found." [S:audit-view]
+      / Empty groups with their counts; all-clear shows "No findings." [S:audit-view]
       [T:AuditViewModel — Categories order/labels/counts/dot severity]
 - [ ] Unchecked caveat: when unexpanded areas remain, a tinted info block (the rail's treatment +
       wording) reading "Unexpanded areas are unchecked — the score covers checked objects only."

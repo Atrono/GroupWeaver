@@ -93,7 +93,7 @@
          there is no separate tooltip-on-raw-value. Remove binds to the VM (the ItemsControl's
          DataContext is the SettingsViewModel). -->
     <DataTemplate x:Key="IgnoreRowTemplate" x:DataType="settings:MatchEntryEditor">
-      <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="2,6">
+      <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}" Padding="2,6">
         <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
           <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
                     SelectedItem="{Binding Mode}">
@@ -124,7 +124,7 @@
          a naming rule / Circular / EmptyGroup — each exposing RemoveExceptionCommand). #45:
          the Note is edited in a TextBox (a plain Text target). -->
     <DataTemplate x:Key="ExceptionRowTemplate" x:DataType="settings:MatchEntryEditor">
-      <Border BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="2,6">
+      <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}" Padding="2,6">
         <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
           <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
                     SelectedItem="{Binding Mode}">
@@ -172,7 +172,7 @@
     <!-- Footer (OUTSIDE the TabControl): Apply = live re-thread, no disk write;
          Save = live + atomic persist; Cancel closes. S8 wires Apply/Save commands
          and the shell re-thread; this slice ships the affordance. -->
-    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#33808080"
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}"
             Padding="12,8">
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
         <Button Classes="ghost" Content="Apply" MinWidth="84" Command="{Binding ApplyActionCommand}" />
@@ -201,7 +201,7 @@
                    #45: Path + Message stay SEPARATE plain-text targets, never interpolated. -->
               <DockPanel Margin="0,1" LastChildFill="True">
                 <TextBlock DockPanel.Dock="Left" Text="{Binding Path}"
-                           FontFamily="Consolas,Menlo,monospace"
+                           FontFamily="{StaticResource FontFamilyMono}"
                            Opacity="0.7" VerticalAlignment="Top" Margin="0,0,6,0" />
                 <SelectableTextBlock Text="{Binding Message}"
                                      Foreground="{DynamicResource ValidationErrorTextBrush}"
@@ -269,7 +269,7 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="settings:RuleRowEditor">
                   <Border Classes="ruleRow"
-                          BorderThickness="0,1,0,0" BorderBrush="#22808080" Padding="4,6">
+                          BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}" Padding="4,6">
                     <Grid ColumnDefinitions="Auto,*,Auto">
                       <CheckBox Grid.Column="0" VerticalAlignment="Center"
                                 IsChecked="{Binding Enabled}" />
@@ -380,7 +380,7 @@
                            Tag by ElementName. #45: Message binds to SelectableTextBlock.Text. -->
                       <Border Grid.Column="1" Name="PreviewChip" Margin="8,0,0,0"
                               CornerRadius="4" Padding="8,4" VerticalAlignment="Center"
-                              BorderThickness="1" BorderBrush="#33808080">
+                              BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}">
                         <Border.Tag>
                           <MultiBinding Converter="{x:Static views:NamingPreviewConverter.Instance}">
                             <Binding Path="Pattern" />
@@ -543,7 +543,7 @@
             <!-- The two simple-rule cards (circular + empty-group): Enabled + Severity, the
                  same two rules surfaced as rows in the Rules master grid. Their RuleId is
                  fixed and invisible (reconstructed from RuleIds on build). -->
-            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="12">
+            <Border BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}" CornerRadius="6" Padding="12">
               <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8">
                 <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center"
                           IsChecked="{Binding Circular.Enabled}" />
@@ -606,7 +606,7 @@
                  nesting rows render it. -->
             <TextBlock Text="Per-rule exceptions" FontWeight="SemiBold" Margin="0,8,0,0" />
 
-            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10">
+            <Border BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}" CornerRadius="6" Padding="10">
               <StackPanel Spacing="4">
                 <DockPanel>
                   <Button DockPanel.Dock="Right" Content="Add exception"
@@ -622,7 +622,7 @@
             <ItemsControl ItemsSource="{Binding Naming}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="settings:NamingRuleEditor">
-                  <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+                  <Border BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}" CornerRadius="6" Padding="10" Margin="0,4,0,0">
                     <StackPanel Spacing="4">
                       <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Add exception"
@@ -638,7 +638,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+            <Border BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}" CornerRadius="6" Padding="10" Margin="0,4,0,0">
               <StackPanel Spacing="4">
                 <DockPanel>
                   <Button DockPanel.Dock="Right" Content="Add exception"
@@ -650,7 +650,7 @@
               </StackPanel>
             </Border>
 
-            <Border BorderThickness="1" BorderBrush="#33808080" CornerRadius="6" Padding="10" Margin="0,4,0,0">
+            <Border BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}" CornerRadius="6" Padding="10" Margin="0,4,0,0">
               <StackPanel Spacing="4">
                 <DockPanel>
                   <Button DockPanel.Dock="Right" Content="Add exception"

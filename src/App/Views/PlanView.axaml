@@ -20,7 +20,7 @@
 
         <StackPanel IsVisible="{Binding !WebView2Missing}" Spacing="8"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock Text="Plan preview is unavailable in this environment."
+          <TextBlock Text="The plan preview will appear here."
                      FontSize="20" HorizontalAlignment="Center" />
           <TextBlock Text="{Binding BaseOuDn}"
                      Classes="dn" TextWrapping="Wrap" TextAlignment="Center" />
@@ -40,7 +40,7 @@
     <!-- The editor panel (beside GraphHost, never over it - ADR-001 guardrail 5): a scrolling
          stack of form cards + lists. All editing is through these side-panel forms; the graph
          is read-only (there is no canvas edit gesture - ADR-014). -->
-    <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="#33808080">
+    <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{DynamicResource CardBorderBrush}">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="12">
 
@@ -66,7 +66,7 @@
                       Command="{Binding ExportPlanScriptCommand}" />
               <Button Name="BackButton" Content="← Back to explore"
                       Padding="8,4" FontSize="12"
-                      ToolTip.Tip="Return to the explored Ist structure"
+                      ToolTip.Tip="Return to the graph view"
                       Command="{Binding BackCommand}" />
             </StackPanel>
           </Grid>
@@ -140,7 +140,7 @@
           </StackPanel>
 
           <!-- 4. Inline edit error (same red as the workspace LoadError) -->
-          <TextBlock Foreground="#C42B1C" TextWrapping="Wrap"
+          <TextBlock Foreground="{DynamicResource ValidationErrorTextBrush}" TextWrapping="Wrap"
                      Text="{Binding EditError}"
                      IsVisible="{Binding EditError, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
@@ -245,7 +245,7 @@
               </ListBox.ItemTemplate>
             </ListBox>
 
-            <TextBlock Text="No rule violations in the plan."
+            <TextBlock Text="No findings in the plan."
                        IsVisible="{Binding !HasViolations}"
                        Classes="secondary" TextWrapping="Wrap" />
           </StackPanel>

@@ -24,7 +24,8 @@
     <!-- Default ItemsPanel is a VirtualizingStackPanel - never disable it here. -->
     <ListBox Grid.Row="3" Margin="0,8,0,0"
              ItemsSource="{Binding FilteredCandidates}"
-             SelectedItem="{Binding SelectedCandidate}">
+             SelectedItem="{Binding SelectedCandidate}"
+             DoubleTapped="OnCandidateDoubleTapped">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="cm:AdObject">
           <Grid ColumnDefinitions="Auto,*">
@@ -48,11 +49,11 @@
     <TextBlock Grid.Row="4" Margin="0,8,0,0"
                Text="{Binding ErrorMessage}"
                IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
-               Foreground="#C42B1C" TextWrapping="Wrap" />
+               Foreground="{DynamicResource ValidationErrorTextBrush}" TextWrapping="Wrap" />
 
     <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="0,12,0,0">
       <Button Grid.Column="0" Content="Back" Command="{Binding BackCommand}" />
-      <Button Grid.Column="2" Content="Load" Command="{Binding LoadRootCommand}" />
+      <Button Grid.Column="2" Content="Load" Command="{Binding LoadRootCommand}" IsDefault="True" />
     </Grid>
 
   </Grid>

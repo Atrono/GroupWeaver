@@ -58,7 +58,7 @@ public sealed class DetailPanelChipViewTests
 
         // The two finding-bearing classes' chips, each rendered through ChipToLabel ("Label N").
         Assert.Contains("Nesting 1", texts);
-        Assert.Contains("Empty group 1", texts);
+        Assert.Contains("Empty groups 1", texts);
         // The pass chip must NOT appear for a flagged DN.
         Assert.DoesNotContain("No findings", texts);
 

@@ -64,7 +64,7 @@
 
       <!-- Load-state honesty (ADR-007 D3), derived from snapshot state alone. -->
       <TextBlock Classes="secondary"
-                 Text="This object is not loaded yet. Double-click it in the graph or press Refresh to resolve it."
+                 Text="This object is not loaded yet. Double-click it in the graph or press Refresh node to resolve it."
                  IsVisible="{Binding Converter={x:Static views:DetailPanelStateConverters.IsNotLoaded}}"
                  TextWrapping="Wrap" />
 

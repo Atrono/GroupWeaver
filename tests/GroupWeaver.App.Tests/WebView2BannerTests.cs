@@ -24,7 +24,8 @@ namespace GroupWeaver.App.Tests;
 /// forced through <see cref="ShellViewModel"/>'s optional ctor parameter, so no test
 /// here depends on what is actually installed on the box. The texts are matched
 /// verbatim: the banner is one combined TextBlock, the placeholder splits headline and
-/// body — exact equality is what tells them apart in the shared visual tree.
+/// body — exact equality is what tells them apart in the shared visual tree. (The normal
+/// placeholder headline is the Slice-A "the graph preview will appear here" copy.)
 /// </summary>
 public sealed class WebView2BannerTests
 {
@@ -37,7 +38,7 @@ public sealed class WebView2BannerTests
     private const string PlaceholderMissingHeadline =
         "The Microsoft Edge WebView2 Runtime was not found.";
 
-    private const string PlaceholderNormalHeadline = "Graph view is unavailable in this environment.";
+    private const string PlaceholderNormalHeadline = "The graph preview will appear here.";
 
     private const string DownloadLinkText = "developer.microsoft.com/microsoft-edge/webview2";
 
