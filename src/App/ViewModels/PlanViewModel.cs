@@ -252,6 +252,27 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void Back() => _onBackToExplore?.Invoke();
 
+    /// <summary>
+    /// Deliberately starts the plan over (#122 keep-alive): clears the authored content
+    /// (<see cref="PlanModel.Clear"/> — nodes + edges, <see cref="BaseOuDn"/> kept), resets the
+    /// selection/error/form state, rebuilds the authored collections, then re-runs the SAME
+    /// live-validation loop every mutating command uses. The plan instance and its renderer
+    /// survive — Back keeps the plan alive, so this is the one way to empty it on purpose.
+    /// No AD-write code path: it only mutates the in-memory authoring model.
+    /// </summary>
+    [RelayCommand]
+    private async Task NewPlanAsync()
+    {
+        Plan.Clear();
+        EditError = null;
+        SelectedNodeRow = null;
+        SelectedDn = null;
+        MemberParentRow = null;
+        MemberChildRow = null;
+        RefreshAuthoredCollections();
+        await RevalidateAsync(_cts.Token);
+    }
+
     /// <summary>The "Gap analysis" header button (ADR-015 / #66): switches the shell into Gap mode
     /// via the installed callback. Armed iff the callback is installed (the shell installs it when
     /// it creates the plan step); a stale-armed Execute with no callback is a silent no-op. Mirrors

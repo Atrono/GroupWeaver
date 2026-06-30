@@ -301,6 +301,48 @@ public class PlanModelTests
         Assert.Equal(new[] { new MembershipEdge(newDn, newDn) }, plan.Edges.ToArray());
     }
 
+    // --- Clear: the #122 keep-alive "New plan" reset (nodes+edges gone, BaseOuDn kept) ----
+
+    [Fact]
+    public void Clear_DiscardsEveryNodeAndEdge_KeepsBaseOuDn()
+    {
+        // #122 keep-alive: a kept-alive plan is started over in place (the user's "New plan"
+        // reset) WITHOUT being disposed/rebuilt — Clear empties the authoring store while the
+        // plan stays bound to the SAME base OU. Read-only toward AD (in-memory model only).
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_X_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_X");
+        plan.AddEdge(dl.Dn, gg.Dn);
+        plan.AddEdge(dl.Dn, dl.Dn); // a self-edge too — every incident edge must go
+
+        plan.Clear();
+
+        // Every node and edge is gone.
+        Assert.Empty(plan.Nodes);
+        Assert.Empty(plan.Edges);
+        Assert.False(plan.TryGetNode(dl.Dn, out _));
+        Assert.False(plan.TryGetNode(gg.Dn, out _));
+
+        // The base OU is UNCHANGED (a plan is bound to its base OU) — and the model is reusable:
+        // FormDn still derives the same DN and a re-authored node lands under the same root.
+        Assert.Equal(BaseOu, plan.BaseOuDn);
+        var reAuthored = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Fresh");
+        Assert.Equal("CN=GG_Fresh," + BaseOu, reAuthored.Dn);
+        Assert.Single(plan.Nodes);
+    }
+
+    [Fact]
+    public void Clear_OnAnEmptyPlan_IsANoOp_NoThrow()
+    {
+        var plan = new PlanModel(BaseOu);
+
+        plan.Clear();
+
+        Assert.Empty(plan.Nodes);
+        Assert.Empty(plan.Edges);
+        Assert.Equal(BaseOu, plan.BaseOuDn);
+    }
+
     // --- SetKind --------------------------------------------------------------------------
 
     [Fact]

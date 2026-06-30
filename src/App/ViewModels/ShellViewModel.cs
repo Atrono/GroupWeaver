@@ -69,11 +69,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// step swap exactly as before (the ADR-024 re-render fallback).</summary>
     private IGraphSurfaceCoordinator? _surfaceCoordinator;
 
-    /// <summary>The Plan step currently authored over the active workspace (#122 reclaim): set in
-    /// <see cref="OnDesignPlan"/>, cleared when the Plan is abandoned (Back to Workspace) or
-    /// superseded (a fresh Design-plan). Kept so <see cref="OnDesignPlan"/> can dispose a stale
-    /// predecessor — bounding the live WebViews to ≤ Workspace + current Plan (+ a transient Gap).
-    /// <c>null</c> when no plan is live.</summary>
+    /// <summary>The Plan step authored over the active workspace (#122 keep-alive): set in
+    /// <see cref="OnDesignPlan"/> and KEPT ALIVE across Back to Workspace (mirroring the workspace's
+    /// own never-disposed-on-Back lifecycle) — Back parks its surface but does NOT dispose it, so the
+    /// next Design-plan re-enters this SAME instance with its authored content + graph preview intact.
+    /// Disposed + replaced only when superseded by a fresh plan bound to a DIFFERENT base OU (a Reload-
+    /// scope / new RootChosen changes the root) or at shell teardown. <c>null</c> until the first
+    /// Design-plan. Bounds the live WebViews to ≤ Workspace + current Plan (+ a transient Gap).</summary>
     private PlanViewModel? _currentPlan;
 
     /// <summary>The workspace the CURRENT audit step backs into (WP5e / ADR-028): set in
@@ -480,44 +482,64 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// The Ist→Plan switch (AP 4.2.2 / ADR-014): makes <see cref="CurrentStep"/> a fresh
-    /// <see cref="PlanViewModel"/> seeded EMPTY at <paramref name="current"/>'s root DN (the
-    /// empty-start default), carrying the live ruleset and the same renderer factory (the plan
-    /// builds its OWN renderer instance). Back returns the SAME <paramref name="current"/>
-    /// instance — never disposed on the switch, so the Ist load, viewport and selection survive;
-    /// the abandoned Plan is disposed + untracked on Back (#122 reclaim) so its WebView is freed (a
-    /// fresh Plan is built on re-entry). The workspace is tracked and disposed at shell teardown.
+    /// The Ist→Plan switch (AP 4.2.2 / ADR-014; #122 keep-alive). KEEP-ALIVE: the Plan step mirrors
+    /// the workspace's never-disposed-on-Back lifecycle — Back parks the plan surface and returns the
+    /// SAME (never-disposed) <paramref name="current"/> workspace instance, and re-entering Plan
+    /// re-enters the SAME (never-disposed) <see cref="_currentPlan"/> instance with its authored
+    /// content + graph preview intact. Both the workspace and the plan are tracked and disposed only
+    /// at shell teardown. A fresh empty plan is built ONLY when there is none alive (first entry, or
+    /// after a base-OU change — a plan is bound to its base OU). On re-entry the ruleset is re-threaded
+    /// (mirroring <see cref="OnRulesetApplied"/>) so a settings flip while the plan was parked is
+    /// honored. The plan carries the same renderer factory (it builds its OWN renderer instance).
     /// </summary>
     public void OnDesignPlan(WorkspaceViewModel current)
     {
-        // #122 reclaim: a previously-authored Plan for this workspace (if Back-to-Workspace did not
-        // already dispose it) is superseded by this fresh one — dispose + untrack it so its WebView
-        // is freed and the live count stays bounded. Idempotent if already gone.
+        var effective = _ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, []);
+
+        // KEEP-ALIVE re-entry: a live plan whose base OU still matches this workspace's root is
+        // re-entered as-is (authored content + parked graph preview survive). Only discard + rebuild
+        // when there is none, it was disposed, or its base OU no longer matches (a plan is bound to
+        // its base OU — a Reload-scope / new RootChosen changes the root and must reset the plan).
+        if (_currentPlan is { IsDisposed: false } alive
+            && Dn.Comparer.Equals(alive.Plan.BaseOuDn, current.RootDn))
+        {
+            // Re-thread the ruleset in case a settings Apply/Save flipped it while the plan was
+            // parked (mirrors OnRulesetApplied's live-plan arm) — fire-and-forget, never-throw.
+            _ = alive.ApplyRulesetAsync(effective.Ruleset);
+
+            // PARK the workspace surface we Back INTO — SYNCHRONOUSLY, BEFORE the swap detaches the
+            // leaving workspace view (the load-bearing ordering invariant; see ParkSurface).
+            ParkSurface(current.GraphRenderer);
+            CurrentStep = alive;
+            return;
+        }
+
+        // No live plan (first entry) or a stale one bound to a different base OU: dispose + untrack
+        // the stale instance (frees its WebView) and build a fresh empty plan at this root.
         if (_currentPlan is { } stale)
         {
             DisposeAndUntrack(stale);
             _currentPlan = null;
         }
 
-        var effective = _ruleset ?? new EffectiveRuleset(RulesetLoader.LoadDefault(), FromUserFile: false, []);
         PlanViewModel? plan = null;
         plan = new PlanViewModel(
             current.RootDn,
             effective,
             _graphRendererFactory,
             WebView2Missing,
-            // Back to Workspace abandons the Plan (#122): a fresh PlanViewModel is always made on
-            // re-entry, so dispose + untrack this one to free its WebView. The workspace surface was
-            // parked below before this swap, so its re-mount preserves the viewport.
+            // Back to Workspace KEEPS the Plan alive (#122 keep-alive): it is NOT disposed/untracked
+            // here — it stays tracked and is re-entered with its content intact on the next Design-plan
+            // (disposed only at shell teardown, exactly like the workspace). Back only PARKS the plan
+            // surface (so its graph preview survives the round-trip) then restores the workspace.
             onBackToExplore: () =>
             {
+                // PARK the plan surface we will Back AWAY FROM — SYNCHRONOUSLY, BEFORE the swap
+                // detaches the leaving plan view (the symmetric counterpart of the forward park: the
+                // plan's live page + viewport survive into the re-entry instead of the detach guard
+                // releasing it). Mirror of how leaving the workspace parks the workspace surface.
+                ParkSurface(plan?.GraphRenderer);
                 CurrentStep = current;
-                if (plan is not null)
-                {
-                    DisposeAndUntrack(plan);
-                }
-
-                _currentPlan = null;
             });
         // Arm the plan's "Gap analysis" button (ADR-015 / #66) — exactly like the workspace's
         // Design-plan callback is installed in OnRootChosen, so the PlanView button is live once

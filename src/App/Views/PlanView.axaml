@@ -45,31 +45,35 @@
         <StackPanel Spacing="12" Margin="12">
 
           <!-- 1. Header + Export script + Back -->
-          <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Grid.Column="0" Text="Plan" Classes="heading"
-                       VerticalAlignment="Center" />
-            <!-- Right-aligned actions: Export the plan as an inert .ps1, then Back. Both live in
-                 the editor column - never over GraphHost (ADR-001 airspace guardrail 5). -->
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
-                        HorizontalAlignment="Right">
+          <!-- Title on its own row; the four actions reflow in a WrapPanel so they never
+               squeeze out the title or clip at the 380px editor column (the workspace
+               action-reflow pattern). All actions live in the editor column - never over
+               GraphHost (ADR-001 airspace guardrail 5). -->
+          <StackPanel Spacing="8">
+            <TextBlock Text="Plan" Classes="heading" />
+            <WrapPanel>
+              <!-- New plan (#122 keep-alive): the plan survives Back, so this is the deliberate
+                   way to empty it and start over (keeps the base OU). -->
+              <Button Name="NewPlanButton" Content="New plan"
+                      Margin="0,0,6,6" Padding="8,4" FontSize="12"
+                      ToolTip.Tip="Clear the plan and start over (keeps the base OU)"
+                      Command="{Binding NewPlanCommand}" />
               <!-- Gap analysis (ADR-015 / #66): compare this plan against the currently loaded
-                   Ist structure. Disarmed until the shell installs the callback in OnDesignPlan;
-                   every pre-existing PlanView test stays on the default. In the editor column,
-                   never over GraphHost (ADR-001 airspace guardrail 5). -->
+                   Ist structure. Disarmed until the shell installs the callback in OnDesignPlan. -->
               <Button Name="GapAnalysisButton" Content="Gap analysis"
-                      Padding="8,4" FontSize="12"
+                      Margin="0,0,6,6" Padding="8,4" FontSize="12"
                       ToolTip.Tip="Compare this plan against the currently loaded structure"
                       Command="{Binding GapAnalysisCommand}" />
               <Button Name="ExportScriptButton" Content="Export script"
-                      Padding="8,4" FontSize="12"
+                      Margin="0,0,6,6" Padding="8,4" FontSize="12"
                       ToolTip.Tip="Export the plan as a PowerShell script you run yourself (GroupWeaver never runs it)"
                       Command="{Binding ExportPlanScriptCommand}" />
               <Button Name="BackButton" Content="← Back to explore"
-                      Padding="8,4" FontSize="12"
+                      Margin="0,0,0,6" Padding="8,4" FontSize="12"
                       ToolTip.Tip="Return to the graph view"
                       Command="{Binding BackCommand}" />
-            </StackPanel>
-          </Grid>
+            </WrapPanel>
+          </StackPanel>
 
           <!-- 2. Add object -->
           <StackPanel Spacing="6">

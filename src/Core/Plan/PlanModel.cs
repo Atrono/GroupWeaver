@@ -168,6 +168,18 @@ public sealed class PlanModel
     public bool RemoveEdge(string parentDn, string childDn) =>
         _edges.Remove(new MembershipEdge(parentDn, childDn));
 
+    /// <summary>
+    /// Discards every authored node and edge, keeping <see cref="BaseOuDn"/> (a plan is bound
+    /// to its base OU). The "New plan" reset (#122 keep-alive): the user deliberately starts the
+    /// SAME plan instance over without abandoning its renderer. Read-only toward AD — this only
+    /// clears the in-memory authoring store.
+    /// </summary>
+    public void Clear()
+    {
+        _nodes.Clear();
+        _edges.Clear();
+    }
+
     /// <summary>The child DNs of <paramref name="parentDn"/>'s out-edges, in stored order.</summary>
     public IEnumerable<string> ChildrenOf(string parentDn) =>
         _edges.Where(e => Dn.Comparer.Equals(e.ParentDn, parentDn)).Select(e => e.ChildDn);
