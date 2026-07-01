@@ -39,9 +39,8 @@ public sealed record NamingPreviewVisual(
 /// The Naming-tab live-preview chip converter (AP 3.3 / ADR-011 §4): an
 /// <see cref="IMultiValueConverter"/> over <c>[Pattern, Sample]</c> (the two
 /// TextBoxes) with the owning rule's <see cref="RuleSeverity"/> as the
-/// <c>ConverterParameter</c> — exactly the
-/// <see cref="SeverityConverters.CountForSeverity"/> parameter shape, so a
-/// Violation reads in the rule's OWN severity color.
+/// <c>ConverterParameter</c> — the same severity-as-<c>ConverterParameter</c>
+/// MultiBinding shape, so a Violation reads in the rule's OWN severity color.
 ///
 /// <para>An EMPTY sample rests the chip (<see cref="NamingPreviewKind.Idle"/>) before
 /// any evaluation — a single space is still a real candidate and is evaluated. Every
@@ -94,9 +93,10 @@ public sealed class NamingPreviewConverter : IMultiValueConverter
         var result = NamingPreview.Evaluate(pattern, sample);
 
         // The owning rule's severity drives a Violation chip's color. The tests pin it via
-        // the ConverterParameter (CountForSeverity shape); the XAML MultiBinding can't bind a
-        // ConverterParameter, so it passes severity as an OPTIONAL third value — read the
-        // parameter first, fall back to values[2]. Both paths yield the same visual.
+        // the ConverterParameter (the severity-as-ConverterParameter shape); the XAML
+        // MultiBinding can't bind a ConverterParameter, so it passes severity as an OPTIONAL
+        // third value — read the parameter first, fall back to values[2]. Both paths yield the
+        // same visual.
         var severity = parameter as RuleSeverity?
             ?? (values.Count > 2 ? values[2] as RuleSeverity? : null)
             ?? RuleSeverity.Warning;
