@@ -28,7 +28,7 @@
              DoubleTapped="OnCandidateDoubleTapped">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="cm:AdObject">
-          <Grid ColumnDefinitions="Auto,*">
+          <Grid ColumnDefinitions="Auto,*" ToolTip.Tip="{Binding Dn}">
             <Border Grid.Column="0" MinWidth="34" VerticalAlignment="Center"
                     CornerRadius="3" Padding="5,2"
                     Background="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
@@ -38,8 +38,9 @@
             </Border>
             <StackPanel Grid.Column="1" Margin="10,0,0,0">
               <TextBlock Text="{Binding Name}" />
-              <TextBlock Classes="dn" Text="{Binding Dn}" FontSize="11"
-                         TextTrimming="CharacterEllipsis" />
+              <TextBlock Classes="dn"
+                         Text="{Binding Dn, Converter={x:Static views:DnConverters.ToParentPath}}"
+                         FontSize="11" TextTrimming="CharacterEllipsis" />
             </StackPanel>
           </Grid>
         </DataTemplate>
