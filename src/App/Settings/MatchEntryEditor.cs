@@ -51,6 +51,24 @@ public sealed partial class MatchEntryEditor : ObservableObject
     /// nesting exceptions; false forces <see cref="MatchEndpoint.Any"/> on build.</summary>
     public bool EndpointEditable { get; init; }
 
+    /// <summary>UI-ONLY (Slice B) test candidate for the live glob-match preview beside the row:
+    /// a DN or name the user types to sanity-check <see cref="Value"/>. NEVER serialized —
+    /// <see cref="Build"/> does not read it — so it is scratch state, not ruleset data.</summary>
+    [ObservableProperty]
+    private string _previewCandidate = string.Empty;
+
+    /// <summary>True when the non-empty <see cref="PreviewCandidate"/> matches the current
+    /// <see cref="Value"/> glob via the engine's own <see cref="GlobPreview.IsMatch"/> (the same
+    /// compiled, memoized matcher the live rules use — never a parallel implementation). Empty
+    /// candidate ⇒ false (the chip is hidden). Re-raised whenever <see cref="Value"/> or
+    /// <see cref="PreviewCandidate"/> changes.</summary>
+    public bool PreviewMatch =>
+        !string.IsNullOrEmpty(PreviewCandidate) && GlobPreview.IsMatch(Value, PreviewCandidate);
+
+    partial void OnValueChanged(string value) => OnPropertyChanged(nameof(PreviewMatch));
+
+    partial void OnPreviewCandidateChanged(string value) => OnPropertyChanged(nameof(PreviewMatch));
+
     /// <summary>Loads an editor from <paramref name="entry"/>;
     /// <paramref name="endpointEditable"/> reflects whether the owning list is the
     /// nesting exception list.</summary>
