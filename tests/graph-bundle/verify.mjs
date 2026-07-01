@@ -3742,9 +3742,13 @@ async function main() {
     //   (role=listbox, toggled via the `hidden` ATTRIBUTE - CSS
     //   `#palette-results[hidden]{display:none}`), rows <li class="palette-item">
     //   with .palette-label + .palette-hint, highlighted row class .gw-active.
-    //   Quick-action names: "Fit to view" / "Toggle labels" / "Issues only"
-    //   (PALETTE_ACTIONS in graph.js -> controlFit/controlToggleLabels/
-    //   controlToggleIssues). Node Enter => selectAndFrame (the SAME path as Find:
+    //   Quick-action names: "Fit to view" / "Toggle labels" / "Issues only" /
+    //   "Expand selected node" (PALETTE_ACTIONS in graph.js ->
+    //   controlFit/controlToggleLabels/controlToggleIssues/controlExpandSelected;
+    //   the 4th action is the discoverability slice's keyboard-reachable twin of the
+    //   dbltap gesture — it sends the EXISTING {type:'nodeExpand'} when an expandable
+    //   External node is accent-selected, else it is a bridge-silent no-op).
+    //   Node Enter => selectAndFrame (the SAME path as Find:
     //   exactly one nodeClick + applySelection + a LOCAL frame, ZERO 'focused');
     //   action Enter => its handler, ZERO bridge traffic. The harness drives the
     //   palette the hang-free way the ADR-023 (4) block established: focus
@@ -3753,11 +3757,15 @@ async function main() {
     //   for Arrow/Enter/Esc (never selector-targeted page.fill/press against the
     //   reflowing #controls box - CI run 27977999334).
     //
-    // The three pinned action names (must match graph.js PALETTE_ACTIONS verbatim).
+    // The four pinned action names (must match graph.js PALETTE_ACTIONS verbatim).
+    // "Expand selected node" is the discoverability slice's 4th action (added to the
+    // pin deliberately, not a weakening — the empty-query palette now lists FOUR
+    // actions and the ACTIONS-ONLY every(...) assert below must accept it).
     const PALETTE_FIT = 'Fit to view';
     const PALETTE_TOGGLE_LABELS = 'Toggle labels';
     const PALETTE_ISSUES = 'Issues only';
-    const PALETTE_ACTION_NAMES = [PALETTE_FIT, PALETTE_TOGGLE_LABELS, PALETTE_ISSUES];
+    const PALETTE_EXPAND = 'Expand selected node';
+    const PALETTE_ACTION_NAMES = [PALETTE_FIT, PALETTE_TOGGLE_LABELS, PALETTE_ISSUES, PALETTE_EXPAND];
 
     // Read the live palette row model: each row's kind (node|action via the
     // .palette-hint text), label + hint text, gw-active highlight, aria-selected.
@@ -4073,6 +4081,95 @@ async function main() {
     assert(allMessages.length === msgCountBeforeFitAction,
       `WP3c (4c): the Fit-to-view action must produce ZERO bridge traffic: count ${msgCountBeforeFitAction} -> ${allMessages.length}`);
     phase('WP3c (4c) Fit-to-view action fits the camera, bridge-silent + zero focused');
+
+    // (4d) discoverability slice: the "Expand selected node" ACTION is the keyboard-
+    // reachable twin of the dbltap gesture. controlExpandSelected reads the accent-
+    // selected node (accentSelectedId, set by applySelection on tap/select) and, when
+    // it is an EXPANDABLE (kind==='External') node, sends the EXISTING
+    // {type:'nodeExpand', id} — the SAME wire message the dbltap handler sends (NO new
+    // message type). With nothing selected OR a non-expandable node selected it is a
+    // BRIDGE-SILENT no-op. Three arms: (a) External selected => exactly ONE nodeExpand
+    // for that id, (b) nothing selected => zero traffic, (c) non-External selected =>
+    // zero traffic. Driven through the palette (query "expand"), mirroring (4)/(4b)/(4c).
+    const ACTION_QUERY_EXPAND = 'expand';
+    // Invariant guards (mirror the (4)/(4b)/(4c) pattern): "expand" must match exactly
+    // the "Expand selected node" action name and NO fixture node, so the sole palette
+    // row is that action (auto-highlighted at index 0; ArrowDown wraps back to it).
+    assert(PALETTE_ACTION_NAMES.filter((n) => n.toLowerCase().includes(ACTION_QUERY_EXPAND)).length === 1,
+      `WP3c (4d): the query '${ACTION_QUERY_EXPAND}' must match exactly ONE action name, matched ${PALETTE_ACTION_NAMES.filter((n) => n.toLowerCase().includes(ACTION_QUERY_EXPAND)).length}`);
+    assert(!fixture.nodes.some((x) =>
+      (x.label || '').toLowerCase().includes(ACTION_QUERY_EXPAND) || x.id.toLowerCase().includes(ACTION_QUERY_EXPAND)),
+      `WP3c (4d): the query '${ACTION_QUERY_EXPAND}' must match NO fixture node (so the sole row is the action)`);
+    // Subjects from the fixture (never hard-coded): an EXPANDABLE (External) node and a
+    // NON-expandable (non-External) node — both must exist to exercise all three arms.
+    const expandExtNode = fixture.nodes.find((x) => x.kind === 'External');
+    assert(expandExtNode !== undefined,
+      'WP3c (4d): the demo fixture must contain >= 1 External (expandable/frontier) node for the Expand-selected action (the ignored builtin member DNs)');
+    const expandNonExtNode = fixture.nodes.find((x) => x.kind !== 'External');
+    assert(expandNonExtNode !== undefined,
+      'WP3c (4d): the demo fixture must contain a non-External node for the non-expandable no-op arm');
+
+    // A tiny driver: type "expand", confirm the sole row IS the action, ArrowDown to
+    // highlight it, Enter to invoke. Returns after the palette closes.
+    async function invokeExpandAction() {
+      await typePalette(ACTION_QUERY_EXPAND);
+      const rows = await readPalette();
+      assert(rows.rows.length === 1 && rows.rows[0].label === PALETTE_EXPAND,
+        `WP3c (4d): the query '${ACTION_QUERY_EXPAND}' must yield exactly the "${PALETTE_EXPAND}" action row: ${JSON.stringify(rows.rows)}`);
+      await page.keyboard.press('ArrowDown');
+      const hi = await readPalette();
+      assert(hi.rows[0] && hi.rows[0].active === true,
+        `WP3c (4d): ArrowDown must highlight the "${PALETTE_EXPAND}" row: ${JSON.stringify(hi.rows)}`);
+      await page.keyboard.press('Enter');
+    }
+
+    // -- (4d-a) POSITIVE: an External node is accent-selected => ONE nodeExpand -----
+    // Select the External node via the SAME clickTest tap path selection uses (it runs
+    // applySelection => sets accentSelectedId). Drain the resulting nodeClick so the
+    // downstream negative-arm counts start clean.
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), expandExtNode.id);
+    await awaitMessage('nodeClick', `clickTest (select External) on '${expandExtNode.id}'`);
+    const accentAfterExtSelect = await page.evaluate(() => document.getElementById('gw-accent-ring').hidden);
+    assert(accentAfterExtSelect === false,
+      `WP3c (4d-a): selecting the External node must show the accent ring (applySelection set accentSelectedId), got hidden=${accentAfterExtSelect}`);
+    await invokeExpandAction();
+    // The action must emit EXACTLY the existing {type:'nodeExpand', id} for that id —
+    // NOT a new message type (wire protocol unchanged). awaitMessage('nodeExpand')
+    // consumes it FIFO; the byte-identical id roundtrip proves the reused wire.
+    const expandFromAction = await awaitMessage('nodeExpand',
+      `Expand-selected action on External '${expandExtNode.id}'`);
+    assert(expandFromAction.id === expandExtNode.id,
+      `WP3c (4d-a): the Expand-selected action must send the EXISTING {type:'nodeExpand'} with the byte-identical id: got '${expandFromAction.id}', selected '${expandExtNode.id}'`);
+    const afterExpandActionState = await page.evaluate(() => ({
+      paletteHidden: document.getElementById('palette-results').hidden,
+    }));
+    assert(afterExpandActionState.paletteHidden === true,
+      `WP3c (4d-a): invoking the Expand-selected action must CLOSE the palette, got hidden=${afterExpandActionState.paletteHidden}`);
+    phase(`WP3c (4d-a) Expand-selected on an External node emits one nodeExpand ('${expandExtNode.id}')`);
+
+    // -- (4d-b) NO-OP: nothing selected => zero bridge traffic ----------------------
+    // Background-tap clears the selection (accentSelectedId -> null). Invoking the
+    // action now must be a pure no-op: NO nodeExpand, NO other message.
+    await page.evaluate(() => { window.__cy.emit('tap', { target: window.__cy }); });
+    const accentAfterClear = await page.evaluate(() => document.getElementById('gw-accent-ring').hidden);
+    assert(accentAfterClear === true,
+      `WP3c (4d-b): a background tap must hide the accent ring (clearSelection => accentSelectedId=null), got hidden=${accentAfterClear}`);
+    const msgCountBeforeNoSelExpand = allMessages.length;
+    await invokeExpandAction();
+    assert(allMessages.length === msgCountBeforeNoSelExpand,
+      `WP3c (4d-b): the Expand-selected action with NOTHING selected must be BRIDGE-SILENT (zero new messages, no nodeExpand): count ${msgCountBeforeNoSelExpand} -> ${allMessages.length}`);
+    phase('WP3c (4d-b) Expand-selected with nothing selected is a bridge-silent no-op');
+
+    // -- (4d-c) NO-OP: a NON-expandable (non-External) node selected => zero traffic -
+    // Select a non-External node (accentSelectedId set, but isExpandable is false).
+    // Drain its nodeClick, then invoke: the action must NOT send a nodeExpand.
+    await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), expandNonExtNode.id);
+    await awaitMessage('nodeClick', `clickTest (select non-External) on '${expandNonExtNode.id}'`);
+    const msgCountBeforeNonExtExpand = allMessages.length;
+    await invokeExpandAction();
+    assert(allMessages.length === msgCountBeforeNonExtExpand,
+      `WP3c (4d-c): the Expand-selected action with a NON-External node selected must be BRIDGE-SILENT (isExpandable false => no nodeExpand): count ${msgCountBeforeNonExtExpand} -> ${allMessages.length}`);
+    phase(`WP3c (4d-c) Expand-selected on a non-External node is a bridge-silent no-op ('${expandNonExtNode.id}')`);
 
     // (5) Esc CLOSES the palette AND clears the input value (the existing find-Esc
     // behavior, extended to hide the dropdown). Open with a query first, then Esc.

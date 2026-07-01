@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 using GroupWeaver.App.Views;
 
@@ -125,6 +126,76 @@ public sealed class WebBundleTests
         // ADR-020 (#96): the reverse sidebar->graph selection-sync command. Single-quoted
         // to match the `case 'select':` literal so the case can't silently vanish.
         Assert.Contains("'select'", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Discoverability slice (feat/discoverability): the command palette ships a FOURTH
+    /// quick action, "Expand selected node" — the keyboard-reachable twin of the dbltap
+    /// expand gesture. Its handler (<c>controlExpandSelected</c>) REUSES the existing
+    /// <c>{type:'nodeExpand'}</c> wire (pinned by <see cref="Graph_SpeaksTheWireProtocol"/>);
+    /// it introduces NO new message type. Both affordances gate on <c>isExpandable</c> — the
+    /// single predicate the hover-cursor cue and the palette action share — so an expand is
+    /// only ever offered on a frontier (kind==='External') node. Pins the action name verbatim
+    /// (the runtime <c>PALETTE_ACTION_NAMES</c> pin in verify.mjs must match), the two new
+    /// helpers, and — critically — that the wire protocol is UNCHANGED: no fresh
+    /// <c>{type:'…'}</c> literal beyond the ones the wire-protocol tripwire already lists.
+    /// </summary>
+    [Fact]
+    public void Graph_ShipsExpandSelectedPaletteActionReusingNodeExpandWire()
+    {
+        var text = ReadShippedText("graph.js");
+
+        // The 4th palette action name — verbatim, so it stays in lockstep with the
+        // verify.mjs PALETTE_ACTION_NAMES pin and the KeyboardHelpWindow copy.
+        Assert.Contains("Expand selected node", text, StringComparison.Ordinal);
+
+        // The shared expandability predicate + the palette action handler.
+        Assert.Contains("function isExpandable", text, StringComparison.Ordinal);
+        Assert.Contains("function controlExpandSelected", text, StringComparison.Ordinal);
+
+        // No NEW wire message type: the action reuses the existing nodeExpand verb
+        // (already pinned by Graph_SpeaksTheWireProtocol). Every `type: '…'` object
+        // LITERAL in the bundle (both the graph -> .NET sends and the {type:'…'}
+        // payloads the harness dispatches) must be one the bundle already speaks;
+        // 'nodeExpand' must be among them, and no unexpected type literal may appear.
+        var typeLiterals = Regex.Matches(text, @"type:\s*'(?<t>[A-Za-z]+)'")
+            .Select(m => m.Groups["t"].Value)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("nodeExpand", typeLiterals);
+        string[] knownTypeLiterals =
+        [
+            // graph -> .NET sends.
+            "ready", "loaded", "nodeClick", "nodeExpand", "focused",
+            "jsError", "pngExported", "pong",
+            // {type:'…'} object literals graph.js builds for a re-dispatch / theme.
+            "graphChunk", "theme",
+        ];
+        var unexpected = typeLiterals.Except(knownTypeLiterals).ToList();
+        Assert.True(
+            unexpected.Count == 0,
+            "graph.js introduced an unexpected `type: '…'` literal — the discoverability slice must "
+            + "reuse the existing nodeExpand wire, not add a message type. New/unknown: "
+            + string.Join(", ", unexpected));
+    }
+
+    /// <summary>
+    /// Discoverability slice (feat/discoverability): hovering an EXPANDABLE (frontier /
+    /// kind==='External') node shows a pointer cursor so the double-click affordance is
+    /// discoverable. The canvas renderer has no cytoscape <c>cursor</c> style channel, so the
+    /// cue is a DOM cursor write on the <c>#cy</c> container, set on <c>mouseover</c> of an
+    /// expandable node and reset on <c>mouseout</c>. Pins the helper + that it gates on the
+    /// same <c>isExpandable</c> predicate the palette action uses (so the two agree).
+    /// </summary>
+    [Fact]
+    public void Graph_ShipsExpandHoverCursorAffordance()
+    {
+        var text = ReadShippedText("graph.js");
+
+        Assert.Contains("function setContainerCursor", text, StringComparison.Ordinal);
+        // The hover handler must offer the pointer cue only on an expandable node.
+        Assert.Contains("if (isExpandable(evt.target)) { setContainerCursor('pointer'); }", text, StringComparison.Ordinal);
+        // mouseout resets the cursor so a non-expandable hover leaves it default.
+        Assert.Contains("setContainerCursor('')", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -352,6 +423,38 @@ public sealed class WebBundleTests
         var text = ReadShippedText("index.html");
 
         Assert.Matches(@"(?i)<div\b[^>]*\bid\s*=\s*[""']cy[""']", text);
+    }
+
+    /// <summary>
+    /// Discoverability slice (feat/discoverability): the legend ships a <c>.legend-hint</c>
+    /// caption telling the user that an External node is expandable by double-click — the
+    /// static, always-visible half of the discoverability cue (the hover cursor + the
+    /// palette action are its interactive halves). The caption must NOT add any
+    /// <c>.edge-sample</c> / <c>[data-kind]</c> / <c>[data-sev]</c> / <c>[data-diff]</c>
+    /// element, so the legend-counter and legend-swatch tripwires (which key off exactly
+    /// those attributes) stay unaffected — asserted here so a future edit that sneaks such
+    /// an attribute into the hint is caught at the bundle level.
+    /// </summary>
+    [Fact]
+    public void Index_ShipsExpandLegendHintWithoutLegendCounterAttributes()
+    {
+        var indexHtml = ReadShippedText("index.html");
+
+        // A .legend-hint element mentioning the double-click-to-expand affordance.
+        Assert.Matches(@"(?i)<div\b[^>]*\bclass\s*=\s*[""']legend-hint[""'][^>]*>[^<]*[Dd]ouble-click[^<]*[Ee]xpand", indexHtml);
+
+        // The hint must not introduce a legend-counter/swatch attribute. Extract the hint
+        // element's own markup and assert it carries none of the tripwire attributes.
+        var hint = Regex.Match(indexHtml, @"<div\b[^>]*class\s*=\s*[""']legend-hint[""'][^>]*>.*?</div>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        Assert.True(hint.Success, "index.html must ship a <div class=\"legend-hint\">…</div> caption.");
+        foreach (var forbidden in new[] { "data-kind", "data-sev", "data-diff", "edge-sample" })
+        {
+            Assert.False(
+                hint.Value.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                $"the .legend-hint caption must NOT add a '{forbidden}' attribute/class — that would "
+                + "perturb the legend-counter/swatch tripwires. Found in: " + hint.Value);
+        }
     }
 
     [Fact]

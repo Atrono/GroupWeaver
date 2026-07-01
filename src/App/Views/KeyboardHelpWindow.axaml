@@ -1,0 +1,118 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="GroupWeaver.App.Views.KeyboardHelpWindow"
+        Title="Keyboard shortcuts"
+        Width="560" Height="480"
+        MinWidth="440" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource PageBackgroundBrush}">
+
+  <Window.Styles>
+    <!-- One shortcut key "chip": a mono, bordered token so a chord reads as a key.
+         Fixed min-width keeps the description column aligned; theme-aware card chrome. -->
+    <Style Selector="Border.kbd">
+      <Setter Property="MinWidth" Value="120" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="7,2" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.kbd > TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextAlignment" Value="Center" />
+    </Style>
+    <!-- One shortcut row: the key chip + its description, vertically centered. -->
+    <Style Selector="StackPanel.shortcutRow">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Margin" Value="0,3" />
+    </Style>
+  </Window.Styles>
+
+  <!-- Static keyboard/gesture cheat sheet (discoverability). No VM — every row is
+       authored from a shortcut verified in code (MainWindow.OnKeyDown, WorkspaceView
+       KeyBinding, and the web bundle's keydown/gesture handlers). Its own top-level
+       Window, never layered over the workspace GraphHost (ADR-001 airspace guardrail 5). -->
+  <DockPanel>
+
+    <!-- Footer: Close (OUTSIDE the scroller so it stays reachable). -->
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0"
+            BorderBrush="{DynamicResource CardBorderBrush}" Padding="16,10">
+      <Button Classes="accent" Content="Close" MinWidth="84"
+              HorizontalAlignment="Right"
+              IsDefault="True" IsCancel="True" Click="OnCloseClick" />
+    </Border>
+
+    <ScrollViewer>
+      <StackPanel Margin="20,16" Spacing="18">
+
+        <TextBlock Classes="title" Text="Keyboard shortcuts" />
+
+        <!-- Anywhere: the native ADR-022 window chrome + the workspace rail toggle. -->
+        <StackPanel Spacing="2">
+          <TextBlock Classes="eyebrow" Text="ANYWHERE" Margin="0,0,0,4" />
+
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="F11" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Toggle full-screen" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Esc" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Exit full-screen or focus mode" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="F" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Focus mode (on the workspace)" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Ctrl + B" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Collapse or expand the rail (on the workspace)" />
+          </StackPanel>
+        </StackPanel>
+
+        <!-- On the graph: the web bundle's own keydown + mouse gestures (ADR-023 D5). -->
+        <StackPanel Spacing="2">
+          <TextBlock Classes="eyebrow" Text="ON THE GRAPH" Margin="0,0,0,4" />
+
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Ctrl + K" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Open the search &amp; command palette" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Ctrl + F" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Open the search &amp; command palette" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Ctrl + 0" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Fit the graph to view" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="+" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Zoom in" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="-" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Zoom out" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Double-click" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Expand a node (load its members)" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Drag" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Pan the view" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Scroll" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Zoom" />
+          </StackPanel>
+        </StackPanel>
+
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
+</Window>

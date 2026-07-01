@@ -118,6 +118,14 @@
     }
     #legend .edge-sample.contains { border-top: 2px dashed var(--gw-edge-contains); }
     #legend .edge-arrow { color: var(--gw-edge-member); margin: 0 -2px 0 -6px; line-height: 1; }
+    /* Quiet double-click-to-expand gesture hint under the edge legend. Uses the edge-row
+       ink (WCAG 1.4.3: it carries unique prose, so it must clear 4.5:1 - the count-zero
+       token does not); the 10px italic keeps it subordinate to the edge rows. Inherits
+       #legend's pointer-events:none (never intercepts a gesture). */
+    #legend .legend-hint {
+      margin-top: 8px; font-size: 10px; line-height: 1.4;
+      color: var(--gw-chrome-edge-text); font-style: italic;
+    }
     /* ADR-023: the first INTERACTIVE bundle overlay (legend is pointer-events:none).
        Same neutral chrome as #legend; quiet/utilitarian. pointer-events scoped to
        this box so graph pan/tap below stays unaffected. */
@@ -342,6 +350,10 @@
       <div><span class="edge-sample"></span><span class="edge-arrow">&rarr;</span>is member of</div>
       <div><span class="edge-sample contains"></span>contains</div>
     </div>
+    <!-- Quiet gesture hint: External/frontier nodes are unexpanded — double-click one to
+         load its members (the dbltap -> nodeExpand path). Decorative; #legend is
+         pointer-events:none so this never intercepts a graph gesture. -->
+    <div class="legend-hint">Double-click an External node to expand it.</div>
   </div>
   <!-- WP3d (#146): the graph minimap. Thumbnail bg + live viewport rect are set by the
        bundle script (one cy.png on graph/theme change; the rect is the only per-frame
