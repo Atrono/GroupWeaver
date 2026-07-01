@@ -4,6 +4,58 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-07-01
+
+Feedback-driven Phase-4 release: a June UX fit-audit and a whole-journey UX audit,
+turned into honesty fixes and end-to-end parity across the Connect → explore →
+Audit → Plan → Gap → Settings journey. Still **read-only by construction** — no
+code path writes to Active Directory; the security review of the full delta found
+no issues.
+
+### Added
+- **Audit run history + drift** — audit runs persist to `%APPDATA%\GroupWeaver\`
+  and a "compare to previous run" view shows Fixed / New / Still-open / Now-unchecked,
+  so "what changed since last time?" is answerable (ADR-032, #190).
+- **Connection domain targeting** — an optional Connect "Advanced" area targets a
+  specific server/DC and base DN under integrated auth, lifting the single-domain
+  reach ceiling (ADR-031, #189).
+- **Gap export** — the Plan-vs-current-structure diff exports to CSV/HTML, reusing
+  the audit export seam and carrying the same unchecked-areas honesty (#202).
+- **Per-row audit triage** — acknowledge/suppress a finding from the detail pane or
+  a row context menu; triage state is disclosed on the health band and in exports (#204).
+- **System/auto theme** that follows the OS light/dark preference (#206).
+- **App-wide keyboard-focus-visible ring** closing a WCAG 2.4.7 gap (ADR-033, #201).
+- **Settings editor completeness** — add/remove naming rules, editable ruleset
+  metadata, navigable validation errors, and a live glob/naming preview (#207, #208).
+- **Discoverability** — a double-click-to-expand hint, an "Expand selected node"
+  command-palette action, and a "?" keyboard-help modal (#211).
+- **"Why it matters" on the explore→drill path** — each violations-sidebar finding
+  row surfaces the rule-class rationale + fix steps via a quiet "Why?" flyout,
+  reusing the Audit-screen copy so the two can never drift (#198).
+
+### Changed
+- **Audit health band tells the truth** — the band is gated by the worst *live*
+  severity independent of the numeric score (a live Error never headlines as
+  "Excellent"), with a triage caveat when findings are acknowledged/suppressed
+  (ADR-030, #188).
+- **Violations-sidebar severity chips are interactive filters** now, mirroring the
+  Audit screen (multi-select, WCAG-safe active affordance) (#197).
+- **Root Picker disambiguates same-named OUs** by showing each candidate's parent
+  path (with the full DN on hover) instead of a right-trimmed DN (#196).
+- **Explore-path consistency** — unified finding-row interaction (shared scroll-fade,
+  Plan jump-to-graph), audit filter chips + sort persist across relaunch, theme
+  parity + "findings" vocabulary + keyboard wiring across the first screens, and the
+  no-selection scope-summary card now surfaces the active ruleset (#186, #199, #200,
+  #203, #209).
+
+### Fixed
+- **Plan is no longer silently discarded** when navigating Back; a New-plan action
+  resets it explicitly (#205).
+- **Gap "unchecked areas" tally counts parents, not edges** — an accurate honesty
+  count (#199).
+- Restored light-theme WCAG AA on the first screens (hardcoded inline-error fills →
+  the themed validation brush) and removed now-dead severity-count converters (#199, #214).
+
 ## [0.4.2] - 2026-06-26
 
 Visual-polish pass driven by a senior UI/UX review of the shipped product. Four
