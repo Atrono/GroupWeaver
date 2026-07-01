@@ -73,10 +73,14 @@
         <!-- The pill is a centered ~28px band so the full-height splitter stays grabbable
              above and below it; it reads as a control (ghost border + hover) and its
              chevron/tooltip flip with IsRailCollapsed (▸ expand / ◂ collapse). -->
+        <!-- #219: the accessible name mirrors the state-aware tooltip (Avalonia does NOT
+             map ToolTip.Tip to the UIA Name), so a screen reader announces "Collapse/Expand
+             rail" instead of the bare ◂/▸ chevron glyph. Same converter, same text. -->
         <Button Name="RailCollapseToggle" Classes="ghost"
                 Width="28" Height="32" Padding="0" MinWidth="0"
                 VerticalAlignment="Center" HorizontalAlignment="Center"
                 Command="{Binding ToggleRailCommand}"
+                AutomationProperties.Name="{Binding IsRailCollapsed, Converter={x:Static views:RailChevronConverter.ToTooltip}}"
                 ToolTip.Tip="{Binding IsRailCollapsed, Converter={x:Static views:RailChevronConverter.ToTooltip}}">
           <!-- Vector chevron (ADR-022 D3): a filled PathIcon gets clean grayscale edge AA
                on the near-black seam — no subpixel colour fringe a triangle font glyph shows
