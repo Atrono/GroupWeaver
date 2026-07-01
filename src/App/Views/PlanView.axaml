@@ -222,6 +222,7 @@
             <TextBlock Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
                        Classes="subheading" />
             <ListBox Background="Transparent"
+                     OpacityMask="{StaticResource ListBottomFadeMask}"
                      ItemsSource="{Binding Violations}">
               <ListBox.ItemsPanel>
                 <ItemsPanelTemplate>
@@ -230,21 +231,30 @@
               </ListBox.ItemsPanel>
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:ViolationRowModel">
-                  <Grid ColumnDefinitions="Auto,*" Margin="4">
-                    <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
-                            VerticalAlignment="Top"
-                            Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                      <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                                 Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                                 FontSize="12" FontWeight="SemiBold"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-                  </Grid>
+                  <!-- The whole row is a flat command button jumping to (focusing + selecting)
+                       the finding's anchor DN - the rail/Gap jump affordance, unified here. -->
+                  <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                          Padding="4" BorderThickness="0"
+                          Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}"
+                          ToolTip.Tip="{Binding PrimaryDn}"
+                          Command="{Binding $parent[ListBox].((vm:PlanViewModel)DataContext).JumpToFindingCommand}"
+                          CommandParameter="{Binding}">
+                    <Grid ColumnDefinitions="Auto,*">
+                      <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                              VerticalAlignment="Top"
+                              Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                        <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                                   Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                                   FontSize="12" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Grid>
+                  </Button>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>

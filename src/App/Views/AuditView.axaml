@@ -565,6 +565,7 @@
           <ListBox Grid.Row="3" Name="FindingsList"
                    Background="Transparent"
                    MaxHeight="480"
+                   OpacityMask="{StaticResource ListBottomFadeMask}"
                    ItemsSource="{Binding Findings}"
                    SelectedItem="{Binding SelectedFinding, Mode=TwoWay}"
                    IsVisible="{Binding HasFindings}">

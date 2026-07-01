@@ -137,4 +137,15 @@
        asset; mirrors the graph bundle's web/index.html legend font stack. -->
   <FontFamily x:Key="FontFamilyMono">Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
+  <!-- Soft bottom-fade OpacityMask (#92) for internally-scrolling findings lists: a render-time
+       composite so a finding clipped at the scroll fold reads as scrollable, not broken. Pure
+       alpha (opaque → transparent), so it is theme-independent and lives with the invariant
+       tokens. Render-only — it does NOT alter row measurement/realization; apply it to the
+       scrolling ListBox ONLY, never a list's header/chip strip. -->
+  <LinearGradientBrush x:Key="ListBottomFadeMask" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Color="#FFFFFFFF" Offset="0.0" />
+    <GradientStop Color="#FFFFFFFF" Offset="0.92" />
+    <GradientStop Color="#00FFFFFF" Offset="1.0" />
+  </LinearGradientBrush>
+
 </ResourceDictionary>
