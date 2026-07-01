@@ -19,12 +19,20 @@ namespace GroupWeaver.App.ViewModels;
 /// </summary>
 public sealed partial class ViolationRowModel : ObservableObject
 {
-    public ViolationRowModel(RuleSeverity severity, string message, string subjectName, string primaryDn)
+    public ViolationRowModel(
+        RuleSeverity severity,
+        string message,
+        string subjectName,
+        string primaryDn,
+        string whyItMatters,
+        IReadOnlyList<string> howToFix)
     {
         Severity = severity;
         Message = message;
         SubjectName = subjectName;
         PrimaryDn = primaryDn;
+        WhyItMatters = whyItMatters;
+        HowToFix = howToFix;
     }
 
     /// <summary>Effective severity — drives the glyph color/letter via the one
@@ -42,6 +50,16 @@ public sealed partial class ViolationRowModel : ObservableObject
     /// <summary>The jump-to-node anchor (<c>Dns[0]</c>) — the command parameter and the
     /// selection-sync match key (compared under <c>Dn.Comparer</c>).</summary>
     public string PrimaryDn { get; }
+
+    /// <summary>The per-rule-class "why it matters" rationale (#198) — the SAME static copy the
+    /// Audit screen shows, sourced from <see cref="AuditFindingDetail.WhyItMatters"/> so the two
+    /// surfaces are identical by construction. Keyed only on the finding's rule class, never on an
+    /// AD attribute; the sidebar (not the ADR-007 whitelist detail panel) legitimately owns this.</summary>
+    public string WhyItMatters { get; }
+
+    /// <summary>The per-rule-class numbered "how to fix" steps (#198) — the SAME static copy the
+    /// Audit screen shows (<see cref="AuditFindingDetail.HowToFix"/>). Display text only.</summary>
+    public IReadOnlyList<string> HowToFix { get; }
 
     /// <summary>Selection-sync highlight (ADR-010 §5): <c>true</c> while this row's
     /// <see cref="PrimaryDn"/> matches the current graph/panel selection. The VM flips it

@@ -21,27 +21,33 @@ namespace GroupWeaver.App.Tests.Views;
 /// compute it. <see cref="WorkspaceViolationsTests"/> already pins the VM half — that
 /// <see cref="WorkspaceViewModel.SelectedDn"/> flips <see cref="ViolationRowModel.IsActive"/>
 /// on every row whose <see cref="ViolationRowModel.PrimaryDn"/> matches under
-/// <c>Dn.Comparer</c> — but the reviewer found the sidebar XAML never binds that flag to
-/// any visible property, so a selected row looked identical to a cold one (a half-built
-/// feature). This test closes that gap: it drives the real <see cref="WorkspaceViewModel"/>
-/// behind the real view through a headless window, selects a finding's anchor, and asserts
-/// the corresponding row CONTAINER actually repaints.
+/// <c>Dn.Comparer</c>. This test closes the view gap: it drives the real
+/// <see cref="WorkspaceViewModel"/> behind the real view through a headless window, selects a
+/// finding's anchor, and asserts the corresponding row CONTAINER actually repaints.
 ///
-/// THE PINNED CONTRACT (the implementer binds to exactly this):
-///   • Visual property: the row template's root <see cref="Button"/> (the flat command
-///     button that is each ListBox row — it already binds <c>CommandParameter</c> =
-///     <see cref="ViolationRowModel.PrimaryDn"/>, the stable anchor to locate it by) and
-///     its <see cref="Button.Background"/>.
-///   • Active (<c>IsActive == true</c>): <c>Button.Background</c> is a solid brush of the
-///     pinned highlight color <see cref="HighlightHex"/> (#330F6CBD — 20%-alpha of the app
-///     accent #0F6CBD, a subtle selection band behind the dark row text).
-///   • Inactive (<c>IsActive == false</c>): <c>Button.Background</c> stays
-///     <see cref="Colors.Transparent"/> (the row template's current literal default).
-/// Against current <c>src</c> there is NO IsActive binding, so EVERY row keeps the literal
-/// <c>Background="Transparent"</c> — the selected row never differs from a cold one and this
-/// test FAILS (the active row's background is Transparent, not the highlight). When the
-/// implementer binds <c>Button.Background</c> to <c>IsActive</c> via a brush converter, it
-/// passes. Change the pinned hex ONLY by editing this constant AND the XAML together in one
+/// <para>RE-PINNED for #198 (the "Why it matters" drill-path surface): the findings-row template
+/// was restructured from a single command <see cref="Button"/> into an OUTER
+/// <see cref="Grid"/> that now OWNS the selection-highlight background, with the jump
+/// <see cref="Button"/> spanning underneath and a subtle sibling "Why?" <see cref="Button"/>
+/// (its <see cref="FlyoutBase">flyout</see> reveals the rationale). The original intent is
+/// preserved verbatim — the row still jumps on click via a Button carrying
+/// <c>CommandParameter = <see cref="ViolationRowModel.PrimaryDn"/></c>, the active row is
+/// highlighted, and the cold row stays transparent — but the highlight moved from the row
+/// Button's <see cref="Button.Background"/> to the outer <see cref="Panel.Background"/>. This
+/// file now addresses that outer Grid (not the Button) for the background assertion, and
+/// additionally pins that the new "Why?" affordance is present per row and is a SEPARATE
+/// control from the jump Button (so opening its flyout can never fire the jump).</para>
+///
+/// THE PINNED CONTRACT:
+///   • The row's OUTER <see cref="Grid"/> owns the highlight; it contains the jump
+///     <see cref="Button"/> (bound <c>CommandParameter</c> = <see cref="ViolationRowModel.PrimaryDn"/>,
+///     the stable anchor to locate the row by) and, top-right, the sibling "Why?" Button.
+///   • Active (<c>IsActive == true</c>): the outer Grid's <see cref="Panel.Background"/> is a
+///     solid brush of the pinned highlight color <see cref="HighlightHex"/> (#330F6CBD —
+///     20%-alpha of the app accent #0F6CBD, a subtle selection band behind the dark row text).
+///   • Inactive (<c>IsActive == false</c>): the outer Grid's background stays
+///     <see cref="Colors.Transparent"/> (the converter's cold default).
+/// Change the pinned hex ONLY by editing this constant AND the XAML together in one
 /// reviewed PR (the data-model.md "change only with a reviewed PR" discipline).
 /// </summary>
 public sealed class ViolationsSidebarViewTests
@@ -57,8 +63,9 @@ public sealed class ViolationsSidebarViewTests
     private const string GroupBDn = "CN=GG_Sales_Admin,OU=Lab,DC=stub,DC=lab";
 
     /// <summary>The pinned selection-highlight brush color (ADR-010 §5): 20%-alpha of the
-    /// app accent #0F6CBD. The active row's <c>Button.Background</c> must equal this; the
-    /// implementer binds the SAME color.</summary>
+    /// app accent #0F6CBD. The active row's OUTER Grid <c>Background</c> must equal this (the #198
+    /// restructure moved the highlight from the row Button to the outer Grid); the src converter
+    /// (<c>SelectionHighlightConverters</c>) uses the SAME color.</summary>
     private const string HighlightHex = "#330F6CBD";
 
     [AvaloniaFact]
@@ -90,8 +97,9 @@ public sealed class ViolationsSidebarViewTests
             "the non-selected row must stay inactive");
 
         var sidebar = Assert.Single(window.GetVisualDescendants().OfType<ViolationsSidebarView>());
-        var activeRow = RowButtonFor(sidebar, GroupADn);
-        var coldRow = RowButtonFor(sidebar, GroupBDn);
+        // #198: the highlight moved to the row's OUTER Grid (the Grid that OWNS the jump Button).
+        var activeRow = RowGridFor(sidebar, GroupADn);
+        var coldRow = RowGridFor(sidebar, GroupBDn);
 
         var activeBrush = Assert.IsAssignableFrom<ISolidColorBrush>(activeRow.Background);
         var coldBrush = Assert.IsAssignableFrom<ISolidColorBrush>(coldRow.Background);
@@ -101,8 +109,49 @@ public sealed class ViolationsSidebarViewTests
         // (2) … the cold row stays the template's transparent default …
         Assert.Equal(Colors.Transparent, coldBrush.Color);
         // (3) … so a selected row is visibly distinct from a cold one (the whole point:
-        //     against current src both are Transparent and this differential fails).
+        //     against a no-binding template both are Transparent and this differential fails).
         Assert.NotEqual(coldBrush.Color, activeBrush.Color);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// #198 (the drill-path rationale surface): each findings row carries a "Why?" affordance that is
+    /// a SEPARATE control from the jump Button — so opening its flyout can never fire JumpCommand — yet
+    /// shares the row's outer Grid (and thus its selection-highlight). This pins the restructured row's
+    /// two-control shape at the view layer: the jump Button (carrying the anchor CommandParameter) and
+    /// the sibling "Why?" Button both live under the row's one outer Grid, and the "Why?" Button does
+    /// NOT carry the jump command's PrimaryDn parameter (it opens a flyout, it does not jump).
+    /// </summary>
+    [AvaloniaFact]
+    public async Task EachRow_HasAWhyButton_SeparateFromTheJumpButton_UnderTheSharedRowGrid()
+    {
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(Provider(TwoEmptyGroupsScope()), () => fake);
+        var (window, _) = ShowWorkspace(vm);
+        await vm.Initialization;
+        Dispatcher.UIThread.RunJobs();
+
+        var sidebar = Assert.Single(window.GetVisualDescendants().OfType<ViolationsSidebarView>());
+
+        foreach (var anchor in new[] { GroupADn, GroupBDn })
+        {
+            var rowGrid = RowGridFor(sidebar, anchor);
+
+            // The jump Button (the anchor-carrying command button) lives under this outer Grid.
+            var jumpButton = Assert.Single(
+                rowGrid.GetVisualDescendants().OfType<Button>(),
+                b => b.CommandParameter as string == anchor);
+
+            // The "Why?" affordance is a DISTINCT, effectively-visible Button under the SAME outer
+            // Grid — never the jump Button — and it does NOT carry the jump's PrimaryDn parameter
+            // (so an opened flyout can't be mistaken for a jump). Located by its "Why?" content.
+            var whyButton = Assert.Single(
+                rowGrid.GetVisualDescendants().OfType<Button>(),
+                b => b.IsEffectivelyVisible && (b.Content as string) == "Why?");
+            Assert.NotSame(jumpButton, whyButton);
+            Assert.NotEqual(anchor, whyButton.CommandParameter as string);
+        }
 
         window.Close();
     }
@@ -127,14 +176,21 @@ public sealed class ViolationsSidebarViewTests
         return snapshot;
     }
 
-    /// <summary>The row template's command <see cref="Button"/> whose <c>CommandParameter</c>
-    /// (= <see cref="ViolationRowModel.PrimaryDn"/>) matches <paramref name="primaryDn"/> — the
-    /// stable, template-independent way to address a specific realized row. Asserts the row is
-    /// realized (a single match), so virtualization hiding it fails loudly, not as a null deref.</summary>
-    private static Button RowButtonFor(ViolationsSidebarView sidebar, string primaryDn) =>
-        Assert.Single(
+    /// <summary>The row template's OUTER <see cref="Grid"/> for the row whose jump Button carries
+    /// <c>CommandParameter</c> (= <see cref="ViolationRowModel.PrimaryDn"/>) equal to
+    /// <paramref name="primaryDn"/> — the #198 restructure moved the selection-highlight background
+    /// onto this outer Grid (it OWNS the jump Button + the sibling "Why?" Button). Located by first
+    /// finding the realized jump Button (the stable, template-independent anchor handle) then walking
+    /// up to its nearest <see cref="Grid"/> ancestor: the Button's own content Grid is a DESCENDANT,
+    /// so the nearest ancestor Grid is the row's outer container. Asserts the row is realized (a single
+    /// jump-Button match), so virtualization hiding it fails loudly, not as a null deref.</summary>
+    private static Grid RowGridFor(ViolationsSidebarView sidebar, string primaryDn)
+    {
+        var jumpButton = Assert.Single(
             sidebar.GetVisualDescendants().OfType<Button>(),
             b => b.IsEffectivelyVisible && b.CommandParameter as string == primaryDn);
+        return jumpButton.GetVisualAncestors().OfType<Grid>().First();
+    }
 
     /// <summary>Stub whose scope load yields <paramref name="snapshot"/>.</summary>
     private static StubDirectoryProvider Provider(DirectorySnapshot snapshot) =>

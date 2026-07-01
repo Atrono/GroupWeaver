@@ -38,6 +38,23 @@
       <Setter Property="Opacity" Value="1" />
       <Setter Property="FontFeatures" Value="tnum=1" />
     </Style>
+    <!-- #198 per-row "Why?" affordance: a small, QUIET secondary control that opens the rationale
+         flyout without competing with the message. Transparent, borderless, secondary ink + small
+         type; the pointer-over wash (GhostHoverBrush, the same seam Button.ghost uses) is its only
+         resting affordance so it stays discoverable but subordinate. It is a SEPARATE control from
+         the row's jump Button, so opening the flyout never fires JumpCommand. -->
+    <Style Selector="Button.why">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Button.why:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource GhostHoverBrush}" />
+    </Style>
   </UserControl.Styles>
 
   <!-- Violations sidebar (AP 3.4 S4, ADR-010 §5): tops the right column ABOVE the
@@ -130,33 +147,71 @@
              ItemsSource="{Binding Violations}">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:ViolationRowModel">
-          <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Padding="4" BorderThickness="0"
-                  Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}"
-                  ToolTip.Tip="{Binding PrimaryDn}"
-                  Command="{Binding $parent[views:ViolationsSidebarView].((vm:WorkspaceViewModel)DataContext).JumpCommand}"
-                  CommandParameter="{Binding PrimaryDn}">
-            <Grid ColumnDefinitions="Auto,*">
+          <!-- The jump Button and the #198 "Why?" control are SIBLINGS in this outer Grid (not
+               nested), so a "Why?" click opens its flyout WITHOUT ever bubbling into JumpCommand.
+               The jump Button spans both columns underneath; the "Why?" button sits top-right in
+               its own cell above it, sharing the row's selection-highlight background. -->
+          <Grid ColumnDefinitions="*,Auto"
+                Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}">
+            <Button Grid.Column="0" Grid.ColumnSpan="2"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                    Padding="4" BorderThickness="0"
+                    Background="Transparent"
+                    ToolTip.Tip="{Binding PrimaryDn}"
+                    Command="{Binding $parent[views:ViolationsSidebarView].((vm:WorkspaceViewModel)DataContext).JumpCommand}"
+                    CommandParameter="{Binding PrimaryDn}">
+              <Grid ColumnDefinitions="Auto,*">
 
-              <!-- Severity glyph: colored square (overlay-color parity) + redundant
-                   letter E/W/i - the colorblind-safe channel beside the color. -->
-              <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
-                      VerticalAlignment="Top"
-                      Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                           Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                           FontSize="12" FontWeight="SemiBold"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-              </Border>
+                <!-- Severity glyph: colored square (overlay-color parity) + redundant
+                     letter E/W/i - the colorblind-safe channel beside the color. -->
+                <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                        VerticalAlignment="Top"
+                        Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                  <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                             Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                             FontSize="12" FontWeight="SemiBold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
 
-              <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
-                           TextWrapping="Wrap" />
-              </StackPanel>
+                <StackPanel Grid.Column="1" Margin="8,0,28,0">
+                  <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                             TextWrapping="Wrap" />
+                </StackPanel>
 
-            </Grid>
-          </Button>
+              </Grid>
+            </Button>
+
+            <!-- #198 "Why?" affordance: a quiet secondary Button whose Flyout reveals the per-rule-
+                 class rationale + numbered fix steps (the SAME copy the Audit screen shows). A SEPARATE
+                 control from the jump Button above (sibling in the outer Grid), so opening the flyout
+                 never triggers JumpCommand. The detail panel (ADR-007 whitelist) is untouched — this
+                 rule rationale legitimately lives on the findings sidebar. -->
+            <Button Grid.Column="1" Classes="why" Content="Why?"
+                    ToolTip.Tip="Why this matters and how to fix it">
+              <Button.Flyout>
+                <Flyout Placement="Left">
+                  <StackPanel MaxWidth="320" Spacing="8">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="WHY IT MATTERS" Classes="eyebrow" />
+                      <TextBlock Text="{Binding WhyItMatters}" Classes="body" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="HOW TO FIX" Classes="eyebrow" />
+                      <ItemsControl ItemsSource="{Binding HowToFix}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="x:String">
+                            <TextBlock Text="{Binding}" Classes="body" TextWrapping="Wrap" Margin="0,1" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </StackPanel>
+                </Flyout>
+              </Button.Flyout>
+            </Button>
+
+          </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>

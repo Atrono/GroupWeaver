@@ -416,12 +416,30 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// its anchor. The severity filter is session-only (#197) — a fresh report resets it.</summary>
     partial void OnReportChanged(RuleReport value)
     {
+        // Rule id -> human class label (canonical EnumerateRules order; naming rules carry their
+        // id) — resolved EXACTLY as AuditViewModel.RebuildFindings does, so the per-rule-class
+        // "Why?" copy on the sidebar matches the Audit screen by construction (#198).
+        var ruleClassById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in _ruleset.EnumerateRules())
+        {
+            ruleClassById[rule.Id] = rule.DisplayName;
+        }
+
         _allViolations.Clear();
         foreach (var violation in value.Violations)
         {
             var subject = SubjectNameResolver.Resolve(Snapshot, violation.PrimaryDn);
+            var ruleClassLabel = ruleClassById.TryGetValue(violation.RuleId, out var label)
+                ? label
+                : violation.RuleId;
+            // Route the "why it matters" / "how to fix" copy through the SAME AuditFindingDetail.From
+            // the Audit screen uses (the remediation snippet it also builds is discarded here — the
+            // sidebar surfaces rationale only). The copy is keyed on rule class, so it is identical
+            // to the Audit surface for the same violation (#198).
+            var detail = AuditFindingDetail.From(violation, subject, ruleClassLabel);
             _allViolations.Add(new ViolationRowModel(
-                violation.Severity, violation.Message, subject, violation.PrimaryDn));
+                violation.Severity, violation.Message, subject, violation.PrimaryDn,
+                detail.WhyItMatters, detail.HowToFix));
         }
 
         RebuildSeverityChips();
