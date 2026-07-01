@@ -40,17 +40,23 @@ tests — they are fixed fixtures, decoupled from the app version on purpose.
    then launch-smokes the *published* exe (`--check --demo` must print
    `GroupWeaver X.Y.Z` + `connected, N groups loaded`; `--demo --dump-graph`).
    Output is gitignored `artifacts/release/` — never commit it.
-4. **Security gate (required before any tag):** run `/security-review` over
+4. **README media currency (before tagging):** `pwsh
+   tools/check-media-currency.ps1` (the pack runs it non-blocking too). It's a
+   git-timestamp HEURISTIC, not proof of drift, so it may over-warn — but if it
+   warns that a media-source path changed after `docs/media` was last
+   regenerated, refresh the README demo media via [[record-demo-media]] before
+   tagging, then re-run until it prints `OK`.
+5. **Security gate (required before any tag):** run `/security-review` over
    `git log v<prev>..HEAD`; resolve every finding. Use
    [[security-review-groupweaver]] for where to look. Then `reviewer` approves
    the bump diff.
-5. **PR → squash merge** (trunk-based). `ci-sentinel` watches CI green first.
-6. **Tag the merged bump commit, then push the tag:**
+6. **PR → squash merge** (trunk-based). `ci-sentinel` watches CI green first.
+7. **Tag the merged bump commit, then push the tag:**
    `git tag vX.Y.Z <bump-sha>` → `git push origin vX.Y.Z`.
-7. **Watch `release.yml`** to green (`gh run watch`). It derives the version from
+8. **Watch `release.yml`** to green (`gh run watch`). It derives the version from
    the tag, re-runs the pack with `-Emit github`, attests provenance, and
    `gh release create`s the zip + `.sha256`.
-8. **Verify the PUBLIC artifact** (the real M-step): `gh release download vX.Y.Z`
+9. **Verify the PUBLIC artifact** (the real M-step): `gh release download vX.Y.Z`
    into a clean dir → `Get-FileHash` matches the `.sha256` sidecar →
    `gh attestation verify <zip> --repo Atrono/GroupWeaver` exits 0 → extract and
    run the exe `--check --demo` → exit 0 with the right banner.

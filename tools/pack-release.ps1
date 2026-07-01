@@ -109,6 +109,14 @@ foreach ($f in $webFiles) {
 }
 Write-Host "OK: web bundle intact - all $($webFiles.Count) files byte-identical to src/App/web." -ForegroundColor Green
 
+# ---------- 3b. README media currency (NON-BLOCKING reminder) ----------
+# Heuristic: warn (never fail) if a media-source path has a commit newer than
+# docs/media, i.e. the README demo media may be stale. Runs WITHOUT -Strict so it
+# exits 0 and can never abort the pack; refresh via the record-demo-media skill.
+Write-Host ''
+Write-Host '==> Check README media currency (non-blocking reminder)' -ForegroundColor Cyan
+& "$PSScriptRoot/check-media-currency.ps1"
+
 # ---------- 4. launch smoke (the self-extract / missing-web/ guard) ----------
 # Runs the PUBLISHED exe (not dotnet run): a self-extract failure or dropped web/ bundle
 # fails the pack here. The smoke uses --demo on purpose: it must NOT depend on a reachable
