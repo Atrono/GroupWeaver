@@ -18,6 +18,8 @@
       <StackPanel Orientation="Horizontal" Spacing="8">
         <Border MinWidth="34" VerticalAlignment="Center"
                 CornerRadius="3" Padding="5,2"
+                BorderThickness="2"
+                BorderBrush="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBorderBrush}}"
                 Background="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
           <TextBlock Text="{Binding Kind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
                      Foreground="White" FontSize="11" FontWeight="SemiBold"

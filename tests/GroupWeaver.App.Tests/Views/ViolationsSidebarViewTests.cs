@@ -43,8 +43,8 @@ namespace GroupWeaver.App.Tests.Views;
 ///     <see cref="Button"/> (bound <c>CommandParameter</c> = <see cref="ViolationRowModel.PrimaryDn"/>,
 ///     the stable anchor to locate the row by) and, top-right, the sibling "Why?" Button.
 ///   • Active (<c>IsActive == true</c>): the outer Grid's <see cref="Panel.Background"/> is a
-///     solid brush of the pinned highlight color <see cref="HighlightHex"/> (#330F6CBD —
-///     20%-alpha of the app accent #0F6CBD, a subtle selection band behind the dark row text).
+///     solid brush of the pinned highlight color <see cref="HighlightHex"/> (#298B7BFF — the
+///     ADR-026 D6 brand-accent-soft selection band, a subtle purple wash behind the row text).
 ///   • Inactive (<c>IsActive == false</c>): the outer Grid's background stays
 ///     <see cref="Colors.Transparent"/> (the converter's cold default).
 /// Change the pinned hex ONLY by editing this constant AND the XAML together in one
@@ -62,11 +62,27 @@ public sealed class ViolationsSidebarViewTests
     private const string GroupADn = "CN=GG_Sales_Staff,OU=Lab,DC=stub,DC=lab";
     private const string GroupBDn = "CN=GG_Sales_Admin,OU=Lab,DC=stub,DC=lab";
 
-    /// <summary>The pinned selection-highlight brush color (ADR-010 §5): 20%-alpha of the
-    /// app accent #0F6CBD. The active row's OUTER Grid <c>Background</c> must equal this (the #198
-    /// restructure moved the highlight from the row Button to the outer Grid); the src converter
-    /// (<c>SelectionHighlightConverters</c>) uses the SAME color.</summary>
-    private const string HighlightHex = "#330F6CBD";
+    /// <summary>The pinned selection-highlight brush color. DELIBERATELY MOVED (a reviewed
+    /// contract change, not drift — #225 Lever 4): the active-row band was the old Fluent-blue
+    /// #330F6CBD (20%-alpha of the legacy app accent #0F6CBD); it is now the ADR-026 D6 brand
+    /// accent-soft #298B7BFF (= <c>BrandTokens.AccentSoftHex</c>), the shared translucent-accent
+    /// selection/focus role. The active row's OUTER Grid <c>Background</c> must equal this; the
+    /// src converter (<c>SelectionHighlightConverters</c>) feeds the SAME <c>BrandTokens.AccentSoft</c>
+    /// brush. Change the value ONLY by editing this constant AND that converter together in one
+    /// reviewed PR (the data-model.md "change only with a reviewed PR" discipline).</summary>
+    private const string HighlightHex = "#298B7BFF"; // BrandTokens.AccentSoftHex (ADR-026 D6, #225 Lever 4)
+
+    /// <summary>Guard: the pinned <see cref="HighlightHex"/> IS the brand accent-soft token
+    /// (#225 Lever 4). This keeps the deliberate value from silently drifting away from
+    /// <see cref="BrandTokens.AccentSoftHex"/> — the whole point of the move was to route the
+    /// active-row band through that shared ADR-026 accent role — while still pinning the literal
+    /// hex above so a wrong token AND a wrong hex can't cancel out.</summary>
+    [Fact]
+    public void HighlightHex_IsTheBrandAccentSoftToken()
+    {
+        Assert.Equal(BrandTokens.AccentSoftHex, HighlightHex);
+        Assert.Equal(Color.Parse(BrandTokens.AccentSoftHex), Color.Parse(HighlightHex));
+    }
 
     [AvaloniaFact]
     public async Task SelectingAFindingsAnchor_PaintsThatRowsBackground_TheHighlight_LeavingOtherRowsTransparent()

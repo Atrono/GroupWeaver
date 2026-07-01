@@ -32,6 +32,22 @@ public static class AdObjectKindConverters
     public static readonly IValueConverter ToBadgeBrush =
         new FuncValueConverter<AdObjectKind, IBrush>(kind => For(kind).Brush);
 
+    /// <summary>Badge BORDER brush per kind — the WCAG 1.4.11 contrast-lift ring (#8A93A3,
+    /// <see cref="BrandTokens.NodeLiftRing"/>) on the DL/UG/Computer fills whose graphical-object
+    /// contrast vs the dark page falls below 3:1 (DL 2.55 / UG 2.66 / Computer 2.59); every OTHER
+    /// kind fill already clears 3:1 and gets a transparent (invisible) border, so the badge
+    /// geometry stays uniform. The EXACT mirror of graph.js's per-kind <c>nodeLiftRing</c> lift
+    /// (the fills themselves stay unchanged) — see <c>src/App/web/graph.js</c>.</summary>
+    public static readonly IValueConverter ToBadgeBorderBrush =
+        new FuncValueConverter<AdObjectKind, IBrush>(BorderBrushFor);
+
+    private static IBrush BorderBrushFor(AdObjectKind kind) =>
+        kind is AdObjectKind.DomainLocalGroup or AdObjectKind.UniversalGroup or AdObjectKind.Computer
+            ? BrandTokens.NodeLiftRing
+            : TransparentBorder;
+
+    private static readonly ImmutableSolidColorBrush TransparentBorder = new(Colors.Transparent);
+
     private static (string Label, ImmutableSolidColorBrush Brush) For(AdObjectKind kind) =>
         kind switch
         {

@@ -79,8 +79,84 @@ public sealed class AdObjectKindConvertersTests
         Assert.Equal(Enum.GetValues<AdObjectKind>().Length, colors.Distinct().Count());
     }
 
+    // --- ToBadgeBorderBrush: the WCAG 1.4.11 lift-ring (#225 Lever 4) --------------------------
+
+    /// <summary>The three kinds whose FILLS fall below the 3:1 graphical-object floor vs the dark
+    /// page (DL 2.55 / UG 2.66 / Computer 2.59) — the ONLY kinds that get the #8A93A3 lift-ring
+    /// (<see cref="BrandTokens.NodeLiftRing"/>), exactly mirroring graph.js's per-kind ring.</summary>
+    public static TheoryData<AdObjectKind> RingKinds() => new()
+    {
+        AdObjectKind.DomainLocalGroup,
+        AdObjectKind.UniversalGroup,
+        AdObjectKind.Computer,
+    };
+
+    /// <summary>The kinds whose fills already clear 3:1 — no lift-ring, so a TRANSPARENT (invisible)
+    /// border keeps the badge geometry uniform (the 2px border box exists on every badge; only its
+    /// visibility differs).</summary>
+    public static TheoryData<AdObjectKind> NonRingKinds() => new()
+    {
+        AdObjectKind.User,
+        AdObjectKind.GlobalGroup,
+        AdObjectKind.OrganizationalUnit,
+        AdObjectKind.External,
+    };
+
+    /// <summary>The DL / UG / Computer badges carry the #8A93A3 lift-ring border brush — the exact
+    /// <see cref="BrandTokens.NodeLiftRing"/> token (compared by resolved Color, a projection),
+    /// pinned independently by its literal hex so a wrong token wiring AND a wrong hex can't cancel
+    /// out. Invoked through the converter's binding seam exactly as the XAML BorderBrush binding does.</summary>
+    [Theory]
+    [MemberData(nameof(RingKinds))]
+    public void ToBadgeBorderBrush_LiftsDlUgComputer_WithTheNodeLiftRing(AdObjectKind kind)
+    {
+        var border = Assert.IsAssignableFrom<ISolidColorBrush>(BorderBrush(kind));
+        Assert.Equal(BrandTokens.NodeLiftRing.Color, border.Color);
+        Assert.Equal(Color.Parse("#8A93A3"), border.Color);
+    }
+
+    /// <summary>Every OTHER kind gets a TRANSPARENT (no-lift) border — a real brush (so the 2px
+    /// BorderThickness in the XAML paints an invisible box, keeping badge geometry uniform), never
+    /// the lift-ring color. This is the "non-ring kind has a transparent/no-lift border" contract.</summary>
+    [Theory]
+    [MemberData(nameof(NonRingKinds))]
+    public void ToBadgeBorderBrush_LeavesOtherKinds_Transparent(AdObjectKind kind)
+    {
+        var border = Assert.IsAssignableFrom<ISolidColorBrush>(BorderBrush(kind));
+        Assert.Equal(Colors.Transparent, border.Color);
+        Assert.NotEqual(BrandTokens.NodeLiftRing.Color, border.Color);
+    }
+
+    /// <summary>Full-partition guard: across ALL seven kinds, EXACTLY the three fill-contrast-failing
+    /// kinds (DL/UG/Computer) get the lift-ring and the other four are transparent — so the ring set
+    /// can never silently widen (over-decorating a fill that already passes) or narrow (dropping a
+    /// lift a failing fill needs).</summary>
+    [Fact]
+    public void ToBadgeBorderBrush_RingsExactlyTheThreeContrastFailingKinds()
+    {
+        var ringed = Enum.GetValues<AdObjectKind>()
+            .Where(k => Assert.IsAssignableFrom<ISolidColorBrush>(BorderBrush(k)).Color
+                == BrandTokens.NodeLiftRing.Color)
+            .ToHashSet();
+
+        Assert.Equal(
+            new HashSet<AdObjectKind>
+            {
+                AdObjectKind.DomainLocalGroup,
+                AdObjectKind.UniversalGroup,
+                AdObjectKind.Computer,
+            },
+            ringed);
+    }
+
     /// <summary>Invoke the badge-brush converter through its binding seam exactly as XAML does.</summary>
     private static object? Brush(AdObjectKind kind) =>
         AdObjectKindConverters.ToBadgeBrush.Convert(
+            kind, typeof(IBrush), null, CultureInfo.InvariantCulture);
+
+    /// <summary>Invoke the badge-BORDER-brush converter through its binding seam exactly as the
+    /// RootPickerView / DetailPanelView <c>BorderBrush</c> bindings do.</summary>
+    private static object? BorderBrush(AdObjectKind kind) =>
+        AdObjectKindConverters.ToBadgeBorderBrush.Convert(
             kind, typeof(IBrush), null, CultureInfo.InvariantCulture);
 }

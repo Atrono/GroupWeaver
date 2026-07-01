@@ -155,6 +155,20 @@
         </FocusAdornerTemplate>
       </Setter>
     </Style>
+    <!-- Selected-item band → the brand accent (ADR-026 D6), replacing FluentTheme's default-BLUE
+         SystemAccentColor selection fill on genuine ListBox.SelectedItem lists (the root picker).
+         Uses the theme-aware translucent-accent AccentSoftBrush (dark #298B7BFF / light #1F6A5CFF —
+         the same decorative-accent selection/focus role documented in BrandTokens / Tokens.axaml),
+         so a selected row reads as a subtle brand-purple band in both themes. Selection BEHAVIOUR is
+         unchanged — only the fill hue. DynamicResource re-resolves on a live ThemeVariant flip;
+         :selected:pointerover keeps the band on hover-over-selected (Fluent would otherwise flip it
+         back to its own accent-tinted hover fill). -->
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
     <!-- ComboBox: the accent FocusAdorner ring AND a keyboard-focus suppression of Fluent's solid blue
          focus highlight (Border#HighlightBackground turns opaque #0078D7 on focus, which would fill the
          box and mask the accent). Neutralizing it only under :focus-visible keeps the accent dominant on
