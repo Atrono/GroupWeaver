@@ -278,12 +278,40 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     public IRelayCommand OpenWebView2DownloadPageCommand { get; } =
         new RelayCommand(WebView2Runtime.OpenDownloadPage);
 
+    /// <summary>The UNFILTERED projected sidebar rows (#197): every finding in
+    /// <see cref="Report"/>, in canonical report order. <see cref="Violations"/> is the
+    /// filtered VIEW derived from this in <see cref="ApplyViolationFilter"/>; the per-severity
+    /// chip counts (<see cref="SeverityChips"/>) and <see cref="TotalViolationCount"/> are
+    /// computed over THIS list so filtering never shrinks either. Rebuilt in
+    /// <see cref="OnReportChanged"/>.</summary>
+    private readonly List<ViolationRowModel> _allViolations = [];
+
+    /// <summary>The active severity-axis filter (#197). EMPTY = no constraint (fail-open —
+    /// all rows shown); non-empty keeps only rows whose <see cref="ViolationRowModel.Severity"/>
+    /// is contained. Session-only — reset on each report change (unlike the Audit screen's
+    /// persisted filter, #203), because <see cref="SeverityChips"/> is rebuilt each report.</summary>
+    private readonly HashSet<RuleSeverity> _severityFilter = [];
+
     /// <summary>The AP 3.4 violations sidebar rows (ADR-010 §5), in canonical report
-    /// order (unshuffled — ADR-009): <see cref="OnReportChanged"/> projects
-    /// <see cref="Report"/>'s <see cref="RuleReport.Violations"/> into it, with
-    /// <see cref="ViolationRowModel.SubjectName"/> resolved snapshot-only. Bound by
-    /// <see cref="Views.ViolationsSidebarView"/>.</summary>
+    /// order (unshuffled — ADR-009): the FILTERED view of <see cref="_allViolations"/> —
+    /// all rows when <see cref="_severityFilter"/> is empty, otherwise only the rows whose
+    /// severity is in the set (#197). <see cref="ViolationRowModel.SubjectName"/> is resolved
+    /// snapshot-only. Bound by <see cref="Views.ViolationsSidebarView"/>.</summary>
     public ObservableCollection<ViolationRowModel> Violations { get; } = [];
+
+    /// <summary>The severity filter chips (#197) — fixed Error/Warning/Info, in descending
+    /// severity order — rebuilt whenever <see cref="Report"/> changes. Each chip's
+    /// <see cref="AuditFilterChip.Count"/> is over the UNFILTERED <see cref="_allViolations"/>
+    /// and its <see cref="AuditFilterChip.IsActive"/> mirrors <see cref="_severityFilter"/>
+    /// membership; clicking a chip runs <see cref="ToggleSeverityFilterCommand"/>. Reuses the
+    /// Audit screen's <see cref="AuditFilterChip"/> (axis <see cref="AuditFilterAxis.Severity"/>)
+    /// — the same chip type + active affordance. Gated to render only when there are findings.</summary>
+    public ObservableCollection<AuditFilterChip> SeverityChips { get; } = [];
+
+    /// <summary>The TOTAL (unfiltered) finding count (#197): <see cref="_allViolations"/>.Count.
+    /// The header binds THIS so filtering never makes "Findings (n)" silently shrink — the
+    /// per-severity breakdown lives on the chips. Re-notified in <see cref="OnReportChanged"/>.</summary>
+    public int TotalViolationCount => _allViolations.Count;
 
     /// <summary>Drives the sidebar all-clear state: <c>true</c> when the report has at
     /// least one finding. Recomputed on <see cref="Report"/> change.</summary>
@@ -375,24 +403,97 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     private void RecomputeDetailPanel() =>
         DetailPanel = Snapshot is null ? null : DetailPanelModel.Build(Snapshot, SelectedDn, Report);
 
-    /// <summary>Re-projects <see cref="Report"/>'s findings into <see cref="Violations"/>
-    /// (ADR-010 §5): canonical report order, unshuffled (ADR-009); the subject name is
-    /// resolved snapshot-only (raw-External anchors fall back to the DN — never a provider
-    /// call). The all-clear text and the unchecked-areas hint flip via the generated
-    /// <see cref="HasViolations"/>/<see cref="HasUncheckedAreas"/> notifications. The
-    /// selection-sync highlight is re-applied over the fresh rows so a selection that
-    /// persists across a re-Evaluate keeps lighting its anchor.</summary>
+    /// <summary>Re-projects <see cref="Report"/>'s findings into the UNFILTERED
+    /// <see cref="_allViolations"/> backing list (ADR-010 §5): canonical report order,
+    /// unshuffled (ADR-009); the subject name is resolved snapshot-only (raw-External anchors
+    /// fall back to the DN — never a provider call). Then rebuilds <see cref="SeverityChips"/>
+    /// (counts over the unfiltered list) and re-projects the filtered <see cref="Violations"/>
+    /// view via <see cref="ApplyViolationFilter"/>. The all-clear text and the unchecked-areas
+    /// hint flip via the generated <see cref="HasViolations"/>/<see cref="HasUncheckedAreas"/>
+    /// notifications; <see cref="TotalViolationCount"/> is re-notified for the header. The
+    /// selection-sync highlight is re-applied (inside <see cref="ApplyViolationFilter"/>) over
+    /// the fresh visible rows so a selection that persists across a re-Evaluate keeps lighting
+    /// its anchor. The severity filter is session-only (#197) — a fresh report resets it.</summary>
     partial void OnReportChanged(RuleReport value)
     {
-        Violations.Clear();
+        _allViolations.Clear();
         foreach (var violation in value.Violations)
         {
             var subject = SubjectNameResolver.Resolve(Snapshot, violation.PrimaryDn);
-            Violations.Add(new ViolationRowModel(
+            _allViolations.Add(new ViolationRowModel(
                 violation.Severity, violation.Message, subject, violation.PrimaryDn));
         }
 
+        RebuildSeverityChips();
+        ApplyViolationFilter();
+        OnPropertyChanged(nameof(TotalViolationCount));
+    }
+
+    /// <summary>Rebuilds <see cref="SeverityChips"/> in place (#197) — fixed Error/Warning/Info
+    /// in descending order, each carrying its count over the UNFILTERED <see cref="_allViolations"/>
+    /// and its <see cref="AuditFilterChip.IsActive"/> from the preserved <see cref="_severityFilter"/>.
+    /// Reuses the Audit <see cref="AuditFilterChip"/> type (axis <see cref="AuditFilterAxis.Severity"/>,
+    /// the boxed <see cref="RuleSeverity"/> as the key + the severity for the glyph).</summary>
+    private void RebuildSeverityChips()
+    {
+        SeverityChips.Clear();
+        foreach (var severity in new[] { RuleSeverity.Error, RuleSeverity.Warning, RuleSeverity.Info })
+        {
+            var count = _allViolations.Count(r => r.Severity == severity);
+            SeverityChips.Add(new AuditFilterChip(
+                AuditFilterAxis.Severity, severity, SeverityChipLabel(severity), count, severity)
+            {
+                IsActive = _severityFilter.Contains(severity),
+            });
+        }
+    }
+
+    private static string SeverityChipLabel(RuleSeverity severity) => severity switch
+    {
+        RuleSeverity.Error => "Errors",
+        RuleSeverity.Warning => "Warnings",
+        _ => "Info",
+    };
+
+    /// <summary>Re-projects the filtered <see cref="Violations"/> view from
+    /// <see cref="_allViolations"/> (#197): all rows when <see cref="_severityFilter"/> is empty
+    /// (fail-open), otherwise only rows whose severity is in the set. Rebuilt by in-place
+    /// Clear/Add (the bound collection reference never changes). Re-applies the selection-sync
+    /// highlight over the fresh visible rows.</summary>
+    private void ApplyViolationFilter()
+    {
+        Violations.Clear();
+        foreach (var row in _allViolations)
+        {
+            if (_severityFilter.Count == 0 || _severityFilter.Contains(row.Severity))
+            {
+                Violations.Add(row);
+            }
+        }
+
         HighlightActiveRows(SelectedDn);
+    }
+
+    /// <summary>Toggles one severity filter chip (#197): flips its <see cref="AuditFilterChip.IsActive"/>,
+    /// adds/removes its boxed <see cref="RuleSeverity"/> key in <see cref="_severityFilter"/>, then
+    /// re-projects the filtered <see cref="Violations"/> view. Mirrors <c>AuditViewModel.ToggleFilter</c>
+    /// for the severity axis only; multi-select (each active severity is OR'd). Session-only — NOT
+    /// persisted (unlike the Audit screen's #203); it resets on the next report change.</summary>
+    [RelayCommand]
+    private void ToggleSeverityFilter(AuditFilterChip chip)
+    {
+        chip.IsActive = !chip.IsActive;
+        var severity = (RuleSeverity)chip.Key;
+        if (chip.IsActive)
+        {
+            _severityFilter.Add(severity);
+        }
+        else
+        {
+            _severityFilter.Remove(severity);
+        }
+
+        ApplyViolationFilter();
     }
 
     /// <summary>The ctor-load entry point (kept by name — <see cref="Initialization"/>

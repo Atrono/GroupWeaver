@@ -2,9 +2,43 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:GroupWeaver.App.ViewModels"
              xmlns:views="using:GroupWeaver.App.Views"
-             xmlns:rules="using:GroupWeaver.Core.Rules"
              x:Class="GroupWeaver.App.Views.ViolationsSidebarView"
              x:DataType="vm:WorkspaceViewModel">
+
+  <UserControl.Styles>
+    <!-- #197 severity filter chip: matches the Audit screen's chip visual (AuditView.axaml) using the
+         SAME tokens/affordance, kept LOCAL so AuditView's screenshot-pinned rendering stays byte-
+         identical (its chip styles are inline in its own UserControl.Styles, not a shared resource).
+         The INACTIVE chip is a ghost pill (transparent fill, card border, secondary ink); the ACTIVE
+         chip (Classes.chip-active, bound to AuditFilterChip.IsActive) swaps to an OPAQUE raised fill +
+         strong ink + a 2px border — a redundant border/fill/ink change, NEVER hue alone (WCAG 1.4.1),
+         >=4.5:1 in both themes via the ChipActive* tokens. The app-wide Button:focus-visible ring
+         (App.axaml) covers keyboard focus. -->
+    <Style Selector="Button.chip">
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}" />
+    </Style>
+    <Style Selector="Button.chip-active">
+      <Setter Property="Background" Value="{DynamicResource ChipActiveBackgroundBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ChipActiveForegroundBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SecondaryForegroundBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <!-- The chip count digits at FULL opacity (tabular numerals), inheriting the chip's foreground so
+         the digit contrast matches the label (WCAG 1.4.3). -->
+    <Style Selector="TextBlock.chip-count">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="FontFeatures" Value="tnum=1" />
+    </Style>
+  </UserControl.Styles>
 
   <!-- Violations sidebar (AP 3.4 S4, ADR-010 §5): tops the right column ABOVE the
        AP 2.5 detail stack (the 2*,Auto,3* vertical split, beside GraphHost, never
@@ -17,15 +51,15 @@
   <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12,12,12,8">
 
     <!-- Header (AP 4.1 / ADR-013 §6): "Findings (n)" left, the report-export pair right.
-         n = Violations.Count (the populated rows; the authoritative roll-up count lives
-         here, not on canvas). The two-column split keeps the title/chips clear of the
-         export buttons - the buttons NEVER crowd the chip strip below (Row 1). Each button
-         is disabled until a load completes: CanExportReport gates on Snapshot is not null
-         (F2 - the unchecked-areas appendix is exportable in the all-clear state), so the
-         pre-load state shows the buttons greyed. -->
+         n = TotalViolationCount (the UNFILTERED total; #197 — the severity chips below filter
+         the list, so the header must reflect the whole report, never shrinking as chips filter).
+         The two-column split keeps the title/chips clear of the export buttons - the buttons
+         NEVER crowd the chip strip below (Row 1). Each button is disabled until a load completes:
+         CanExportReport gates on Snapshot is not null (F2 - the unchecked-areas appendix is
+         exportable in the all-clear state), so the pre-load state shows the buttons greyed. -->
     <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
       <TextBlock Grid.Column="0"
-                 Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
+                 Text="{Binding TotalViolationCount, StringFormat='Findings ({0})'}"
                  Classes="subheading"
                  VerticalAlignment="Center" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
@@ -40,97 +74,47 @@
       </StackPanel>
     </Grid>
 
-    <!-- Per-severity summary chips (E n · W n · i n), each a glyph square in THE one
-         SeverityConverters palette (overlay-color parity with the graph halos) + its
-         count. They top the sidebar so all THREE severity glyphs (#D13438 / #F7A30B /
-         #4FA3E3, with redundant E/W/i letters) are visible above the scroll fold - the
-         canonical errors-first row order otherwise pushes Warning/Info below the fold,
-         un-evidenced in a static frame. Each chip hides when its severity has no findings
-         (HasSeverity), so the all-clear state shows no chips. The chip count re-tallies via
-         a MultiBinding on (Violations, Violations.Count) - the Count is the in-place
-         Clear/Add change trigger (the collection reference never changes). -->
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,6,0,0"
-                IsVisible="{Binding HasViolations}">
-
-      <StackPanel Orientation="Horizontal" Spacing="4">
-        <StackPanel.IsVisible>
-          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
-                        ConverterParameter="{x:Static rules:RuleSeverity.Error}">
-            <Binding Path="Violations" />
-            <Binding Path="Violations.Count" />
-          </MultiBinding>
-        </StackPanel.IsVisible>
-        <Border Width="18" Height="18" CornerRadius="3"
-                Background="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-          <TextBlock Text="E"
-                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Error}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                     FontSize="11" FontWeight="SemiBold"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
-          <TextBlock.Text>
-            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
-                          ConverterParameter="{x:Static rules:RuleSeverity.Error}">
-              <Binding Path="Violations" />
-              <Binding Path="Violations.Count" />
-            </MultiBinding>
-          </TextBlock.Text>
-        </TextBlock>
-      </StackPanel>
-
-      <StackPanel Orientation="Horizontal" Spacing="4">
-        <StackPanel.IsVisible>
-          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
-                        ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
-            <Binding Path="Violations" />
-            <Binding Path="Violations.Count" />
-          </MultiBinding>
-        </StackPanel.IsVisible>
-        <Border Width="18" Height="18" CornerRadius="3"
-                Background="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-          <TextBlock Text="W"
-                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Warning}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                     FontSize="11" FontWeight="SemiBold"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
-          <TextBlock.Text>
-            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
-                          ConverterParameter="{x:Static rules:RuleSeverity.Warning}">
-              <Binding Path="Violations" />
-              <Binding Path="Violations.Count" />
-            </MultiBinding>
-          </TextBlock.Text>
-        </TextBlock>
-      </StackPanel>
-
-      <StackPanel Orientation="Horizontal" Spacing="4">
-        <StackPanel.IsVisible>
-          <MultiBinding Converter="{x:Static views:SeverityConverters.HasSeverity}"
-                        ConverterParameter="{x:Static rules:RuleSeverity.Info}">
-            <Binding Path="Violations" />
-            <Binding Path="Violations.Count" />
-          </MultiBinding>
-        </StackPanel.IsVisible>
-        <Border Width="18" Height="18" CornerRadius="3"
-                Background="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToBrush}}">
-          <TextBlock Text="i"
-                     Foreground="{Binding Source={x:Static rules:RuleSeverity.Info}, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                     FontSize="11" FontWeight="SemiBold"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <TextBlock VerticalAlignment="Center" FontSize="12" Opacity="0.85">
-          <TextBlock.Text>
-            <MultiBinding Converter="{x:Static views:SeverityConverters.CountForSeverity}"
-                          ConverterParameter="{x:Static rules:RuleSeverity.Info}">
-              <Binding Path="Violations" />
-              <Binding Path="Violations.Count" />
-            </MultiBinding>
-          </TextBlock.Text>
-        </TextBlock>
-      </StackPanel>
-
-    </StackPanel>
+    <!-- Per-severity filter chips (#197): each an E/W/i glyph square in THE one
+         SeverityConverters palette (overlay-color parity with the graph halos) + a label +
+         its count over the UNFILTERED report. They top the sidebar so all THREE severity
+         glyphs (with redundant E/W/i letters) are visible above the scroll fold, AND each is
+         now a clickable toggle FILTER (ToggleSeverityFilterCommand): clicking narrows the
+         list below to that severity (multi-select, fail-open — no active chip = all findings).
+         The active chip carries a redundant non-hue affordance (opaque fill + strong ink +
+         2px border via Classes.chip-active, bound to AuditFilterChip.IsActive) so the active
+         state is not color-only (WCAG 1.4.1). The whole strip hides in the all-clear state
+         (HasViolations), so no chips show with no findings. The strip stays in Row 1, OUTSIDE
+         the findings ListBox's bottom-fade mask (ShellScreenshotTests geometry pin). -->
+    <ItemsControl Grid.Row="1" Margin="0,6,0,0"
+                  ItemsSource="{Binding SeverityChips}"
+                  IsVisible="{Binding HasViolations}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:AuditFilterChip">
+          <Button Classes="chip" Margin="0,0,6,0"
+                  Classes.chip-active="{Binding IsActive}"
+                  Command="{Binding $parent[views:ViolationsSidebarView].((vm:WorkspaceViewModel)DataContext).ToggleSeverityFilterCommand}"
+                  CommandParameter="{Binding}"
+                  ToolTip.Tip="Toggle this severity filter">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <Border Width="16" Height="16" CornerRadius="3" VerticalAlignment="Center"
+                      Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                           Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                           FontSize="10" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding Count}" Classes="chip-count" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
 
     <!-- The findings list (canonical report order, unshuffled - ADR-009). Each row:
          severity glyph (colored square + redundant letter from THE one palette),
