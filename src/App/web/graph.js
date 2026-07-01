@@ -941,9 +941,19 @@
     cy.on('tap', function (evt) {
       if (evt.target === cy) { clearSelection(); }
     });
-    // Hover feedback (ADR-018 D1): instant gw-hover toggle, no transition.
-    cy.on('mouseover', 'node', function (evt) { evt.target.addClass('gw-hover'); });
-    cy.on('mouseout', 'node', function (evt) { evt.target.removeClass('gw-hover'); });
+    // Hover feedback (ADR-018 D1): instant gw-hover toggle, no transition. Expandable
+    // (frontier/unexpanded) nodes are kind 'External' — the ONLY nodes dbltap acts on
+    // (below). Give them a pointer cursor on hover so the double-click affordance is
+    // discoverable; the cursor is a DOM property on the cy container (cytoscape has no
+    // `cursor` style channel), reset on mouseout. Non-External hover leaves it default.
+    cy.on('mouseover', 'node', function (evt) {
+      evt.target.addClass('gw-hover');
+      if (isExpandable(evt.target)) { setContainerCursor('pointer'); }
+    });
+    cy.on('mouseout', 'node', function (evt) {
+      evt.target.removeClass('gw-hover');
+      setContainerCursor('');
+    });
     cy.on('dbltap', 'node', function (evt) {
       window.bridge.send({ type: 'nodeExpand', id: evt.target.id() });
     });
@@ -1168,6 +1178,20 @@
   // ready — this script runs at end of body). Every handler guards cy === null so
   // a control press before graphCommit is a silent no-op (keeps the zero-jsError
   // audit green). None of these touch the .NET `focused` confirmation channel.
+  // An expandable node is a frontier/unexpanded External node — the only node kind
+  // the dbltap handler acts on ({type:'nodeExpand'}). Kept as one predicate so the
+  // hover-cursor affordance and the "Expand selected node" palette action agree.
+  function isExpandable(node) {
+    return node !== null && node.nonempty() && node.data('kind') === 'External';
+  }
+
+  // Set the cy container's CSS cursor (a DOM property — cytoscape has no cursor
+  // style channel). '' restores the default. No-op if the container is gone.
+  function setContainerCursor(value) {
+    var el = document.getElementById('cy');
+    if (el !== null) { el.style.cursor = value; }
+  }
+
   function controlFit() {
     if (cy === null) { return; }
     cy.fit(cy.elements(), 80);  // same 80px padding as focusOn.
@@ -1260,13 +1284,25 @@
   // no bridge command, no C# change — node selection still fires exactly one
   // nodeClick (via selectAndFrame); actions fire none.
   var PALETTE_NODE_LIMIT = 8;
+  // Keyboard-reachable twin of the dbltap gesture: if the accent-selected node is an
+  // expandable (External/frontier) node, send the SAME {type:'nodeExpand'} the dbltap
+  // handler sends (no new bridge command). No selection, or a non-expandable one =>
+  // a no-op (bridge-silent), so the action is always safe to invoke.
+  function controlExpandSelected() {
+    if (cy === null || accentSelectedId === null) { return; }
+    var node = cy.getElementById(accentSelectedId);
+    if (!isExpandable(node)) { return; }
+    window.bridge.send({ type: 'nodeExpand', id: node.id() });
+  }
+
   // The quick actions, filtered by query against `name`. Handlers are the EXISTING
   // control functions (no new behavior). `name` is what the query matches and what
   // the row shows; `hint` is the dim secondary line.
   var PALETTE_ACTIONS = [
     { name: 'Fit to view', hint: 'Reset the camera', run: controlFit },
     { name: 'Toggle labels', hint: 'Show all labels at fit zoom', run: controlToggleLabels },
-    { name: 'Issues only', hint: 'Filter to flagged nodes', run: controlToggleIssues }
+    { name: 'Issues only', hint: 'Filter to flagged nodes', run: controlToggleIssues },
+    { name: 'Expand selected node', hint: 'Load an unexpanded node\'s members', run: controlExpandSelected }
   ];
 
   var paletteItems = [];   // current result rows: {kind:'node'|'action', node?, action?}

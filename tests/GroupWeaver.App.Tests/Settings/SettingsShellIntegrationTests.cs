@@ -97,6 +97,25 @@ public sealed class SettingsShellIntegrationTests
     }
 
     /// <summary>
+    /// Discoverability slice (feat/discoverability): the shell exposes a reachable
+    /// <see cref="ShellViewModel.OpenKeyboardHelpCommand"/> — the top command strip's "?"
+    /// affordance, mirroring <see cref="ShellViewModel.OpenSettingsCommand"/>. Reachable
+    /// on every step (here: the Connect entry state) and armed. Like OpenSettings the
+    /// production path ends in a headless-hostile <c>ShowDialog</c>, so this pins the
+    /// COMMAND exists + <c>CanExecute</c>, never the modal loop (ADR-011 open-risk #3).
+    /// </summary>
+    [Fact]
+    public void OpenKeyboardHelpCommand_IsReachableFromTheShell_OnEveryStep()
+    {
+        var shell = Shell(new DemoProvider());
+
+        Assert.IsType<ConnectionViewModel>(shell.CurrentStep);
+        Assert.True(
+            shell.OpenKeyboardHelpCommand.CanExecute(null),
+            "the keyboard-help command must be reachable from the shell's entry (Connect) step");
+    }
+
+    /// <summary>
     /// The workspace-demo re-judge (spec "ui-checklist additions" row
     /// <c>[S:workspace-demo]</c>): the shell's top command strip renders a "Settings"
     /// button bound to <see cref="ShellViewModel.OpenSettingsCommand"/>, below the
@@ -116,6 +135,33 @@ public sealed class SettingsShellIntegrationTests
         Assert.True(settingsButton.IsEffectivelyVisible, "the Settings button must be rendered");
         Assert.True(settingsButton.IsEffectivelyEnabled, "the Settings button must be enabled");
         Assert.Same(shell.OpenSettingsCommand, settingsButton.Command);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// Discoverability slice (feat/discoverability): the top command strip renders the new
+    /// "?" keyboard-help button (left of Settings), bound to
+    /// <see cref="ShellViewModel.OpenKeyboardHelpCommand"/>, present + reachable on the live
+    /// workspace step — the exact analogue of the Settings-button pin above (deliberately
+    /// extending the strip's button set with the new affordance). Located by its COMMAND
+    /// binding (robust against the bare "?" glyph appearing elsewhere), then its glyph is
+    /// confirmed. The <c>ShowDialog</c> modal itself is <c>[I]</c> — this pins the button,
+    /// its command, and that it is enabled, never the dialog loop.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task MainWindow_TopCommandStrip_ShowsAReachableKeyboardHelpButton_OnTheWorkspaceStep()
+    {
+        var (window, shell, _) = await DriveDemoShellToWorkspaceAsync();
+
+        var helpButton = Assert.Single(
+            window.GetVisualDescendants().OfType<Button>(),
+            b => b.Command == shell.OpenKeyboardHelpCommand);
+
+        Assert.True(helpButton.IsEffectivelyVisible, "the keyboard-help button must be rendered");
+        Assert.True(helpButton.IsEffectivelyEnabled, "the keyboard-help button must be enabled");
+        // The affordance is the quiet "?" glyph (left of Settings).
+        Assert.Contains(VisibleTexts(helpButton), t => t == "?");
 
         window.Close();
     }

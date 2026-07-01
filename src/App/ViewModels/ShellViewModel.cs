@@ -292,6 +292,28 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// The top command strip's "?" affordance: shows the keyboard/gesture cheat sheet as a
+    /// modal <see cref="KeyboardHelpWindow"/> over the main window — its own top-level Window
+    /// (never layered over the workspace GraphHost, ADR-001 airspace guardrail 5), mirroring
+    /// <see cref="OpenSettingsAsync"/>. Static content, so there is no VM to build.
+    /// <c>ShowDialog</c> is the production-only path (headless-hostile); the non-modal show is
+    /// the off-desktop-lifetime fallback.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenKeyboardHelpAsync()
+    {
+        var window = new KeyboardHelpWindow();
+        if (GetMainWindow() is { } owner)
+        {
+            await window.ShowDialog(owner);
+        }
+        else
+        {
+            window.Show();
+        }
+    }
+
+    /// <summary>
     /// The shell's settings-VM seam (AP 3.3 / ADR-011 §1/§3): seeds a
     /// <see cref="SettingsViewModel"/> from the cached <see cref="EffectiveRuleset"/>
     /// (rejected-file errors carried, finally surfaced) and the injected
