@@ -171,6 +171,13 @@
       font-size: 11px; color: var(--gw-no-match); padding: 0 1px;
     }
     #controls .no-match[hidden] { display: none; }
+    /* ADR-035 D3: the visually-hidden aria-live status region. Standard sr-only clip
+       (off-screen, 1x1, clipped) so it is present in the AT tree but never painted or
+       affecting layout. The bundle script writes its text on "No match"/"No issues". */
+    #gw-status {
+      position: fixed; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+    }
     /* WP3c (#144): the Ctrl+K command-palette results dropdown. Lives under
        #find-input inside #controls, themed from the same --gw-* chrome vars (no new
        token). Hidden by default via the [hidden] attribute (display:none) so the
@@ -382,6 +389,10 @@
               title="Show only flagged nodes and their loaded ancestors; selecting a hidden node clears the filter">Issues only</button>
     </div>
   </div>
+  <!-- ADR-035 D3: the polite aria-live status region (parallel AT channel for the
+       "No match" and "No issues" states). Visually hidden via the sr-only clip rule
+       above; the bundle script writes its text content. role=status implies polite. -->
+  <div id="gw-status" role="status" aria-live="polite"></div>
   <!-- cytoscape 3.34.0, vendored - byte-identical to spikes/GraphSpike/web/vendor (pinned by WebBundleTests). -->
   <script src="vendor/cytoscape.min.js"></script>
   <script src="bridge.js"></script>

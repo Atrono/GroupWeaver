@@ -1357,18 +1357,30 @@ async function issuesAllClearProbe(browser, indexHtml) {
     const nodes = window.__cy.nodes();
     let allVisible = true;
     nodes.forEach((n) => { if (!n.visible()) { allVisible = false; } });
+    const statusEl = document.getElementById('gw-status');
     return {
       present: !!btn,
       ariaPressed: btn ? btn.getAttribute('aria-pressed') : null,
       text: btn ? btn.textContent.trim() : null,
       allVisible,
       nodeCount: nodes.length,
+      // ADR-035 D3 (#223): the all-clear branch of syncIssuesButton also announces
+      // "No issues" on the aria-live channel, mirroring the visible button label.
+      statusPresent: !!statusEl,
+      statusRole: statusEl ? statusEl.getAttribute('role') : null,
+      statusAriaLive: statusEl ? statusEl.getAttribute('aria-live') : null,
+      statusText: statusEl ? statusEl.textContent : null,
     };
   });
   assert(beforeClick.present,
     'WP3b all-clear: #issues-btn must exist in the shipped bundle');
   assert(beforeClick.ariaPressed === 'false' && beforeClick.text === 'No issues',
     `WP3b all-clear: with zero flagged nodes #issues-btn must read "No issues" / aria-pressed=false after load (syncIssuesButton all-clear branch): ${JSON.stringify(beforeClick)}`);
+  assert(beforeClick.statusPresent
+    && beforeClick.statusRole === 'status' && beforeClick.statusAriaLive === 'polite',
+    `ADR-035 D3 all-clear: #gw-status must exist with role=status + aria-live=polite: ${JSON.stringify(beforeClick)}`);
+  assert(beforeClick.statusText === 'No issues',
+    `ADR-035 D3 all-clear: the all-clear path must announce "No issues" on the #gw-status live region (syncIssuesButton announce), got '${beforeClick.statusText}'`);
   assert(beforeClick.allVisible && beforeClick.nodeCount === nodes.length,
     `WP3b all-clear: every node must be visible before the click (filter never engaged): ${JSON.stringify(beforeClick)}`);
 
@@ -3043,6 +3055,29 @@ async function main() {
     // it becomes visible only on a no-match query (asserted in (4)).
     assert(controlsDom['find-no-match'].display === 'none',
       `ADR-023 (1): #find-no-match must start HIDDEN (display:none via the [hidden] attribute), got display '${controlsDom['find-no-match'].display}'`);
+    // ADR-035 D3 (#223): the parallel AT channel - a visually-hidden aria-live status
+    // region. It must EXIST with role=status (implicit polite) AND an explicit
+    // aria-live=polite. Structural presence pinned here; the runtime text-write
+    // behavior is proven in (4) (failed Find => "No match", resolve => cleared) and the
+    // issuesAllClearProbe ("No issues"). NOTE: on the flagged demo fixture the region is
+    // NOT empty here - syncIssuesButton mirrors the visible button label ("Issues only")
+    // into the region on load (announce is called in BOTH branches, graph.js), so this
+    // check pins the element/role/aria-live only, not the transient text.
+    const statusDom = await page.evaluate(() => {
+      const el = document.getElementById('gw-status');
+      return el ? {
+        present: true,
+        role: el.getAttribute('role'),
+        ariaLive: el.getAttribute('aria-live'),
+        textIsString: typeof el.textContent === 'string',
+      } : { present: false };
+    });
+    assert(statusDom.present,
+      'ADR-035 D3 (1): #gw-status (the aria-live status region) must exist in the shipped bundle');
+    assert(statusDom.role === 'status' && statusDom.ariaLive === 'polite',
+      `ADR-035 D3 (1): #gw-status must be role=status + aria-live=polite: ${JSON.stringify(statusDom)}`);
+    assert(statusDom.textIsString,
+      `ADR-035 D3 (1): #gw-status must be a text-only region (a writable textContent): ${JSON.stringify(statusDom)}`);
     // The cluster sits bottom-right, fully within the viewport (mirror of the
     // legend airspace assert): box.right <= innerWidth, box.bottom <= innerHeight,
     // and RIGHT of viewport center (the legend owns the top-left, controls the
@@ -3209,12 +3244,17 @@ async function main() {
         selectedCount: cy.nodes(':selected').length,
         selfDim: n.hasClass('gw-dim'),
         noMatchHidden: document.getElementById('find-no-match').hidden,
+        // ADR-035 D3 (#223): a successful find calls announce('') to RESOLVE any prior
+        // "No match", so the live region must be empty (cleared) on a hit.
+        statusText: document.getElementById('gw-status').textContent,
       };
     }, { id: findByNameNode.id });
     assert(fbnState.found && fbnState.selected && fbnState.selectedCount === 1 && !fbnState.selfDim,
       `ADR-023 (4) find-by-name: matched node '${findByNameNode.id}' must become :selected (exactly one selected, self un-dimmed via applySelection): ${JSON.stringify(fbnState)}`);
     assert(fbnState.noMatchHidden === true,
       `ADR-023 (4) find-by-name: a successful match must keep #find-no-match HIDDEN (hidden attribute true), got hidden=${fbnState.noMatchHidden}`);
+    assert(fbnState.statusText === '',
+      `ADR-035 D3 (4) find-by-name: a successful find must CLEAR the #gw-status live region (announce('')), got '${fbnState.statusText}'`);
     assert(focusedCount() === fbn.focusedBefore,
       `ADR-023 (4) find-by-name: Find must NEVER emit 'focused' (it frames LOCALLY, never focusOn): 'focused' tally ${fbn.focusedBefore} -> ${focusedCount()}`);
     // Exactly ONE nodeClick was produced (the FIFO is now empty for that type).
@@ -3266,13 +3306,19 @@ async function main() {
         hidden: el.hidden,
         display: getComputedStyle(el).display,
         selectedCount: window.__cy.nodes(':selected').length,
+        // ADR-035 D3 (#223): a failed Find calls announce('No match') to write the
+        // parallel AT channel. The preceding successful find-by-name/DN left it ''
+        // (asserted above), so this "No match" is an observable clear -> set flip.
+        statusText: document.getElementById('gw-status').textContent,
       };
     });
     assert(junkState.hidden === false && junkState.display !== 'none',
       `ADR-023 (4) no-match: a junk query must SHOW #find-no-match (hidden attribute false, display!='none'): ${JSON.stringify(junkState)}`);
+    assert(junkState.statusText === 'No match',
+      `ADR-035 D3 (4) no-match: a failed Find must write "No match" to the #gw-status live region (announce('No match')), got '${junkState.statusText}'`);
     assert(allMessages.length === msgCountBeforeJunk,
       `ADR-023 (4) no-match: a no-match must produce ZERO bridge traffic (no nodeClick/focused/anything): message count ${msgCountBeforeJunk} -> ${allMessages.length}`);
-    phase('ADR-023 (4) no-match shows #find-no-match, zero bridge traffic');
+    phase('ADR-023 (4) no-match shows #find-no-match + announces "No match" (zero bridge traffic)');
 
     // Clear the find input + selection so the labels phase + downstream
     // dbltap/focus phases start clean. Esc clears+blurs the input (and re-hides
@@ -3786,6 +3832,14 @@ async function main() {
         ulPresent: ul !== null,
         ulHidden: ul ? ul.hidden : null,
         ariaExpanded: input ? input.getAttribute('aria-expanded') : null,
+        // ADR-035 D2 (#223): the combobox owns aria-activedescendant, pointing at the
+        // highlighted option's id (palette-opt-<i>). getAttribute (not the property)
+        // so a MISSING attribute reads null - the closed / no-match contract.
+        ariaActiveDescendant: input ? input.getAttribute('aria-activedescendant') : null,
+        // Each row's id (renderPalette sets `palette-opt-<i>` per index) so the
+        // active-descendant pin can be checked against the actual DOM ids.
+        rowIds: Array.prototype.map.call(
+          ul ? ul.querySelectorAll('li.palette-item') : [], (li) => li.id),
         inputValue: input ? input.value : null,
         rows,
       };
@@ -3899,6 +3953,76 @@ async function main() {
       && sharedNodeRow.hint === `${sharedNodeFixture.kind} · ${sharedNodeFixture.id}`,
       `WP3c (2): the node row's hint must be 'Kind · DN' ('${sharedNodeFixture ? sharedNodeFixture.kind + ' · ' + sharedNodeFixture.id : '??'}'), got '${sharedNodeRow.hint}'`);
     phase('WP3c (2) typing lists both a NODE row (Kind · DN hint) and the matching ACTION row');
+
+    // (2a) ADR-035 D2 (#223): the ARIA combobox owns aria-activedescendant, tracking
+    // the highlighted option (palette-opt-<i>). Four arms, all read from the LIVE DOM
+    // (the implementer sets it centrally in renderPalette + clears it in closePalette):
+    //   OPEN  => equals the highlighted option's id (renderPalette auto-highlights
+    //            index 0 on a non-empty result set => palette-opt-0);
+    //   NAV   => ArrowDown/ArrowUp move the highlight and the attribute TRACKS it
+    //            (byte-identical to the gw-active row's id);
+    //   CLOSED=> the attribute is ABSENT (closePalette removes it);
+    //   NO-MATCH => a query with zero rows highlights nothing (paletteIndex -1) so the
+    //            attribute is ABSENT (the central paletteIndex<0 clear).
+    // The SHARED_QUERY palette from (2) is still OPEN with >= 2 rows, auto-highlighted
+    // at index 0 - the OPEN baseline. Each rendered <li> must carry id palette-opt-<i>.
+    const adOpen = await readPalette();
+    assert(adOpen.rows.length >= 2,
+      `WP3c (2a): the aria-activedescendant nav check needs >= 2 open palette rows (SHARED_QUERY '${SHARED_QUERY}'), got ${adOpen.rows.length}`);
+    adOpen.rowIds.forEach((id, i) => assert(id === `palette-opt-${i}`,
+      `WP3c (2a): each rendered option <li> must have id 'palette-opt-${i}' (renderPalette), got '${id}'`));
+    // On open, index 0 is auto-highlighted => aria-activedescendant === palette-opt-0.
+    assert(adOpen.rows[0].active === true,
+      `WP3c (2a): an open palette must auto-highlight row 0 (gw-active): ${JSON.stringify(adOpen.rows.map((r) => r.active))}`);
+    assert(adOpen.ariaActiveDescendant === 'palette-opt-0',
+      `WP3c (2a) OPEN: #find-input aria-activedescendant must equal the highlighted option's id 'palette-opt-0', got '${adOpen.ariaActiveDescendant}'`);
+    // ArrowDown moves the highlight to row 1; the attribute must TRACK it. (Reads the
+    // gw-active row's own id from rowIds so the pin is against the actual DOM, not a
+    // fixed index.)
+    await page.keyboard.press('ArrowDown');
+    const adDown = await readPalette();
+    const adDownActive = adDown.rows.findIndex((r) => r.active === true);
+    assert(adDownActive === 1,
+      `WP3c (2a): ArrowDown must move the highlight from row 0 to row 1, active row is ${adDownActive}`);
+    assert(adDown.ariaActiveDescendant === adDown.rowIds[adDownActive]
+      && adDown.ariaActiveDescendant === 'palette-opt-1',
+      `WP3c (2a) NAV down: aria-activedescendant must track the new highlight ('palette-opt-1' = the gw-active row id), got '${adDown.ariaActiveDescendant}'`);
+    // ArrowUp moves it back to row 0; the attribute tracks back.
+    await page.keyboard.press('ArrowUp');
+    const adUp = await readPalette();
+    const adUpActive = adUp.rows.findIndex((r) => r.active === true);
+    assert(adUpActive === 0,
+      `WP3c (2a): ArrowUp must move the highlight back to row 0, active row is ${adUpActive}`);
+    assert(adUp.ariaActiveDescendant === adUp.rowIds[adUpActive]
+      && adUp.ariaActiveDescendant === 'palette-opt-0',
+      `WP3c (2a) NAV up: aria-activedescendant must track back to 'palette-opt-0' (the gw-active row id), got '${adUp.ariaActiveDescendant}'`);
+    // CLOSED: Esc tears the list down (closePalette) => the attribute is ABSENT (null).
+    await page.keyboard.press('Escape');
+    const adClosed = await readPalette();
+    assert(adClosed.ulHidden === true && adClosed.ariaExpanded === 'false',
+      `WP3c (2a): precondition - Esc must close the palette before the closed-descendant check: ${JSON.stringify({ ulHidden: adClosed.ulHidden, ariaExpanded: adClosed.ariaExpanded })}`);
+    assert(adClosed.ariaActiveDescendant === null,
+      `WP3c (2a) CLOSED: a closed palette must REMOVE aria-activedescendant (closePalette), got '${adClosed.ariaActiveDescendant}'`);
+    // NO-MATCH: a junk query yields zero rows => nothing highlighted => absent. Reuse
+    // the same junk sentinel the ADR-023 (4) no-match block proves matches no fixture
+    // node; the palette-node matcher (findNodes) also finds nothing, and no action
+    // name contains it, so buildPaletteItems returns [] => paletteIndex -1.
+    const AD_JUNK_QUERY = 'zzz__no_such_node__qqq__adr035';
+    assert(!fixture.nodes.some((x) =>
+      (x.label || '').toLowerCase().includes(AD_JUNK_QUERY.toLowerCase())
+      || x.id.toLowerCase().includes(AD_JUNK_QUERY.toLowerCase()))
+      && !PALETTE_ACTION_NAMES.some((n) => n.toLowerCase().includes(AD_JUNK_QUERY.toLowerCase())),
+      `WP3c (2a): the junk query '${AD_JUNK_QUERY}' must match NO fixture node and NO action name (empty palette => nothing highlighted)`);
+    await typePalette(AD_JUNK_QUERY);
+    const adNoMatch = await readPalette();
+    assert(adNoMatch.rows.length === 0,
+      `WP3c (2a): the junk query '${AD_JUNK_QUERY}' must yield ZERO palette rows, got ${adNoMatch.rows.length}`);
+    assert(adNoMatch.ariaActiveDescendant === null,
+      `WP3c (2a) NO-MATCH: a zero-row palette must have NO aria-activedescendant (paletteIndex -1 => central clear), got '${adNoMatch.ariaActiveDescendant}'`);
+    // Close the palette so (3) drives its own fresh open from a known baseline.
+    await page.focus('#find-input', { timeout: MESSAGE_TIMEOUT_MS });
+    await page.keyboard.press('Escape');
+    phase('WP3c (2a) aria-activedescendant tracks the highlight (open/nav/closed/no-match)');
 
     // (3) Arrow + Enter invokes a NODE. Use a query that matches EXACTLY ONE node
     // and NO action (so the single result row is that node at index 0), then

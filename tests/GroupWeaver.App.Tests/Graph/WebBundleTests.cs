@@ -457,6 +457,60 @@ public sealed class WebBundleTests
         }
     }
 
+    /// <summary>
+    /// ADR-035 D3 (#223): the graph-overlay accessibility slice ships a parallel AT channel —
+    /// a visually-hidden <c>aria-live</c> status region the bundle script writes on the
+    /// "No match" and "No issues" states (so a screen-reader user hears them even though the
+    /// visible <c>#find-no-match</c> / <c>#issues-btn</c> label changes are silent to AT).
+    /// Structural pin: index.html ships <c>#gw-status</c> with <c>role="status"</c> AND an
+    /// explicit <c>aria-live="polite"</c> (role=status implies polite, but the explicit
+    /// attribute is belt-and-braces for AT that don't map the role). The runtime text-write
+    /// behavior (No match / clear / No issues) is proven by verify.mjs against the live DOM.
+    /// </summary>
+    [Fact]
+    public void Index_ShipsAriaLiveStatusRegion()
+    {
+        var indexHtml = ReadShippedText("index.html");
+
+        // The #gw-status element must exist with role=status. Attribute order is not
+        // guaranteed, so match the id and role independently within the same tag.
+        var status = Regex.Match(
+            indexHtml,
+            @"<div\b[^>]*\bid\s*=\s*[""']gw-status[""'][^>]*>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        Assert.True(
+            status.Success,
+            "index.html must ship a <div id=\"gw-status\"> element (the ADR-035 D3 aria-live status region).");
+        Assert.Matches(@"(?i)\brole\s*=\s*[""']status[""']", status.Value);
+        Assert.Matches(@"(?i)\baria-live\s*=\s*[""']polite[""']", status.Value);
+    }
+
+    /// <summary>
+    /// ADR-035 D4 (#223): the "No match" affordance text (<c>.no-match</c>) is retoned for the
+    /// contrast fix — it binds the dedicated <c>--gw-no-match</c> custom property (an amber-brown
+    /// deepened on the light canvas to clear the WCAG 1.4.3 4.5:1 text floor) rather than a raw
+    /// hex, so the token is the single source of truth that the theme handler can flip per variant.
+    /// Pins the <c>.no-match</c> CSS rule binds <c>var(--gw-no-match)</c> so a drift back to a
+    /// hardcoded color (which would break the per-theme retone) fails here.
+    /// </summary>
+    [Fact]
+    public void Index_NoMatchBindsNoMatchColorToken()
+    {
+        var indexHtml = ReadShippedText("index.html");
+
+        // The .no-match rule must color its text from the --gw-no-match custom property.
+        var noMatchRule = Regex.Match(
+            indexHtml,
+            @"\.no-match\s*\{[^}]*\}",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        Assert.True(
+            noMatchRule.Success,
+            "index.html must ship a `.no-match { … }` CSS rule (the No-match affordance styling).");
+        Assert.Matches(
+            @"(?i)color\s*:\s*var\(\s*--gw-no-match\s*\)",
+            noMatchRule.Value);
+    }
+
     [Fact]
     public void Index_ReferencesBridgeBeforeGraph()
     {
