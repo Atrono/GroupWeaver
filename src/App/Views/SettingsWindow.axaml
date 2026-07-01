@@ -229,6 +229,24 @@
                  Text="Your saved ruleset could not be loaded; GroupWeaver is running on the built-in default. Fix the errors below and Save, or Reset to default." />
     </Border>
 
+    <!-- Editable ruleset metadata header (Slice A): the always-carried Name/Author/Description
+         (BuildRuleset projects these; the loader rejects an empty Name on Save — no new
+         validation here), surfaced as a compact card above the tabs. Name is required (the
+         watermark says so); Author/Description are optional. Token-styled card chrome. -->
+    <Border DockPanel.Dock="Top"
+            BorderThickness="0,0,0,1" BorderBrush="{DynamicResource CardBorderBrush}"
+            Background="{DynamicResource CardBackgroundBrush}"
+            Padding="12,10">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Ruleset" FontWeight="SemiBold" Opacity="0.85" />
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+          <TextBox Grid.Column="0" Watermark="ruleset name (required)" Text="{Binding Metadata.Name}" />
+          <TextBox Grid.Column="1" Watermark="author (optional)" Text="{Binding Metadata.Author}" />
+        </Grid>
+        <TextBox Watermark="description (optional)" Text="{Binding Metadata.Description}" />
+      </StackPanel>
+    </Border>
+
     <TabControl Padding="0">
 
       <!-- Rules master grid (AP 3.3 / S6): one row per rule in the EnumerateRules shape —
@@ -302,7 +320,18 @@
 
       <TabItem Header="Naming">
         <ScrollViewer>
-          <ItemsControl ItemsSource="{Binding Naming}" Margin="12">
+          <StackPanel Margin="12" Spacing="8">
+
+            <!-- Tab header + Add button (Slice A), mirroring the Ignore tab's pattern:
+                 Add appends a fresh User/Error/enabled card with an empty id + pattern;
+                 the Save gate re-checks id uniqueness, the regex, and non-empty fields. -->
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Add naming rule"
+                      Command="{Binding AddNamingCommand}" />
+              <TextBlock Text="Naming conventions" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
+
+          <ItemsControl ItemsSource="{Binding Naming}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="settings:NamingRuleEditor">
 
@@ -316,8 +345,8 @@
                         Padding="12" Margin="0,0,0,10">
                   <StackPanel Spacing="8">
 
-                    <!-- Header row: enabled toggle, id, severity glyph, kind badge. -->
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                    <!-- Header row: enabled toggle, id, severity glyph, kind badge, Remove. -->
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                       <CheckBox Grid.Column="0" VerticalAlignment="Center"
                                 IsChecked="{Binding Enabled}" />
                       <TextBox Grid.Column="1" Watermark="rule id" Margin="6,0,0,0"
@@ -362,6 +391,15 @@
                           </DataTemplate>
                         </ComboBox.ItemTemplate>
                       </ComboBox>
+
+                      <!-- Remove binds to the VM (the ItemsControl's DataContext): reflection
+                           binding — the parent path is not statically typed under this card's
+                           NamingRuleEditor x:DataType (mirrors the ignore-row Remove). -->
+                      <Button Grid.Column="4" Margin="8,0,0,0" Content="Remove"
+                              VerticalAlignment="Center"
+                              x:CompileBindings="False"
+                              Command="{Binding $parent[ItemsControl].DataContext.RemoveNamingCommand}"
+                              CommandParameter="{Binding}" />
                     </Grid>
 
                     <TextBox Watermark="^GG_..._..._$ (regex)" Text="{Binding Pattern}" />
@@ -419,6 +457,8 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+
+          </StackPanel>
         </ScrollViewer>
       </TabItem>
 
@@ -441,6 +481,37 @@
               <TextBlock Text="Allowed nesting (parent ← member)" FontWeight="SemiBold"
                          VerticalAlignment="Center" />
             </DockPanel>
+
+            <!-- Read-only chip legend (Slice A): explains the cell chips before the grid.
+                 The ✓ Allow and ✗ Deny chips reuse the CellChoiceConverters palette (Source-bound
+                 to the static CellChoice values — no editing); the E·W·i note covers the per-cell
+                 override variants. Quiet, dimmed, token-styled; no new converter. -->
+            <WrapPanel Orientation="Horizontal">
+              <Border MinWidth="58" CornerRadius="3" Padding="6,1" Margin="0,0,6,0" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static settings:CellChoice.Allow}, Converter={x:Static views:CellChoiceConverters.ToBrush}}">
+                <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                  <TextBlock Text="{Binding Source={x:Static settings:CellChoice.Allow}, Converter={x:Static views:CellChoiceConverters.ToGlyph}}"
+                             Foreground="{Binding Source={x:Static settings:CellChoice.Allow}, Converter={x:Static views:CellChoiceConverters.ToTextBrush}}"
+                             FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <TextBlock Text="Allow"
+                             Foreground="{Binding Source={x:Static settings:CellChoice.Allow}, Converter={x:Static views:CellChoiceConverters.ToTextBrush}}"
+                             FontSize="11" VerticalAlignment="Center" />
+                </StackPanel>
+              </Border>
+              <Border MinWidth="58" CornerRadius="3" Padding="6,1" Margin="0,0,8,0" VerticalAlignment="Center"
+                      Background="{Binding Source={x:Static settings:CellChoice.Deny}, Converter={x:Static views:CellChoiceConverters.ToBrush}}">
+                <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                  <TextBlock Text="{Binding Source={x:Static settings:CellChoice.Deny}, Converter={x:Static views:CellChoiceConverters.ToGlyph}}"
+                             Foreground="{Binding Source={x:Static settings:CellChoice.Deny}, Converter={x:Static views:CellChoiceConverters.ToTextBrush}}"
+                             FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <TextBlock Text="Deny"
+                             Foreground="{Binding Source={x:Static settings:CellChoice.Deny}, Converter={x:Static views:CellChoiceConverters.ToTextBrush}}"
+                             FontSize="11" VerticalAlignment="Center" />
+                </StackPanel>
+              </Border>
+              <TextBlock Opacity="0.6" VerticalAlignment="Center" TextWrapping="Wrap"
+                         Text="✓ allowed · ✗ denied at the rule severity · E·W·i = denied with that severity override" />
+            </WrapPanel>
 
             <!-- The 3×6 matrix: row 0 = column-header badges, rows 1-3 = the parent bands.
                  Column 0 = the row-header badge column; columns 1-6 = the member cells. -->

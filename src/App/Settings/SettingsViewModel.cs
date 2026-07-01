@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Rules;
+using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
 
 namespace GroupWeaver.App.Settings;
@@ -471,6 +472,24 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <paramref name="entry"/> from the global ignore list.</summary>
     [RelayCommand]
     private void RemoveIgnore(MatchEntryEditor entry) => Ignore.Remove(entry);
+
+    /// <summary>The Naming-tab Add button (Slice A): appends a fresh naming rule
+    /// (User kind, Error severity, enabled) with an empty id + pattern for the user
+    /// to fill in. The gate re-checks id uniqueness, the regex, and non-empty fields
+    /// on the next Save/Export — no parallel validation here.</summary>
+    [RelayCommand]
+    private void AddNaming() =>
+        Naming.Add(new NamingRuleEditor
+        {
+            Kind = AdObjectKind.User,
+            Severity = RuleSeverity.Error,
+            Enabled = true,
+        });
+
+    /// <summary>The Naming-tab per-card Remove button (Slice A): drops
+    /// <paramref name="rule"/> from the naming list.</summary>
+    [RelayCommand]
+    private void RemoveNaming(NamingRuleEditor rule) => Naming.Remove(rule);
 
     /// <summary>Import via the file-dialog seam: a picked file's text is fed to
     /// <see cref="ImportFrom"/> (whole-file replace + gate); a cancelled pick
