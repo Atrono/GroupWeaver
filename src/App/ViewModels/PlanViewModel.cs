@@ -679,14 +679,29 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     /// falls back to the DN itself). Mirrors <see cref="WorkspaceViewModel.OnReportChanged"/>.</summary>
     partial void OnReportChanged(RuleReport value)
     {
+        // Rule id -> human class label (canonical EnumerateRules order) — the same resolution the
+        // workspace uses, so the per-rule-class "Why?" copy on the shared sidebar template matches the
+        // Audit screen by construction (#198). The remediation snippet AuditFindingDetail.From also
+        // builds is discarded — the sidebar surfaces rationale only.
+        var ruleClassById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in _ruleset.EnumerateRules())
+        {
+            ruleClassById[rule.Id] = rule.DisplayName;
+        }
+
         Violations.Clear();
         foreach (var violation in value.Violations)
         {
             var subject = Snapshot is not null && Snapshot.TryGetObject(violation.PrimaryDn, out var obj)
                 ? obj!.Name
                 : violation.PrimaryDn;
+            var ruleClassLabel = ruleClassById.TryGetValue(violation.RuleId, out var label)
+                ? label
+                : violation.RuleId;
+            var detail = AuditFindingDetail.From(violation, subject, ruleClassLabel);
             Violations.Add(new ViolationRowModel(
-                violation.Severity, violation.Message, subject, violation.PrimaryDn));
+                violation.Severity, violation.Message, subject, violation.PrimaryDn,
+                detail.WhyItMatters, detail.HowToFix));
         }
 
         // Re-apply the selection-sync highlight over the fresh rows (a persisting selection
