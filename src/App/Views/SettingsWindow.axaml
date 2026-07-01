@@ -813,9 +813,9 @@
           <TextBlock Opacity="0.6" TextWrapping="Wrap"
                      Text="Import replaces the whole ruleset from a file (no merge). Export writes the current ruleset to a file (only if it is valid). Reset to default discards edits in memory — nothing is saved until you press Save." />
           <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Import…" MinWidth="110" Command="{Binding ImportCommand}" />
-            <Button Content="Export…" MinWidth="110" Command="{Binding ExportCommand}" />
-            <Button Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
+            <Button Classes="ghost" Content="Import…" MinWidth="110" Command="{Binding ImportCommand}" />
+            <Button Classes="ghost" Content="Export…" MinWidth="110" Command="{Binding ExportCommand}" />
+            <Button Classes="ghost" Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
           </StackPanel>
         </StackPanel>
       </TabItem>
