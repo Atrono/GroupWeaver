@@ -239,6 +239,117 @@ public sealed class PlanModeTests
         plan.Dispose();
     }
 
+    // === (2b) finding-row jump (Tier 1 unification): JumpToFinding mirrors GapViewModel.JumpTo ===
+
+    /// <summary>
+    /// <see cref="PlanViewModel.JumpToFindingCommand"/> over a finding row (the Tier-1 unified
+    /// finding-row affordance — the Plan findings row is now a Button binding this command, mirroring
+    /// <see cref="GapViewModel.JumpToCommand"/>): it sets <see cref="PlanViewModel.SelectedDn"/> to the
+    /// row's <c>PrimaryDn</c> AND frames the anchor on the plan's OWN graph via
+    /// <see cref="IGraphRenderer.FocusAsync"/> with EXACTLY <c>[row.PrimaryDn]</c> (recorded by the
+    /// fake — one call, one anchor). The matching <see cref="ViolationRowModel.IsActive"/> flips true
+    /// via the existing <c>OnSelectedDnChanged → HighlightActiveRows</c> path (and every other row
+    /// stays dark). The finding is an authored self-membership circular error, so its anchor is the
+    /// group DN; identity is asserted by <c>PrimaryDn</c> (never a message string).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task JumpToFindingCommand_SetsSelectedDn_FocusesTheAnchorOnce_AndLightsTheMatchingRow()
+    {
+        var fake = new FakeGraphRenderer();
+        var plan = new PlanViewModel(
+            PlanBaseOuDn,
+            DefaultEffectiveRuleset(),
+            graphRendererFactory: () => fake);
+
+        // Author a self-membership (A -> A): the default ruleset reports it as a circular finding
+        // anchored on A (a real finding whose PrimaryDn is a known plan node). Must terminate.
+        // The name PASSES the default naming rule (^GG_<Token>_<Token>) so the ONLY finding on this
+        // DN is the circular error — a single, unambiguous row to jump to.
+        var groupDn = await AddNodeAsync(plan, PlanCreatableKind.GlobalGroup, "GG_Jump_Self");
+        plan.MemberParentRow = plan.GroupNodes.Single(r => Dn.Comparer.Equals(r.Dn, groupDn));
+        plan.MemberChildRow = plan.Nodes.Single(r => Dn.Comparer.Equals(r.Dn, groupDn));
+        await plan.AddMemberCommand.ExecuteAsync(null);
+        Assert.True(plan.HasViolations);
+
+        var row = Assert.Single(
+            plan.Violations, r => Dn.Comparer.Equals(r.PrimaryDn, groupDn));
+
+        await plan.JumpToFindingCommand.ExecuteAsync(row);
+
+        // Selection carried verbatim to the row's anchor.
+        Assert.Equal(row.PrimaryDn, plan.SelectedDn, Dn.Comparer);
+
+        // FocusAsync called EXACTLY once with a collection equal to [row.PrimaryDn].
+        var focused = Assert.Single(fake.FocusCalls);
+        Assert.Equal(row.PrimaryDn, Assert.Single(focused), Dn.Comparer);
+
+        // The matching row lit up via the existing highlight path; no other row is active.
+        Assert.True(row.IsActive, "the jumped-to finding row must be active");
+        Assert.All(
+            plan.Violations.Where(r => !Dn.Comparer.Equals(r.PrimaryDn, groupDn)),
+            r => Assert.False(r.IsActive, "a non-matching finding row must stay inactive"));
+
+        plan.Dispose();
+    }
+
+    /// <summary>
+    /// <see cref="PlanViewModel.JumpToFindingCommand"/> is null-safe: a null row is a no-op — no
+    /// <see cref="PlanViewModel.SelectedDn"/> change and NO <see cref="IGraphRenderer.FocusAsync"/>
+    /// call (the guard the command shares with <see cref="GapViewModel"/>'s jump). Starts with a live
+    /// selection so a wrongful reset would be observable.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task JumpToFindingCommand_WithNullRow_IsANoOp_NoSelectionChange_NoFocus()
+    {
+        var fake = new FakeGraphRenderer();
+        var plan = new PlanViewModel(
+            PlanBaseOuDn,
+            DefaultEffectiveRuleset(),
+            graphRendererFactory: () => fake);
+
+        var groupDn = await AddNodeAsync(plan, PlanCreatableKind.GlobalGroup, "GG_Jump_Null");
+        plan.SelectedDn = groupDn; // a live selection the no-op must leave untouched
+        var focusCallsBefore = fake.FocusCalls.Count;
+
+        var ex = await Record.ExceptionAsync(() => plan.JumpToFindingCommand.ExecuteAsync(null));
+
+        Assert.Null(ex);
+        Assert.Equal(groupDn, plan.SelectedDn, Dn.Comparer); // unchanged
+        Assert.Equal(focusCallsBefore, fake.FocusCalls.Count); // no new focus dispatch
+
+        plan.Dispose();
+    }
+
+    /// <summary>
+    /// A DISPOSED VM is a no-op on a stale-armed <see cref="PlanViewModel.JumpToFindingCommand"/>
+    /// (RelayCommand.Execute ignores CanExecute, so the body's <c>IsDisposed</c> re-guard is the one
+    /// that must drop it): no <see cref="IGraphRenderer.FocusAsync"/> call, no throw. Mirrors the
+    /// disposed-guard the Gap/Workspace jumps share.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task JumpToFindingCommand_AfterDispose_IsANoOp_NoFocus()
+    {
+        var fake = new FakeGraphRenderer();
+        var plan = new PlanViewModel(
+            PlanBaseOuDn,
+            DefaultEffectiveRuleset(),
+            graphRendererFactory: () => fake);
+
+        var groupDn = await AddNodeAsync(plan, PlanCreatableKind.GlobalGroup, "GG_Jump_Disposed");
+        plan.MemberParentRow = plan.GroupNodes.Single(r => Dn.Comparer.Equals(r.Dn, groupDn));
+        plan.MemberChildRow = plan.Nodes.Single(r => Dn.Comparer.Equals(r.Dn, groupDn));
+        await plan.AddMemberCommand.ExecuteAsync(null);
+        var row = Assert.Single(plan.Violations, r => Dn.Comparer.Equals(r.PrimaryDn, groupDn));
+
+        plan.Dispose();
+        var focusCallsBefore = fake.FocusCalls.Count;
+
+        var ex = await Record.ExceptionAsync(() => plan.JumpToFindingCommand.ExecuteAsync(row));
+
+        Assert.Null(ex);
+        Assert.Equal(focusCallsBefore, fake.FocusCalls.Count); // disposed => no focus dispatch
+    }
+
     // === (3) dispose discipline: round-trip never disposes; teardown disposes both =======
 
     /// <summary>

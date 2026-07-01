@@ -136,20 +136,14 @@
          severity glyph (colored square + redundant letter from THE one palette),
          wrapping message, dimmed subject name; the whole row is a flat command
          button jumping to (focusing + selecting) the finding's anchor DN. -->
+    <!-- Soft bottom fade (#92): the shared ListBottomFadeMask (Tokens.axaml) so a finding
+         clipped at the scroll fold reads as scrollable, not broken. Render-only composite -
+         it does NOT alter row measurement/realization or the Row 1 chip strip (outside the
+         mask), so the ShellScreenshotTests geometry pins hold. -->
     <ListBox Grid.Row="2" Margin="0,8,0,0"
              Background="Transparent"
+             OpacityMask="{StaticResource ListBottomFadeMask}"
              ItemsSource="{Binding Violations}">
-      <!-- Soft bottom fade (#92): a render-time OpacityMask so a finding clipped at
-           the scroll fold reads as scrollable, not broken. Render-only composite -
-           it does NOT alter row measurement/realization or the Row 1 chip strip
-           (outside the mask), so the ShellScreenshotTests geometry pins hold. -->
-      <ListBox.OpacityMask>
-        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-          <GradientStop Color="#FFFFFFFF" Offset="0.0" />
-          <GradientStop Color="#FFFFFFFF" Offset="0.92" />
-          <GradientStop Color="#00FFFFFF" Offset="1.0" />
-        </LinearGradientBrush>
-      </ListBox.OpacityMask>
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:ViolationRowModel">
           <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"

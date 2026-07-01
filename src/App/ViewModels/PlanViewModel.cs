@@ -603,6 +603,28 @@ public sealed partial class PlanViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// Jump-to-graph for a plan finding row (mirrors <see cref="GapViewModel.JumpToCommand"/> and
+    /// the workspace jump): sets <see cref="SelectedDn"/> to the row's <c>PrimaryDn</c> (which drives
+    /// the <see cref="HighlightActiveRows"/> selection highlight via <see cref="OnSelectedDnChanged"/>)
+    /// and frames the anchor on the plan's own graph via <see cref="IGraphRenderer.FocusAsync"/> with
+    /// exactly <c>[row.PrimaryDn]</c>. Null-safe (a null row, or a disposed VM, is a no-op).
+    /// </summary>
+    [RelayCommand]
+    private async Task JumpToFinding(ViolationRowModel? row)
+    {
+        if (row is null || IsDisposed)
+        {
+            return;
+        }
+
+        SelectedDn = row.PrimaryDn;
+        if (GraphRenderer is { } renderer)
+        {
+            await renderer.FocusAsync([row.PrimaryDn], _cts.Token);
+        }
+    }
+
+    /// <summary>
     /// The live-validate inner loop (mirrors <see cref="WorkspaceViewModel.ApplyRulesetAsync"/>):
     /// project the plan → <c>GraphBuilder.Build</c> → <c>RuleEngine.Evaluate</c> against the
     /// live <see cref="_ruleset"/> → roll-up below-map → render. NULL-RENDERER-SAFE: it
