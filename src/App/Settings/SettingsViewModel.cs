@@ -156,6 +156,67 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _lastActionStatus = string.Empty;
 
+    /// <summary>Two-way handle onto the editor's <c>TabControl.SelectedIndex</c> (Slice B): the
+    /// index order is the fixed tab layout Rules(0) / Naming(1) / Matrix(2) / Ignore &amp;
+    /// Exceptions(3) / File(4) / Advanced(5). <see cref="NavigateToError"/> writes it to jump a
+    /// clicked validation-band error to the tab that owns the offending JSON path; the view binds
+    /// it two-way so ordinary tab clicks flow back here too.</summary>
+    [ObservableProperty]
+    private int _selectedTabIndex;
+
+    /// <summary>Jumps to the tab that owns <paramref name="error"/>'s JSON-pointer
+    /// <see cref="RulesetValidationError.Path"/> (Slice B): a clicked validation-band row selects
+    /// the offending structured tab. The path prefix maps to the fixed tab order —
+    /// <c>$.naming*</c>→Naming, <c>$.nesting*</c>→Matrix, <c>$.ignore*</c>/<c>$.circular*</c>/
+    /// <c>$.emptyGroup*</c>→Ignore &amp; Exceptions (the exception lists live there) — and the
+    /// always-visible metadata header (<c>$.name</c>/<c>$.description</c>/<c>$.author</c>, plus any
+    /// unrecognized path) is a no-op: it needs no tab change. Never reads or interpolates
+    /// <see cref="RulesetValidationError.Message"/> (#45 plain-text discipline).</summary>
+    [RelayCommand]
+    private void NavigateToError(RulesetValidationError? error)
+    {
+        if (error is null)
+        {
+            return;
+        }
+
+        // Match the JSON-pointer PATH only (never the untrusted Message). "$." then the section
+        // token; the trailing char (']', '.', or end) is irrelevant — a StartsWith on the
+        // section prefix is enough since every section token is a distinct word.
+        var path = error.Path;
+        if (StartsWithSection(path, "naming"))
+        {
+            SelectedTabIndex = 1;
+        }
+        else if (StartsWithSection(path, "nesting"))
+        {
+            SelectedTabIndex = 2;
+        }
+        else if (StartsWithSection(path, "ignore")
+            || StartsWithSection(path, "circular")
+            || StartsWithSection(path, "emptyGroup"))
+        {
+            SelectedTabIndex = 3;
+        }
+
+        // $.name / $.description / $.author (and any unrecognized path) => no tab change:
+        // the metadata header is always visible above the tabs.
+    }
+
+    /// <summary>True when <paramref name="path"/> addresses the top-level <paramref name="section"/>
+    /// object — i.e. it is exactly <c>$.section</c> or continues with <c>.</c>/<c>[</c> (so
+    /// <c>naming</c> does not spuriously match a longer sibling token).</summary>
+    private static bool StartsWithSection(string path, string section)
+    {
+        var prefix = "$." + section;
+        if (!path.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return path.Length == prefix.Length || path[prefix.Length] is '.' or '[';
+    }
+
     /// <summary>Re-validates the raw editor text on every keystroke (the loader is
     /// cheap — ADR-009; a full re-Load is ms): never-throw <see cref="RulesetLoader.Load"/>,
     /// errors surfaced verbatim, no apply/persist. Auto-invoked by the generated

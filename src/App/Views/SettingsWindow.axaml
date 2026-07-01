@@ -94,7 +94,7 @@
          DataContext is the SettingsViewModel). -->
     <DataTemplate x:Key="IgnoreRowTemplate" x:DataType="settings:MatchEntryEditor">
       <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}" Padding="2,6">
-        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
           <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
                     SelectedItem="{Binding Mode}">
             <ComboBox.Items>
@@ -112,8 +112,36 @@
                   CommandParameter="{Binding}" />
           <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="6,0,0,0"
                    Watermark="note (optional)" Text="{Binding Note}" />
+          <ContentControl Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="6,0,0,0"
+                          ContentTemplate="{StaticResource GlobPreviewRowTemplate}" Content="{Binding}" />
         </Grid>
       </Border>
+    </DataTemplate>
+
+    <!-- The live glob-match preview row (Slice B), shared by ignore + exception rows: a compact
+         "test a DN/name" TextBox against the row's Value glob (the SAME GlobMatcher the engine
+         uses — GlobPreview delegates verbatim), then a ✓ matches / ✗ no match chip shown ONLY
+         while the candidate is non-empty. PreviewCandidate is UI-only scratch (never serialized —
+         MatchEntryEditor.Build ignores it). Content is the MatchEntryEditor so the compiled
+         bindings resolve against it. -->
+    <DataTemplate x:Key="GlobPreviewRowTemplate" x:DataType="settings:MatchEntryEditor">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBox Width="200" Watermark="test a DN/name against the glob"
+                 Text="{Binding PreviewCandidate}" VerticalAlignment="Center" />
+        <TextBlock Text="✓ matches"
+                   Foreground="{DynamicResource ReadOnlyPillTextBrush}" FontWeight="SemiBold"
+                   VerticalAlignment="Center"
+                   IsVisible="{Binding PreviewMatch}" />
+        <TextBlock Text="✗ no match"
+                   Opacity="0.7" VerticalAlignment="Center">
+          <TextBlock.IsVisible>
+            <MultiBinding Converter="{x:Static BoolConverters.And}">
+              <Binding Path="PreviewCandidate" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
+              <Binding Path="!PreviewMatch" />
+            </MultiBinding>
+          </TextBlock.IsVisible>
+        </TextBlock>
+      </StackPanel>
     </DataTemplate>
 
     <!-- One per-rule EXCEPTION row (AP 3.3 / S7): the same MatchEntryEditor, reused by every
@@ -125,7 +153,7 @@
          the Note is edited in a TextBox (a plain Text target). -->
     <DataTemplate x:Key="ExceptionRowTemplate" x:DataType="settings:MatchEntryEditor">
       <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardBorderBrush}" Padding="2,6">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto" RowSpacing="4">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
           <ComboBox Grid.Row="0" Grid.Column="0" MinWidth="78" VerticalAlignment="Center"
                     SelectedItem="{Binding Mode}">
             <ComboBox.Items>
@@ -154,6 +182,8 @@
                   CommandParameter="{Binding}" />
           <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="6,0,0,0"
                    Watermark="note (optional)" Text="{Binding Note}" />
+          <ContentControl Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Margin="6,0,0,0"
+                          ContentTemplate="{StaticResource GlobPreviewRowTemplate}" Content="{Binding}" />
         </Grid>
       </Border>
     </DataTemplate>
@@ -195,23 +225,51 @@
             IsVisible="{Binding ValidationErrors.Count}"
             Background="#22D13438" BorderBrush="#66D13438" BorderThickness="0,1,0,0"
             Padding="12,8" MaxHeight="160">
+      <Border.Styles>
+        <!-- The navigable error rows are flat/transparent Buttons (Slice B): no button
+             chrome at rest, a faint theme-aware wash on hover so the row reads as clickable
+             (the SAME GhostHoverBrush the ghost buttons use). Full-width, left-aligned
+             content, no min-height inflation — it must read as a table row, not a chip. -->
+        <Style Selector="Button.errorRow">
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="BorderThickness" Value="0" />
+          <Setter Property="Padding" Value="4,2" />
+          <Setter Property="MinHeight" Value="0" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.errorRow:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+          <Setter Property="Background" Value="{DynamicResource GhostHoverBrush}" />
+        </Style>
+      </Border.Styles>
       <ScrollViewer>
         <ItemsControl ItemsSource="{Binding ValidationErrors}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="rules:RulesetValidationError">
-              <!-- DockPanel (not a horizontal StackPanel): a StackPanel gives children
-                   INFINITE width so TextWrapping="Wrap" never engages and a long loader
-                   message is clipped at the window edge. Docking the Path left bounds the
-                   message's width to the remaining row, so Wrap actually wraps at MinWidth.
-                   #45: Path + Message stay SEPARATE plain-text targets, never interpolated. -->
-              <DockPanel Margin="0,1" LastChildFill="True">
-                <TextBlock DockPanel.Dock="Left" Text="{Binding Path}"
-                           FontFamily="{StaticResource FontFamilyMono}"
-                           Opacity="0.7" VerticalAlignment="Top" Margin="0,0,6,0" />
-                <SelectableTextBlock Text="{Binding Message}"
-                                     Foreground="{DynamicResource ValidationErrorTextBrush}"
-                                     TextWrapping="Wrap" />
-              </DockPanel>
+              <!-- Each error row is a flat Button that jumps to the tab owning its JSON path
+                   (Slice B). NavigateToError parses only the Path; it NEVER touches Message.
+                   Command binds to the VM (the ItemsControl's DataContext) with this row's
+                   error as the parameter (reflection binding — the parent path is not typed
+                   under this row's RulesetValidationError x:DataType). -->
+              <Button Classes="errorRow" x:CompileBindings="False"
+                      Command="{Binding $parent[ItemsControl].DataContext.NavigateToErrorCommand}"
+                      CommandParameter="{Binding}">
+                <!-- DockPanel (not a horizontal StackPanel): a StackPanel gives children
+                     INFINITE width so TextWrapping="Wrap" never engages and a long loader
+                     message is clipped at the window edge. A "Go" affordance docks right so the
+                     row reads as clickable; the Path docks left; the message fills the middle.
+                     #45: Path + Message stay SEPARATE plain-text targets, never interpolated. -->
+                <DockPanel Margin="0,1" LastChildFill="True">
+                  <TextBlock DockPanel.Dock="Right" Text="Go →"
+                             Opacity="0.6" VerticalAlignment="Top" Margin="8,0,0,0" />
+                  <TextBlock DockPanel.Dock="Left" Text="{Binding Path}"
+                             FontFamily="{StaticResource FontFamilyMono}"
+                             Opacity="0.7" VerticalAlignment="Top" Margin="0,0,6,0" />
+                  <SelectableTextBlock Text="{Binding Message}"
+                                       Foreground="{DynamicResource ValidationErrorTextBrush}"
+                                       TextWrapping="Wrap" />
+                </DockPanel>
+              </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -247,7 +305,7 @@
       </StackPanel>
     </Border>
 
-    <TabControl Padding="0">
+    <TabControl Padding="0" SelectedIndex="{Binding SelectedTabIndex}">
 
       <!-- Rules master grid (AP 3.3 / S6): one row per rule in the EnumerateRules shape —
            the nesting matrix, every naming rule (file order), circular, empty-group — each
