@@ -15,6 +15,14 @@
        code-behind OnKeyDown ([I] interactive, like OpenSettings' ShowDialog) — headless
        screenshot fixtures size the window directly and never exercise these. -->
 
+  <!-- #219: F1 gives the keyboard-help sheet a keyboard entry point (WCAG 2.2 SC 2.1.1 /
+       2.4.4) — until now the KeyboardHelpWindow could only be opened by clicking "?".
+       Declarative because OpenKeyboardHelpCommand is reachable on the Window DataContext
+       (the ShellViewModel); read-only, it just opens the existing help window. -->
+  <Window.KeyBindings>
+    <KeyBinding Gesture="F1" Command="{Binding OpenKeyboardHelpCommand}" />
+  </Window.KeyBindings>
+
   <!-- Step-switched shell (ADR-003 D5): one DataTemplate per step content type,
        selected by ShellViewModel.CurrentStep. -->
   <Window.DataTemplates>
@@ -131,14 +139,20 @@
              (IsWorkspaceStep). ADR-026 D4: the theme toggle shows on every step. -->
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
                     Spacing="8" VerticalAlignment="Center">
+          <!-- #219: glyph-only buttons carry an explicit AutomationProperties.Name — in
+               Avalonia a ToolTip.Tip is NOT the accessible name (a screen reader would
+               otherwise announce only the bare glyph). The theme button's name mirrors its
+               state-aware tooltip via the same binding. -->
           <Button Name="ThemeToggleButton" Padding="10,4"
                   Command="{Binding ToggleThemeCommand}"
+                  AutomationProperties.Name="{Binding ThemeTooltip}"
                   ToolTip.Tip="{Binding ThemeTooltip}">
             <TextBlock Text="{Binding ThemeGlyph}" />
           </Button>
           <Button Name="FocusModeButton" Padding="10,4"
                   IsVisible="{Binding IsWorkspaceStep}"
                   Command="{Binding ToggleFocusModeCommand}"
+                  AutomationProperties.Name="Toggle focus mode"
                   ToolTip.Tip="Focus mode — hide panels for presentation (F · Esc to exit)">
             <TextBlock Text="⛶ Focus" />
           </Button>
@@ -147,6 +161,7 @@
                over the GraphHost (ADR-001 airspace guardrail 5). -->
           <Button Padding="10,4"
                   Command="{Binding OpenKeyboardHelpCommand}"
+                  AutomationProperties.Name="Keyboard shortcuts"
                   ToolTip.Tip="Keyboard shortcuts">
             <TextBlock Text="?" />
           </Button>
