@@ -4,6 +4,44 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-07-01
+
+Accessibility and design-consistency release: the complete follow-through of the
+2026-07-01 full-app UX fit-audit — all five ranked levers shipped, presentation-only.
+Still **read-only by construction** — no code path writes to Active Directory.
+
+### Added
+- **F1 opens the keyboard-shortcut help** — the help window gains a keyboard entry
+  point (WCAG 2.1.1/2.4.4), wired to the existing help command (#219).
+- **Graph overlays are now judged surfaces (ADR-035)** — the Ctrl+K command palette,
+  the minimap, and the issues-only filter gain their own UI-checklist rows, so every
+  future graph change is verified against them (#223).
+
+### Changed
+- **Screen readers can identify the glyph-only controls** — the theme toggle, help
+  "?", focus-mode button, and rail-collapse chevron expose state-accurate accessible
+  names instead of announcing a bare symbol (WCAG 4.1.2, #219).
+- **The command palette completes the ARIA combobox pattern** — option rows carry
+  stable ids and the input tracks the highlighted option via `aria-activedescendant`;
+  "No match" / "No issues" status changes are announced through a polite live region
+  (WCAG 4.1.2/4.1.3, ADR-035, #223).
+- **Clear action hierarchy on Root Picker, Plan, and the Settings File tab** — each
+  form's primary action is the accent button and secondaries are ghost, ending the
+  two-identical-grey-buttons ambiguity; destructive actions are never styled as the
+  primary (#221).
+- **Brand-purple selection everywhere** — the Root Picker selected row and the
+  Gap/Violations/Plan active-row bands leave the default Fluent blue for the brand
+  accent (#225).
+- **Kind badges clear WCAG non-text contrast** — DL/UG/Computer badges in the Root
+  Picker and detail panel carry the same contrast-lift ring the graph layer uses
+  (WCAG 1.4.11, #225).
+- **The Audit score reads on a solid surface** — the health-ring centre no longer
+  lets the band colour bleed behind the score, and the "/ 100" denominator and
+  "+ n info" sub-count render at full opacity instead of muted caption text
+  (WCAG 1.4.1/1.4.3, #228).
+- **Light-theme "No match" text meets the contrast bar** — retoned from ~3.44:1 to
+  5.48:1 (WCAG 1.4.3, #223).
+
 ## [0.4.3] - 2026-07-01
 
 Feedback-driven Phase-4 release: a June UX fit-audit and a whole-journey UX audit,
