@@ -27,7 +27,7 @@ areas read gray and dotted — a node's kind and any rule findings still show th
 
 ## Download
 
-**Latest release: v0.4.3** — [Download the portable `.zip` →](https://github.com/Atrono/GroupWeaver/releases/latest)
+**Latest release: v0.4.4** — [Download the portable `.zip` →](https://github.com/Atrono/GroupWeaver/releases/latest)
 
 Portable and self-contained — **no .NET install needed** (the .NET 8 runtime is bundled).
 Requires the [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
@@ -163,10 +163,10 @@ provenance attestation. There is no code-signing certificate (see the SmartScree
 note above); instead, verify integrity and origin yourself — two commands.
 
 **1. Check the SHA256 hash** against the value in the release notes / the
-`GroupWeaver-0.4.3-win-x64.zip.sha256` sidecar:
+`GroupWeaver-0.4.4-win-x64.zip.sha256` sidecar:
 
 ```powershell
-Get-FileHash .\GroupWeaver-0.4.3-win-x64.zip -Algorithm SHA256
+Get-FileHash .\GroupWeaver-0.4.4-win-x64.zip -Algorithm SHA256
 ```
 
 **2. Verify build provenance** with the [GitHub CLI](https://cli.github.com/) —
@@ -174,7 +174,7 @@ this cryptographically confirms the `.zip` was built by this repository's releas
 workflow on GitHub's runners, not repackaged by someone else:
 
 ```powershell
-gh attestation verify .\GroupWeaver-0.4.3-win-x64.zip --repo Atrono/GroupWeaver
+gh attestation verify .\GroupWeaver-0.4.4-win-x64.zip --repo Atrono/GroupWeaver
 ```
 
 A passing check prints the matched attestation and the workflow that produced it.
