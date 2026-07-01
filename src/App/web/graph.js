@@ -137,7 +137,10 @@
       '--gw-btn-border': 'rgba(0, 0, 0, 0.18)',
       '--gw-btn-hover-bg': 'rgba(0, 0, 0, 0.10)',
       '--gw-focus-ring': '#2F6FE0',
-      '--gw-no-match': '#BD7C00',
+      // ADR-035 D4: deepened amber-brown so the light "No match" text clears the WCAG
+      // 1.4.3 4.5:1 floor on the composited near-white #controls surface (5.48:1 on
+      // #F5F6F8; the old #BD7C00 read only ~3.44:1). Dark --gw-no-match is unchanged.
+      '--gw-no-match': '#8A5A00',
       '--gw-edge-member': '#5A6473',
       '--gw-edge-contains': '#3A424E',
       '--gw-sev-error': '#D63A4A', '--gw-sev-warning': '#BD7C00', '--gw-sev-info': '#2F6FE0',
@@ -519,6 +522,15 @@
     }
   }
 
+  // ADR-035 D3: write the parallel AT channel — a visually-hidden role=status /
+  // aria-live=polite region (#gw-status in index.html). Polite waits for a pause in
+  // typing, so a "No match" during a query is not read mid-keystroke. Text-only DOM
+  // write; no bridge, no persistence.
+  function announce(msg) {
+    var el = document.getElementById('gw-status');
+    if (el) { el.textContent = msg; }
+  }
+
   // WP3b (#142): reflect issuesOnly + the all-clear state on the toggle button.
   // Mirrors the labels-btn pattern (textContent + aria-pressed). When no node is
   // flagged the button reads "No issues" and stays aria-pressed=false (inert).
@@ -528,10 +540,15 @@
     if (cy !== null && !anyIssues()) {
       btn.textContent = 'No issues';
       btn.setAttribute('aria-pressed', 'false');
+      // ADR-035 D3: announce the all-clear state (identical to the visible label).
+      announce('No issues');
       return;
     }
-    btn.textContent = issuesOnly ? 'Issues: on' : 'Issues only';
+    var label = issuesOnly ? 'Issues: on' : 'Issues only';
+    btn.textContent = label;
     btn.setAttribute('aria-pressed', issuesOnly ? 'true' : 'false');
+    // ADR-035 D3: mirror the on/off label into the live region.
+    announce(label);
   }
 
   // ADR-023 D3: find a node by Name (data('label')) OR DN (id()), case-insensitive,
@@ -1243,9 +1260,11 @@
     var node = findNode(input ? input.value : '');
     if (node === null) {
       if (noMatchEl) { noMatchEl.hidden = false; }
+      announce('No match');  // ADR-035 D3: parallel AT channel for #find-no-match.
       return;  // no bridge traffic on a no-match.
     }
     if (noMatchEl) { noMatchEl.hidden = true; }
+    announce('');  // ADR-035 D3: resolve the "No match" announcement.
     selectAndFrame(node);
   }
 
@@ -1339,6 +1358,10 @@
     for (var i = 0; i < paletteItems.length; i++) {
       var it = paletteItems[i];
       var li = document.createElement('li');
+      // ADR-035 D2: a stable per-render id so the combobox can point
+      // aria-activedescendant at the highlighted option (rows are rebuilt wholesale
+      // each input, so palette-opt-<i> is unique per render).
+      li.id = 'palette-opt-' + i;
       li.className = 'palette-item' + (i === paletteIndex ? ' gw-active' : '');
       li.setAttribute('role', 'option');
       li.setAttribute('aria-selected', i === paletteIndex ? 'true' : 'false');
@@ -1363,6 +1386,19 @@
       el.appendChild(li);
     }
     el.hidden = paletteItems.length === 0;
+    // ADR-035 D2: mirror the highlighted option's id onto the combobox input so an
+    // AT user following the input's focus is told which row ↑/↓ selected. Cleared
+    // (removed) centrally whenever nothing is highlighted (paletteIndex === -1:
+    // no match / empty results), so every renderPalette caller (open / nav /
+    // rebuild) stays consistent without a per-caller write.
+    var findInput = document.getElementById('find-input');
+    if (findInput !== null) {
+      if (paletteIndex >= 0) {
+        findInput.setAttribute('aria-activedescendant', 'palette-opt-' + paletteIndex);
+      } else {
+        findInput.removeAttribute('aria-activedescendant');
+      }
+    }
   }
 
   // Open the palette: focus the input and render the current results (empty query =>
@@ -1388,7 +1424,13 @@
       while (el.firstChild) { el.removeChild(el.firstChild); }
       el.hidden = true;
     }
-    if (input !== null) { input.setAttribute('aria-expanded', 'false'); }
+    if (input !== null) {
+      input.setAttribute('aria-expanded', 'false');
+      // ADR-035 D2: no option exists once the list is torn down.
+      input.removeAttribute('aria-activedescendant');
+    }
+    // ADR-035 D3: clear the live region so a stale "No match" is not re-read on close.
+    announce('');
   }
 
   // Rebuild + render from the current input value. Auto-highlights the first row

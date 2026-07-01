@@ -132,6 +132,10 @@ $textPairs = @(
     @{ Name = 'White ink on Error badge'; Fg = '#FFFFFF'; Bg = '#D13438' }
     @{ Name = 'Dark ink on Warning badge'; Fg = $onLightInk; Bg = '#F7A30B' }
     @{ Name = 'Dark ink on Info badge'; Fg = $onLightInk; Bg = '#4FA3E3' }
+    # ADR-035 D4: the light-theme "No match" text (#gw-status/#find-no-match ink) on the
+    # composited near-white light #controls surface. Retoned from #BD7C00 (~3.44:1, FAIL)
+    # to #8A5A00 so it clears the WCAG 1.4.3 4.5:1 text floor. == CHROME.light['--gw-no-match'].
+    @{ Name = 'Light No-match on controls bg'; Fg = '#8A5A00'; Bg = '#F5F6F8' }
 )
 
 function Format-Pass([double]$ratio, [double]$threshold) {
