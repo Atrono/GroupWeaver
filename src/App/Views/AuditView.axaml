@@ -146,16 +146,23 @@
                   </ConicGradientBrush>
                 </Ellipse.Fill>
               </Ellipse>
-              <!-- Inner disc: paints the card surface back over the ring centre (donut hole) and
-                   hosts the score text. -->
+              <!-- Inner disc: paints the OPAQUE page surface back over the ring centre (donut hole)
+                   and hosts the score text. PageBackgroundBrush (not the translucent CardBackgroundBrush,
+                   whose alpha lets the coloured band hue bleed through behind the score/band text — the
+                   same opaque-surface fix the compare-card tiles use) so the numbers sit on a solid
+                   surface (#154 legibility, Lever 5). -->
               <Border Width="70" Height="70" CornerRadius="35"
-                      Background="{DynamicResource CardBackgroundBrush}"
+                      Background="{DynamicResource PageBackgroundBrush}"
                       HorizontalAlignment="Center" VerticalAlignment="Center" />
               <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="-2">
                 <TextBlock Name="ScoreText" Text="{Binding Score}"
                            FontSize="26" FontWeight="Bold"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="/ 100" Classes="caption"
+                <!-- "/ 100" is the always-present numeric fallback WCAG 1.4.1 leans on (the ring hue is
+                     the redundant channel), so it must clear the text bar: the NORMAL card foreground
+                     (body = theme-default ink at full opacity, as ScoreText/BandText), NOT the 0.6
+                     caption mute. FontSize kept at the caption 11 so only opacity/ink change (#154). -->
+                <TextBlock Text="/ 100" Classes="body" FontSize="11"
                            HorizontalAlignment="Center" />
               </StackPanel>
             </Panel>
@@ -224,9 +231,12 @@
                 <TextBlock Text="Warnings" FontSize="12" FontWeight="SemiBold"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" />
               </StackPanel>
-              <!-- Info as a muted sub-count on the Warnings tile (honest: Info is not part of
-                   Critical/Warnings — it is the lowest severity). -->
-              <TextBlock Name="InfoSub" Classes="caption"
+              <!-- Info as a sub-count on the Warnings tile (honest: Info is not part of
+                   Critical/Warnings — it is the lowest severity). It is a meaning-bearing count, so it
+                   uses the NORMAL card foreground (body = theme-default ink at full opacity), NOT the
+                   0.6 caption mute, to clear the text-contrast bar in both themes. FontSize kept at the
+                   caption 11 so only opacity/ink change (#154). -->
+              <TextBlock Name="InfoSub" Classes="body" FontSize="11"
                          Text="{Binding Info, StringFormat='+ {0} info'}" />
             </StackPanel>
           </Border>
