@@ -51,3 +51,32 @@ the top strip). The card now reads `Scope summary` / `Ruleset: <name>` / object-
 unchanged) / the "Click a node to inspect it." hint — still "information, not a void," now non-redundant and
 finally telling the user which ruleset their findings are judged against. `ScopeKindTally`/`KindTallyRow` are
 retired; `GraphSummary` and the `SeverityConverters`/legend are untouched. (#186)
+
+## Addendum (2026-07-02) — keyboard-focus continuity across the chrome melt (#230)
+
+An operator report surfaced a consequence D2 never addressed: the Focus toggle lives in the very strip
+focus mode hides, so activating it removes the focused control from the tree and **keyboard focus is
+silently lost** (WCAG 2.4.3-adjacent). Esc/`F` still work (window-level `OnKeyDown`), but nothing visibly
+holds focus and nothing points back out. This addendum defines the app's **first programmatic-focus
+pattern** — future focus-moving features copy it rather than inventing a second one:
+
+1. **Focus movement is view-owned.** `MainWindow.axaml.cs` observes `ShellViewModel.IsFocusMode` through
+   the existing shell `PropertyChanged` subscription (the `OnOpened` seam) — no VM state, per D1's "chrome
+   is a pure view concern". Firing on the property change catches every entry vector (button, `F`,
+   command) at one choke point.
+2. **On entry, park focus on the designated surviving affordance** — the seam chevron
+   (`RailCollapseToggle`), exactly the control the Consequences named as the persistent exit affordance.
+   Parking is unconditional (the rail melts too, taking nearly every other focusable control); the move
+   uses `Focus(NavigationMethod.Tab)` so `:focus-visible` fires and the ADR-033 accent ring **renders** —
+   the visible ring on an exit-adjacent control doubles as the "way back out" affordance. **Never focus
+   the WebView2 HWND:** Win32 focus inside the native child would swallow the window-level Esc/`F`
+   handlers, killing the exit gestures.
+3. **On exit, restore focus to the Focus toggle** (symmetric round-trip), guarded by
+   `IsEffectivelyVisible` (a non-workspace exit — programmatic/tests only — skips silently).
+
+The transient "Esc to exit" banner considered in #230 stays **deliberately not added**, reaffirming the
+Consequences bullet above: an on-graph hint would be web-layer (never native-over-graph, ADR-001), a
+native layout-flowing banner contradicts the chrome-melt intent, and no WCAG SC requires it — the tooltip,
+the `?`/F1 cheat sheet, and (now) the visible focus ring on the chevron cover discoverability. Pinned by
+`ShellScreenshotTests` focus-continuity cases; the `workspace-focus-*` screenshot baselines gain the
+chevron's focus ring. (#230)

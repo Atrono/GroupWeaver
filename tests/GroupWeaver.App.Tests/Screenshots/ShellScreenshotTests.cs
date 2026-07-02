@@ -343,6 +343,12 @@ public sealed class ShellScreenshotTests
     /// recorder posts via <c>WM_KEYDOWN</c> (single-key, not a chord) so the chrome melts away. The
     /// key is delivered with Avalonia.Headless's <c>KeyPressQwerty</c> extension (physical→Key.F,
     /// down+up) — a genuine dispatched key, NOT the command path, so this pins the OnKeyDown wiring.
+    ///
+    /// <para>#230 / ADR-022 third addendum ("keyboard-focus continuity"): the focus parking fires on
+    /// the <see cref="ShellViewModel.IsFocusMode"/> property change, so the <c>F</c> vector must park
+    /// keyboard focus on the seam chevron exactly like the button vector — and the SECOND <c>F</c>
+    /// below is therefore dispatched while the chevron HOLDS focus, pinning that a focused chevron
+    /// Button still lets the key bubble to <see cref="MainWindow.OnKeyDown"/>.</para>
     /// </summary>
     [AvaloniaFact]
     public async Task WorkspaceFocus_FKey_TogglesFocusMode_BothWays()
@@ -361,12 +367,147 @@ public sealed class ShellScreenshotTests
         Assert.True(shell.IsFocusMode, "a dispatched 'F' on the workspace must enter focus mode (OnKeyDown)");
         Assert.True(workspace.IsRailCollapsed, "focus mode must collapse the active workspace rail (D2)");
 
+        // #230: entry parking is vector-agnostic — 'F' must park keyboard focus on the surviving
+        // seam chevron too, so the second 'F' below is dispatched WHILE the chevron holds focus.
+        Assert.Same(
+            RailChevron(window),
+            window.FocusManager!.GetFocusedElement());
+
         // 'F' again exits — the same single-key gesture toggles back.
         window.KeyPressQwerty(PhysicalKey.F, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(shell.IsFocusMode, "a second 'F' must exit focus mode");
         Assert.False(workspace.IsRailCollapsed, "exiting focus mode must re-expand the rail");
+
+        // #230: the symmetric exit restore — focus returns to the (again visible) Focus toggle.
+        var focusButton = FocusModeButton(window);
+        Assert.NotNull(focusButton);
+        Assert.Same(focusButton, window.FocusManager!.GetFocusedElement());
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// #230 / ADR-022 third addendum ("keyboard-focus continuity"), THE regression pin: the Focus
+    /// toggle lives inside the very strip focus mode hides, so activating it removes the focused
+    /// control from the tree and keyboard focus is silently lost (WCAG 2.4.3-adjacent) — today
+    /// nothing holds focus after the chrome melts. The addendum parks keyboard focus on the one
+    /// designated surviving affordance, the seam chevron (<c>RailCollapseToggle</c>,
+    /// WorkspaceView.axaml — the persistent exit affordance ADR-022's Consequences named), via
+    /// <c>Focus(NavigationMethod.Tab)</c> so the accent focus ring renders as the "way back out".
+    /// The fixture drives the defect's EXACT vector: the button HOLDS keyboard focus (a real
+    /// Tab-style focus, the keyboard user's state) and Enter clicks it through the real input
+    /// pipeline (an Avalonia Button raises Click on Enter while focused) — never the command seam,
+    /// which would sidestep the "focused control melts away" half of the bug.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WorkspaceFocus_EnterViaButton_ParksKeyboardFocusOnRailChevron()
+    {
+        var (window, shell) = ShowShell(Present, 1280, 720);
+        await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // The keyboard user's state: the visible Focus button holds genuine keyboard focus.
+        var focusButton = FocusModeButton(window);
+        Assert.NotNull(focusButton);
+        Assert.True(
+            focusButton!.Focus(NavigationMethod.Tab),
+            "the visible Focus button must accept keyboard focus on the workspace step");
+        Assert.Same(focusButton, window.FocusManager!.GetFocusedElement());
+
+        // Enter clicks the focused button through the real pipeline — the strip (and with it the
+        // focused control) melts away (D2).
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shell.IsFocusMode, "Enter on the focused Focus button must enter focus mode");
+
+        // THE #230 pin: keyboard focus is PARKED on the surviving seam chevron — today it is
+        // silently lost with the hidden strip (focused element null/window, never the chevron).
+        var chevron = RailChevron(window);
+        Assert.Same(chevron, window.FocusManager!.GetFocusedElement());
+        Assert.True(
+            chevron.IsEffectivelyVisible,
+            "the seam chevron must survive the chrome melt — the parked focus must be VISIBLE");
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// #230 / ADR-022 third addendum ("keyboard-focus continuity"), the symmetric round-trip: on
+    /// leaving focus mode, keyboard focus is RESTORED to the Focus toggle (again visible with the
+    /// strip), guarded by <c>IsEffectivelyVisible</c>. Entry here is the COMMAND vector — the
+    /// addendum wires the parking to the <see cref="ShellViewModel.IsFocusMode"/> property change,
+    /// one choke point for every vector (button, <c>F</c>, command) — and the exit is a real
+    /// dispatched Escape delivered WHILE the chevron holds focus, which ALSO pins that a focused
+    /// chevron Button lets Esc bubble to <see cref="MainWindow.OnKeyDown"/> (the exit gesture must
+    /// keep working with focus parked on it).
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WorkspaceFocus_EscExit_RestoresKeyboardFocusToFocusButton()
+    {
+        var (window, shell) = ShowShell(Present, 1280, 720);
+        await DriveToWorkspaceAsync(shell);
+        Dispatcher.UIThread.RunJobs();
+
+        // Enter via the command vector: the property-change choke point must park focus on the
+        // chevron even when no control was focused beforehand.
+        shell.ToggleFocusModeCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(shell.IsFocusMode);
+        Assert.Same(RailChevron(window), window.FocusManager!.GetFocusedElement());
+
+        // Esc through the real pipeline, dispatched while the chevron HOLDS focus — it must bubble
+        // to MainWindow.OnKeyDown and exit (a focused Button does not swallow Escape).
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.IsFocusMode, "Esc must exit focus mode while the chevron holds focus");
+
+        // The restore half of the round-trip: the Focus toggle is visible again AND holds focus.
+        var focusButton = FocusModeButton(window);
+        Assert.NotNull(focusButton);
+        Assert.True(
+            focusButton!.IsEffectivelyVisible,
+            "the Focus button must be visible again once the strip returns (exit restores chrome)");
+        Assert.Same(focusButton, window.FocusManager!.GetFocusedElement());
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// #230 / ADR-022 third addendum ("keyboard-focus continuity"), the guard rail: OFF the
+    /// workspace step (Connect — the Focus button binds <c>IsWorkspaceStep</c>=false) toggling
+    /// focus mode programmatically must be a focus NO-OP. The addendum's exit-restore is guarded
+    /// by <c>IsEffectivelyVisible</c>, so a non-workspace exit skips silently: no throw, and the
+    /// HIDDEN Focus button never receives focus (focusing an invisible control would strand the
+    /// keyboard user on a control that cannot render its focus ring).
+    /// </summary>
+    [AvaloniaFact]
+    public void FocusModeToggle_OffWorkspace_FocusWiring_NoOps()
+    {
+        var (window, shell) = ShowShell(Present, 1280, 720);
+        Assert.IsType<ConnectionViewModel>(shell.CurrentStep);
+        Dispatcher.UIThread.RunJobs();
+
+        // A full programmatic on/off round-trip on the Connect step — the wiring's off-workspace
+        // no-op path. Must not throw (no chevron realizes here; the restore guard skips).
+        shell.ToggleFocusModeCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        shell.ToggleFocusModeCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(shell.IsFocusMode);
+
+        // The IsEffectivelyVisible guard: the hidden Focus button did NOT receive restore-focus.
+        // Off the workspace the helper may return null (the button may not even realize), so the
+        // assertion targets the focused element's identity, not the helper's nullability.
+        var focused = window.FocusManager!.GetFocusedElement();
+        Assert.False(
+            focused is Avalonia.Controls.Button { Name: "FocusModeButton" },
+            "the hidden Focus button must never receive restore-focus off the workspace step");
 
         window.Close();
     }
@@ -379,6 +520,16 @@ public sealed class ShellScreenshotTests
         window.GetVisualDescendants()
             .OfType<Avalonia.Controls.Button>()
             .FirstOrDefault(b => b.Name == "FocusModeButton");
+
+    /// <summary>The seam chevron (<c>RailCollapseToggle</c>, WorkspaceView.axaml) — the one
+    /// always-surviving affordance ADR-022's third addendum parks keyboard focus on when focus
+    /// mode melts the chrome (#230). Unlike <see cref="FocusModeButton"/> it ASSERTS presence
+    /// (exactly one): every caller drives the workspace step, where the chevron must exist —
+    /// absence is a fixture defect, not an assertable state.</summary>
+    private static Avalonia.Controls.Button RailChevron(MainWindow window) =>
+        Assert.Single(
+            window.GetVisualDescendants().OfType<Avalonia.Controls.Button>(),
+            b => b.Name == "RailCollapseToggle");
 
     /// <summary>
     /// ADR-022 (the large-monitor proof): a loaded workspace at a 2560×1080 ULTRAWIDE frame — the
