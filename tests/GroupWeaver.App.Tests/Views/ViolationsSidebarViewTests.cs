@@ -43,12 +43,16 @@ namespace GroupWeaver.App.Tests.Views;
 ///     <see cref="Button"/> (bound <c>CommandParameter</c> = <see cref="ViolationRowModel.PrimaryDn"/>,
 ///     the stable anchor to locate the row by) and, top-right, the sibling "Why?" Button.
 ///   • Active (<c>IsActive == true</c>): the outer Grid's <see cref="Panel.Background"/> is a
-///     solid brush of the pinned highlight color <see cref="HighlightHex"/> (#298B7BFF — the
-///     ADR-026 D6 brand-accent-soft selection band, a subtle purple wash behind the row text).
+///     solid brush of the pinned per-theme highlight color — <see cref="HighlightHex"/> (#298B7BFF)
+///     under the app-default DARK theme, <see cref="HighlightLightHex"/> (#1F6A5CFF) under LIGHT —
+///     the ADR-026 D6 brand-accent-soft selection band, a subtle purple wash behind the row text.
 ///   • Inactive (<c>IsActive == false</c>): the outer Grid's background stays
-///     <see cref="Colors.Transparent"/> (the converter's cold default).
-/// Change the pinned hex ONLY by editing this constant AND the XAML together in one
-/// reviewed PR (the data-model.md "change only with a reviewed PR" discipline).
+///     <see cref="Colors.Transparent"/> (the active-band-host cold base).
+///   • #227: the band RE-TONES LIVE on a theme flip (it is theme-resolved, never a fixed-dark
+///     brush) — <see cref="ActiveRowBand_ReTonesLive_WhenTheThemeFlipsToLight"/>.
+/// Change the pinned hexes ONLY by editing these constants AND src/App/Styles/Tokens.axaml
+/// (both theme variants) together in one reviewed PR (the data-model.md "change only with a
+/// reviewed PR" discipline).
 /// </summary>
 public sealed class ViolationsSidebarViewTests
 {
@@ -62,26 +66,41 @@ public sealed class ViolationsSidebarViewTests
     private const string GroupADn = "CN=GG_Sales_Staff,OU=Lab,DC=stub,DC=lab";
     private const string GroupBDn = "CN=GG_Sales_Admin,OU=Lab,DC=stub,DC=lab";
 
-    /// <summary>The pinned selection-highlight brush color. DELIBERATELY MOVED (a reviewed
-    /// contract change, not drift — #225 Lever 4): the active-row band was the old Fluent-blue
-    /// #330F6CBD (20%-alpha of the legacy app accent #0F6CBD); it is now the ADR-026 D6 brand
-    /// accent-soft #298B7BFF (= <c>BrandTokens.AccentSoftHex</c>), the shared translucent-accent
-    /// selection/focus role. The active row's OUTER Grid <c>Background</c> must equal this; the
-    /// src converter (<c>SelectionHighlightConverters</c>) feeds the SAME <c>BrandTokens.AccentSoft</c>
-    /// brush. Change the value ONLY by editing this constant AND that converter together in one
-    /// reviewed PR (the data-model.md "change only with a reviewed PR" discipline).</summary>
+    /// <summary>The pinned DARK-theme selection-highlight color (the headless test app boots the
+    /// real <c>App</c>, whose default theme is Dark). DELIBERATELY MOVED (a reviewed contract
+    /// change, not drift — #225 Lever 4): the active-row band was the old Fluent-blue #330F6CBD
+    /// (20%-alpha of the legacy app accent #0F6CBD); it is now the ADR-026 D6 brand accent-soft
+    /// #298B7BFF (= <c>BrandTokens.AccentSoftHex</c>), the shared translucent-accent
+    /// selection/focus role. #227 THEME-RESOLVES the band: the active row carries the
+    /// <c>active-band</c> style class (<c>Classes.active-band ← IsActive</c>) and the shared
+    /// App.axaml <c>active-band</c> style paints it from <c>{DynamicResource AccentSoftBrush}</c>,
+    /// whose Tokens.axaml ThemeDictionaries resolve dark #298B7BFF / light
+    /// <see cref="HighlightLightHex"/>. Change the hex ONLY by editing this constant AND
+    /// src/App/Styles/Tokens.axaml (both variants) together in one reviewed PR (the
+    /// data-model.md "change only with a reviewed PR" discipline).</summary>
     private const string HighlightHex = "#298B7BFF"; // BrandTokens.AccentSoftHex (ADR-026 D6, #225 Lever 4)
 
-    /// <summary>Guard: the pinned <see cref="HighlightHex"/> IS the brand accent-soft token
-    /// (#225 Lever 4). This keeps the deliberate value from silently drifting away from
-    /// <see cref="BrandTokens.AccentSoftHex"/> — the whole point of the move was to route the
-    /// active-row band through that shared ADR-026 accent role — while still pinning the literal
-    /// hex above so a wrong token AND a wrong hex can't cancel out.</summary>
+    /// <summary>The pinned LIGHT-theme selection-highlight color (#227): what the SAME active
+    /// row's band must re-tone to when the theme flips to Light —
+    /// <c>BrandTokens.AccentSoftLightHex</c>, the light arm of the Tokens.axaml
+    /// <c>AccentSoftBrush</c> ThemeDictionaries. Same change discipline as
+    /// <see cref="HighlightHex"/>: this constant AND Tokens.axaml (both variants), one
+    /// reviewed PR.</summary>
+    private const string HighlightLightHex = "#1F6A5CFF"; // BrandTokens.AccentSoftLightHex (#227)
+
+    /// <summary>Guard: the pinned <see cref="HighlightHex"/>/<see cref="HighlightLightHex"/> ARE
+    /// the brand accent-soft tokens (#225 Lever 4; light arm #227). This keeps the deliberate
+    /// values from silently drifting away from <see cref="BrandTokens.AccentSoftHex"/> /
+    /// <see cref="BrandTokens.AccentSoftLightHex"/> — the whole point of the move was to route
+    /// the active-row band through that shared ADR-026 accent role — while still pinning the
+    /// literal hexes above so a wrong token AND a wrong hex can't cancel out.</summary>
     [Fact]
-    public void HighlightHex_IsTheBrandAccentSoftToken()
+    public void HighlightHexes_AreTheBrandAccentSoftTokens()
     {
         Assert.Equal(BrandTokens.AccentSoftHex, HighlightHex);
         Assert.Equal(Color.Parse(BrandTokens.AccentSoftHex), Color.Parse(HighlightHex));
+        Assert.Equal(BrandTokens.AccentSoftLightHex, HighlightLightHex);
+        Assert.Equal(Color.Parse(BrandTokens.AccentSoftLightHex), Color.Parse(HighlightLightHex));
     }
 
     [AvaloniaFact]
@@ -127,6 +146,58 @@ public sealed class ViolationsSidebarViewTests
         // (3) … so a selected row is visibly distinct from a cold one (the whole point:
         //     against a no-binding template both are Transparent and this differential fails).
         Assert.NotEqual(coldBrush.Color, activeBrush.Color);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// #227 (theme-resolve the active-row band): the band must RE-TONE LIVE when the theme flips
+    /// to Light — the SAME active row's outer-Grid background re-resolves from the pinned dark
+    /// <see cref="HighlightHex"/> (#298B7BFF) to the pinned light <see cref="HighlightLightHex"/>
+    /// (#1F6A5CFF), while a cold row stays <see cref="Colors.Transparent"/> in both themes. A
+    /// fixed-dark band (the #227 defect: a hard-coded dark brush fed to the row background) fails
+    /// exactly here: after the flip the band still reads #298B7BFF.
+    ///
+    /// <para>The flip is WINDOW-SCOPED (<see cref="TopLevel.RequestedThemeVariant"/> on the
+    /// test's own window): probed to re-resolve App.axaml style-setter DynamicResources under
+    /// Avalonia.Headless (via the existing <c>ListBoxItem:selected</c> →
+    /// <c>{DynamicResource AccentSoftBrush}</c> style), and — unlike the
+    /// <c>Application.Current.RequestedThemeVariant</c> flip <c>ThemeVariantScreenshotTests</c>
+    /// uses — it touches no shared global app state (the <c>ShellThemeTests</c> flakiness
+    /// warning), so no restore step can be forgotten: the scope dies with the window.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public async Task ActiveRowBand_ReTonesLive_WhenTheThemeFlipsToLight()
+    {
+        var fake = new FakeGraphRenderer();
+        var vm = Workspace(Provider(TwoEmptyGroupsScope()), () => fake);
+        var (window, _) = ShowWorkspace(vm);
+        await vm.Initialization;
+        Dispatcher.UIThread.RunJobs();
+
+        // Select GG_Sales_Staff's anchor so its row is the active one (the VM half is pinned
+        // by WorkspaceViolationsTests; the dark-theme paint by the test above).
+        vm.SelectedDn = GroupADn;
+        Dispatcher.UIThread.RunJobs();
+
+        var sidebar = Assert.Single(window.GetVisualDescendants().OfType<ViolationsSidebarView>());
+        var activeRow = RowGridFor(sidebar, GroupADn);
+        var coldRow = RowGridFor(sidebar, GroupBDn);
+
+        // Baseline under the app-default DARK theme: the pinned dark band.
+        var darkBrush = Assert.IsAssignableFrom<ISolidColorBrush>(activeRow.Background);
+        Assert.Equal(Color.Parse(HighlightHex), darkBrush.Color);
+
+        // Flip THIS WINDOW's theme scope to Light and let the dispatcher re-resolve.
+        window.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+        Dispatcher.UIThread.RunJobs();
+
+        // The SAME row's band re-toned to the pinned LIGHT accent-soft value …
+        var lightBrush = Assert.IsAssignableFrom<ISolidColorBrush>(activeRow.Background);
+        Assert.Equal(Color.Parse(HighlightLightHex), lightBrush.Color);
+        // … and the cold row is STILL transparent (the theme flip must not paint cold rows).
+        var coldBrush = Assert.IsAssignableFrom<ISolidColorBrush>(coldRow.Background);
+        Assert.Equal(Colors.Transparent, coldBrush.Color);
 
         window.Close();
     }

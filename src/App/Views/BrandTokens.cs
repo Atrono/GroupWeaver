@@ -411,11 +411,4 @@ public static class BrandTokens
 
     /// <summary><see cref="NodeLiftRingHex"/> as a brush.</summary>
     public static readonly ImmutableSolidColorBrush NodeLiftRing = new(Color.Parse(NodeLiftRingHex));
-
-    /// <summary><see cref="AccentSoftHex"/> as a brush — the DARK translucent-accent selection
-    /// band (<c>SelectionHighlightConverters</c>). The active-row band is a converter-fed brush
-    /// (not a theme-resolved <c>DynamicResource</c> like the <c>ListBoxItem:selected</c> band), so
-    /// it uses the DARK accent-soft value; the app ships dark by default (App.axaml
-    /// RequestedThemeVariant="Dark").</summary>
-    public static readonly ImmutableSolidColorBrush AccentSoft = new(Color.Parse(AccentSoftHex));
 }

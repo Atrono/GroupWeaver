@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
@@ -77,6 +78,15 @@ public sealed class PlanFindingRowViewTests
     /// finding: <see cref="PlanViewModel.SelectedDn"/> becomes the row's <c>PrimaryDn</c> and the
     /// plan renderer <see cref="IGraphRenderer.FocusAsync"/> fires exactly once with
     /// <c>[row.PrimaryDn]</c>. Proves the view→VM wiring end-to-end, not just the VM command.
+    ///
+    /// <para>EXTENDED for #227 (theme-resolve the active-row band): the lit row must carry the
+    /// <c>active-band</c> style class (<c>Classes.active-band ← IsActive</c>) so the shared
+    /// App.axaml <c>active-band</c> style paints it from <c>{DynamicResource AccentSoftBrush}</c>
+    /// — and the RENDERED background must actually BE the accent-soft band (dark
+    /// <see cref="BrandTokens.AccentSoftHex"/>; the headless app default is Dark). The rendered
+    /// read catches a forgotten <c>active-band-host</c> base class or a re-added local
+    /// <c>Background</c> that would shadow the style; the pre-jump read pins the cold state's
+    /// transparent <c>active-band-host</c> base.</para>
     /// </summary>
     [AvaloniaFact(Timeout = 60_000)]
     public async Task PlanFindingRowButton_Command_JumpsToTheFinding_SelectsAndFocusesOnce()
@@ -90,6 +100,12 @@ public sealed class PlanFindingRowViewTests
             planView.GetVisualDescendants().OfType<Button>(),
             b => b.IsEffectivelyVisible && ReferenceEquals(b.DataContext, row));
 
+        // #227 cold state (pre-jump, IsActive false): the row button renders the transparent
+        // active-band-host base — no band before the row lights.
+        Assert.False(row.IsActive, "guard: the row must start cold for the cold-state band read");
+        var coldBrush = Assert.IsAssignableFrom<ISolidColorBrush>(rowButton.Background);
+        Assert.Equal(Colors.Transparent, coldBrush.Color);
+
         // Invoke the bound command exactly as a click would (the row's command + its own parameter).
         rowButton.Command!.Execute(rowButton.CommandParameter);
         Dispatcher.UIThread.RunJobs();
@@ -97,6 +113,13 @@ public sealed class PlanFindingRowViewTests
 
         Assert.Equal(row.PrimaryDn, plan.SelectedDn, Dn.Comparer);
         Assert.True(row.IsActive, "the jumped-to row lights via the selection-sync highlight");
+
+        // #227: the lit row carries the active-band style class (Classes.active-band ← IsActive) …
+        Assert.Contains("active-band", rowButton.Classes);
+        // … and its RENDERED background IS the accent-soft band (dark — the headless app default).
+        // A forgotten active-band-host base class or a re-added local Background fails here.
+        var activeBrush = Assert.IsAssignableFrom<ISolidColorBrush>(rowButton.Background);
+        Assert.Equal(Color.Parse(BrandTokens.AccentSoftHex), activeBrush.Color);
         // FocusAsync framed exactly the row's anchor. (Execute above may or may not have completed
         // synchronously headless; the explicit await guarantees at least one recorded call, and each
         // records [PrimaryDn] — assert every recorded focus targeted exactly this anchor.)

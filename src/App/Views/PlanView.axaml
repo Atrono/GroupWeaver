@@ -235,7 +235,7 @@
                        the finding's anchor DN - the rail/Gap jump affordance, unified here. -->
                   <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                           Padding="4" BorderThickness="0"
-                          Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}"
+                          Classes="active-band-host" Classes.active-band="{Binding IsActive}"
                           ToolTip.Tip="{Binding PrimaryDn}"
                           Command="{Binding $parent[ListBox].((vm:PlanViewModel)DataContext).JumpToFindingCommand}"
                           CommandParameter="{Binding}">
