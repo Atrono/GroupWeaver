@@ -1,4 +1,4 @@
-#Requires -Version 7
+#Requires -Version 7.2
 <#
 .SYNOPSIS
     GroupWeaver local build gate: restore -> build -> format check -> test.
@@ -21,14 +21,15 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'GroupWeaver.sln'
 
-# `dotnet format` runs as its own child process and re-resolves the dotnet CLI from
-# DOTNET_HOST_PATH / DOTNET_ROOT (NOT the PATH muxer that launched it). When those
-# vars are unset - intermittently the case on CI's windows-2022 runner after
-# setup-dotnet - the format step flakes with "Unable to locate dotnet CLI. Is it on
-# the PATH?", cured only by a rerun. Resolve the absolute dotnet host once and pin
-# both vars so the format probe is deterministic on the dev box and in CI alike;
-# the format step then invokes this absolute path (so the host stamps DOTNET_HOST_PATH
-# for its child too).
+# Belt-and-braces: resolve the absolute dotnet host once and pin DOTNET_HOST_PATH /
+# DOTNET_ROOT so `dotnet format` (a child process that re-resolves the CLI itself)
+# never depends on ambient env. Pinning alone (issue #110) did NOT cure the
+# "Unable to locate dotnet CLI" flake, though (#110 recurrence = #232): the real
+# cause is an upstream race in dotnet-format's own CLI probe -- it spawns the dotnet
+# host and reads its stdout via async redirection, and Process.WaitForExit vs
+# BeginOutputReadLine can lose that output on loaded machines (dotnet/format#2000;
+# still seen on the 8.x series per dotnet/sdk#44957). The actual mitigation is the
+# retry-once in the format step below; the pinning stays as belt-and-braces.
 $dotnet = (Get-Command dotnet -ErrorAction Stop).Source
 $env:DOTNET_HOST_PATH = $dotnet
 $env:DOTNET_ROOT = Split-Path -Parent $dotnet
@@ -52,8 +53,16 @@ Invoke-Step 'dotnet restore' { dotnet restore $solution }
 
 Invoke-Step 'dotnet build (Release)' { dotnet build $solution --no-restore -c Release }
 
+# Retry ONCE on dotnet-format's upstream CLI-probe race (dotnet/format#2000, #232):
+# exit 4 plus the literal "Unable to locate dotnet CLI" output is that race's exact
+# signature. A real format diff exits 2 and never emits that message, so it -- and
+# every other failure -- falls through to Invoke-Step's failure handling unchanged.
 Invoke-Step 'dotnet format (verify no changes)' {
-    & $dotnet format $solution --verify-no-changes --no-restore
+    & $dotnet format $solution --verify-no-changes --no-restore 2>&1 | Tee-Object -Variable formatProbe
+    if ($LASTEXITCODE -eq 4 -and ($formatProbe -join "`n") -like '*Unable to locate dotnet CLI*') {
+        Write-Host 'WARNING: dotnet format hit the upstream CLI-probe race (exit 4, dotnet/format#2000) -- retrying once (issue #232).' -ForegroundColor Yellow
+        & $dotnet format $solution --verify-no-changes --no-restore
+    }
 }
 
 $testArgs = @($solution, '--no-build', '-c', 'Release')
