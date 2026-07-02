@@ -136,6 +136,19 @@ $textPairs = @(
     # composited near-white light #controls surface. Retoned from #BD7C00 (~3.44:1, FAIL)
     # to #8A5A00 so it clears the WCAG 1.4.3 4.5:1 text floor. == CHROME.light['--gw-no-match'].
     @{ Name = 'Light No-match on controls bg'; Fg = '#8A5A00'; Bg = '#F5F6F8' }
+    # ADR-036 D2: the destructive-tier ink (Button.destructive label + 1px hairline;
+    # Tokens.axaml DestructiveTextBrush, dark #FF8A8E / light #A4262C) on its three surfaces
+    # per theme. Card = the translucent card tint composited over the page (dark #14FFFFFF
+    # over #1b1f27 -> #2D3138; light #0A000000 over #ECEEF1 -> #E3E5E8); wash = the HOVER
+    # state, the DestructiveSoft red tint composited over that card (dark #29D13438 over
+    # #2D3138 -> #473138; light #1FD13438 over #E3E5E8 -> #E1CFD3). Every row must clear
+    # the 4.5:1 text floor; the border is the same opaque ink, so 3:1 non-text follows.
+    @{ Name = 'Dark destructive on page'; Fg = '#FF8A8E'; Bg = '#1b1f27' }
+    @{ Name = 'Dark destructive on card'; Fg = '#FF8A8E'; Bg = '#2D3138' }
+    @{ Name = 'Dark destructive on wash'; Fg = '#FF8A8E'; Bg = '#473138' }
+    @{ Name = 'Light destructive on page'; Fg = '#A4262C'; Bg = '#ECEEF1' }
+    @{ Name = 'Light destructive on card'; Fg = '#A4262C'; Bg = '#E3E5E8' }
+    @{ Name = 'Light destructive on wash'; Fg = '#A4262C'; Bg = '#E1CFD3' }
 )
 
 function Format-Pass([double]$ratio, [double]$threshold) {

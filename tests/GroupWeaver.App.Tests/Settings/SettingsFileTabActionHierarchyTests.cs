@@ -14,13 +14,14 @@ using Xunit;
 namespace GroupWeaver.App.Tests.Settings;
 
 /// <summary>
-/// Pins issue #221 (Lever 2, action hierarchy) at the VIEW layer for the Settings window's File
-/// tab: the three file actions — <c>Import…</c>, <c>Export…</c>, <c>Reset to default</c> — all
-/// carry the secondary <c>ghost</c> class (none of these is the window's primary — that is the
-/// footer <c>Save</c>). The CRITICAL pin is the destructive-never-primary contract:
-/// <c>Reset to default</c> must NOT carry <c>accent</c>, so a destructive action can never be
-/// styled as the call-to-action. Only the <c>Classes=</c> attribute changed (the existing
-/// ghost/accent classes are reused); these assertions stop the hierarchy from silently drifting.
+/// Pins issue #221 (Lever 2, action hierarchy) + ADR-036 D3 (issue #236, the destructive tier)
+/// at the VIEW layer for the Settings window's File tab: <c>Import…</c> and <c>Export…</c> are
+/// benign secondaries (<c>ghost</c>, with the executable <c>DoesNotContain("destructive")</c>
+/// dilution guard), while <c>Reset to default</c> — one click discards the WHOLE in-memory
+/// ruleset mirror, the canonical whole-draft reset — carries <c>destructive</c> and neither
+/// <c>accent</c> (destructive is never the primary — that stays the footer <c>Save</c>) nor
+/// <c>ghost</c> (it moved out of the benign tier in #236). Only the <c>Classes=</c> attribute
+/// changes; these assertions stop the hierarchy from silently drifting.
 ///
 /// <para>The <see cref="SettingsWindow"/> is realized headless over a mirror seeded from the
 /// embedded default (<see cref="SettingsViewModel.LoadFrom"/> — the demo-mode-safe default,
@@ -33,7 +34,9 @@ namespace GroupWeaver.App.Tests.Settings;
 /// </summary>
 public sealed class SettingsFileTabActionHierarchyTests
 {
-    /// <summary>Import… is a secondary (ghost, not accent).</summary>
+    /// <summary>Import… is a secondary (ghost, not accent) — and, ADR-036 D3 OUT, never
+    /// destructive (it REPLACES the mirror only through the loader gate on a successful pick;
+    /// the dilution guard keeps the red tier rare).</summary>
     [AvaloniaFact]
     public void ImportButton_IsGhostSecondary_NotAccent()
     {
@@ -42,11 +45,13 @@ public sealed class SettingsFileTabActionHierarchyTests
         var import = ButtonForCommand(window, vm.ImportCommand);
         Assert.Contains("ghost", import.Classes);
         Assert.DoesNotContain("accent", import.Classes);
+        Assert.DoesNotContain("destructive", import.Classes); // ADR-036 D3 dilution guard
 
         window.Close();
     }
 
-    /// <summary>Export… is a secondary (ghost, not accent).</summary>
+    /// <summary>Export… is a secondary (ghost, not accent) — and, ADR-036 D3 OUT, never
+    /// destructive (it discards nothing; the dilution guard keeps the red tier rare).</summary>
     [AvaloniaFact]
     public void ExportButton_IsGhostSecondary_NotAccent()
     {
@@ -55,20 +60,24 @@ public sealed class SettingsFileTabActionHierarchyTests
         var export = ButtonForCommand(window, vm.ExportCommand);
         Assert.Contains("ghost", export.Classes);
         Assert.DoesNotContain("accent", export.Classes);
+        Assert.DoesNotContain("destructive", export.Classes); // ADR-036 D3 dilution guard
 
         window.Close();
     }
 
-    /// <summary>THE destructive-never-primary contract: Reset to default carries ghost and,
-    /// critically, does NOT carry accent — a destructive action is never the call-to-action.</summary>
+    /// <summary>ADR-036 D3 IN: Reset to default discards the WHOLE in-memory ruleset mirror in
+    /// one click, so it carries <c>destructive</c> — and, critically, still NOT <c>accent</c>
+    /// (the #221 destructive-never-primary contract this test has always pinned) and no longer
+    /// the benign <c>ghost</c> it shared with Import/Export before #236.</summary>
     [AvaloniaFact]
-    public void ResetButton_IsGhost_AndNeverAccent()
+    public void ResetButton_IsDestructive_AndNeverAccent()
     {
         var (window, vm) = ShowFileTab();
 
         var reset = ButtonForCommand(window, vm.ResetCommand);
-        Assert.Contains("ghost", reset.Classes);
+        Assert.Contains("destructive", reset.Classes);
         Assert.DoesNotContain("accent", reset.Classes); // destructive is never the primary
+        Assert.DoesNotContain("ghost", reset.Classes); // moved OUT of the benign ghost tier
 
         window.Close();
     }

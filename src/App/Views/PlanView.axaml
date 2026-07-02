@@ -53,8 +53,11 @@
             <TextBlock Text="Plan" Classes="heading" />
             <WrapPanel>
               <!-- New plan (#122 keep-alive): the plan survives Back, so this is the deliberate
-                   way to empty it and start over (keeps the base OU). -->
-              <Button Name="NewPlanButton" Classes="ghost" Content="New plan"
+                   way to empty it and start over (keeps the base OU). ADR-036 D3: one click
+                   discards the WHOLE durable draft — the red destructive outline, not a benign
+                   ghost like its toolbar siblings (inline Padding/FontSize keep the compact
+                   toolbar geometry; inline beats class). -->
+              <Button Name="NewPlanButton" Classes="destructive" Content="New plan"
                       Margin="0,0,6,6" Padding="8,4" FontSize="12"
                       ToolTip.Tip="Clear the plan and start over (keeps the base OU)"
                       Command="{Binding NewPlanCommand}" />
@@ -181,13 +184,16 @@
                        IsVisible="{Binding !Nodes.Count}"
                        Classes="secondary" TextWrapping="Wrap" />
 
-            <!-- Selected-node actions: rename + remove -->
+            <!-- Selected-node actions: rename (accent) + remove. ADR-036 D3: Remove drops the
+                 object AND cascades every incident membership (PlanModel.RemoveNode) — a compound
+                 deletion beyond a single row, so it carries the red destructive outline (the
+                 per-membership-row Remove below deliberately stays ghost). -->
             <StackPanel Spacing="6" IsVisible="{Binding HasSelectedNode}">
               <TextBox Watermark="New name" Text="{Binding RenameText}" />
               <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                 <Button Name="RenameButton" Classes="accent" Content="Rename"
                         Command="{Binding RenameSelectedCommand}" />
-                <Button Name="RemoveButton" Classes="ghost" Content="Remove"
+                <Button Name="RemoveButton" Classes="destructive" Content="Remove"
                         Command="{Binding RemoveSelectedCommand}" />
               </StackPanel>
             </StackPanel>

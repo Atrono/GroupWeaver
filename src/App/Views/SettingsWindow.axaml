@@ -452,8 +452,12 @@
 
                       <!-- Remove binds to the VM (the ItemsControl's DataContext): reflection
                            binding — the parent path is not statically typed under this card's
-                           NamingRuleEditor x:DataType (mirrors the ignore-row Remove). -->
+                           NamingRuleEditor x:DataType (mirrors the ignore-row Remove). ADR-036
+                           D3: deleting a naming rule takes its pattern AND exceptions list in
+                           one click (a compound deletion), so it carries the red destructive
+                           outline; the single-row ignore/exception Removes stay unclassed. -->
                       <Button Grid.Column="4" Margin="8,0,0,0" Content="Remove"
+                              Classes="destructive"
                               VerticalAlignment="Center"
                               x:CompileBindings="False"
                               Command="{Binding $parent[ItemsControl].DataContext.RemoveNamingCommand}"
@@ -815,7 +819,10 @@
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Classes="ghost" Content="Import…" MinWidth="110" Command="{Binding ImportCommand}" />
             <Button Classes="ghost" Content="Export…" MinWidth="110" Command="{Binding ExportCommand}" />
-            <Button Classes="ghost" Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
+            <!-- ADR-036 D3: Reset discards the WHOLE in-memory ruleset mirror in one click — the
+                 red destructive outline beside the two benign ghost file actions (and never
+                 accent; the primary stays the footer Save). -->
+            <Button Classes="destructive" Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
           </StackPanel>
         </StackPanel>
       </TabItem>
