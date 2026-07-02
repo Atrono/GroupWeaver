@@ -169,6 +169,29 @@
     <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
     </Style>
+    <!-- #227: the selection-sync active-row band (findings sidebar Grid / Plan + Gap row Buttons),
+         theme-resolved. Replaces the converter-fed fixed-dark band (SelectionHighlightConverters,
+         deleted) with the SAME DynamicResource AccentSoftBrush role as the ListBoxItem:selected
+         band above (dark #298B7BFF / light #1F6A5CFF) so all three surfaces re-tone on a live
+         theme flip. Mechanic = the chip/chip-active idiom: the static active-band-host class pins
+         the transparent REST fill (required on the Buttons — Fluent's default ButtonBackground
+         would fill every row otherwise); the bound active-band class (Classes.active-band ←
+         IsActive) is declared LATER so its equal-priority setter wins. ORDER-SENSITIVE (base
+         before modifier) and TYPED (Grid's Background is Panel's property, Button's is
+         TemplatedControl's — a type-less .class selector cannot resolve the setter); the hosts
+         must never set Background locally (a local value beats both style setters). -->
+    <Style Selector="Grid.active-band-host">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.active-band-host">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Grid.active-band">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <Style Selector="Button.active-band">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
     <!-- ComboBox: the accent FocusAdorner ring AND a keyboard-focus suppression of Fluent's solid blue
          focus highlight (Border#HighlightBackground turns opaque #0078D7 on focus, which would fill the
          box and mask the accent). Neutralizing it only under :focus-visible keeps the accent dominant on

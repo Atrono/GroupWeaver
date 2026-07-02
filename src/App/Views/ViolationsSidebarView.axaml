@@ -152,7 +152,7 @@
                The jump Button spans both columns underneath; the "Why?" button sits top-right in
                its own cell above it, sharing the row's selection-highlight background. -->
           <Grid ColumnDefinitions="*,Auto"
-                Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}">
+                Classes="active-band-host" Classes.active-band="{Binding IsActive}">
             <Button Grid.Column="0" Grid.ColumnSpan="2"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                     Padding="4" BorderThickness="0"

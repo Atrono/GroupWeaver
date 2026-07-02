@@ -106,7 +106,7 @@
               <DataTemplate x:DataType="vm:GapRowModel">
                 <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                         Padding="4" BorderThickness="0"
-                        Background="{Binding IsActive, Converter={x:Static views:SelectionHighlightConverters.IsActiveToBackground}}"
+                        Classes="active-band-host" Classes.active-band="{Binding IsActive}"
                         ToolTip.Tip="{Binding Kind, Converter={x:Static views:GapKindConverters.ToLabel}}"
                         Command="{Binding $parent[ListBox].((vm:GapViewModel)DataContext).JumpToCommand}"
                         CommandParameter="{Binding}">

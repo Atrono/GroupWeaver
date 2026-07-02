@@ -297,8 +297,9 @@ has no renderer, so GraphHost shows its placeholder — the right-hand chrome is
       UnverifiableArea gray #8A8F98 "?" — parity with the graph diff cues) + wrapping message +
       dimmed subject name; the colors match the slice-5 graph diff overlay [S:gap-view]
 - [ ] Row tap jumps: the whole row is a flat command button focusing + selecting the finding's
-      anchor; the active row carries the selection-highlight band (SelectionHighlightConverters
-      parity) [I — GapModeTests]
+      anchor; the active row carries the theme-resolved selection-highlight band (the shared
+      `active-band` App.axaml style over `AccentSoftBrush`, #227 — parity with the Violations
+      sidebar and Plan rows) [I — GapModeTests]
 - [ ] Unchecked banner: an amber honesty note containing the word "unexpanded" visible whenever
       the diff has a known-but-unloaded Ist parent (HasUncheckedAreas) [S:gap-view]
 - [ ] All-clear: "No differences — the plan matches the current structure." when the diff has no
