@@ -3,6 +3,7 @@ using System.ComponentModel;
 
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 
 using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
@@ -35,9 +36,10 @@ public sealed partial class MainWindow : Window
     /// is torn down in <see cref="OnClosed"/> (no leak).</summary>
     private ShellViewModel? _wiredShell;
 
-    /// <summary>The <c>CurrentStep</c>-change handler, kept so the exact delegate can be
-    /// unsubscribed in <see cref="OnClosed"/>.</summary>
-    private PropertyChangedEventHandler? _currentStepChanged;
+    /// <summary>The shell <c>PropertyChanged</c> handler (<c>CurrentStep</c> re-arm + the #230
+    /// focus-mode focus parking), kept so the exact delegate can be unsubscribed in
+    /// <see cref="OnClosed"/>.</summary>
+    private PropertyChangedEventHandler? _shellPropertyChanged;
 
     public MainWindow()
     {
@@ -148,16 +150,22 @@ public sealed partial class MainWindow : Window
         WireExport(shell.CurrentStep);
         WireGraphSurface(shell.CurrentStep);
 
-        // …and re-arm each new step (a workspace, or a Plan/Gap step entered later).
-        _currentStepChanged = (_, args) =>
+        // …and re-arm each new step (a workspace, or a Plan/Gap step entered later). The SAME
+        // subscription carries the #230 focus-continuity branch: firing on the IsFocusMode
+        // property change catches every entry vector (button, 'F' key, command) at one choke point.
+        _shellPropertyChanged = (_, args) =>
         {
             if (args.PropertyName == nameof(ShellViewModel.CurrentStep))
             {
                 WireExport(shell.CurrentStep);
                 WireGraphSurface(shell.CurrentStep);
             }
+            else if (args.PropertyName == nameof(ShellViewModel.IsFocusMode))
+            {
+                MoveKeyboardFocusForFocusMode(shell.IsFocusMode);
+            }
         };
-        shell.PropertyChanged += _currentStepChanged;
+        shell.PropertyChanged += _shellPropertyChanged;
     }
 
     /// <summary>Pushes the one export seam into the current step if it is exportable (a
@@ -211,20 +219,47 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>The app's FIRST programmatic-focus pattern (#230 / ADR-022 2026-07-02 addendum) —
+    /// future focus-moving features copy this seam rather than inventing a second one. Entering
+    /// focus mode hides the very strip the Focus toggle lives in, so keyboard focus would be
+    /// silently lost with it (WCAG 2.4.3-adjacent); this PARKS it on the seam chevron
+    /// (<c>RailCollapseToggle</c>, WorkspaceView.axaml) — the designated surviving affordance
+    /// ADR-022's Consequences named as the persistent exit — and NEVER the WebView2 HWND, whose
+    /// native Win32 focus would swallow the window-level Esc/F handlers (the exit gestures).
+    /// Exiting restores focus to the Focus toggle (symmetric round-trip), guarded by
+    /// <c>IsEffectivelyVisible</c> so a non-workspace exit (programmatic/tests) skips silently.
+    /// Both moves use <see cref="NavigationMethod.Tab"/> so <c>:focus-visible</c> fires and the
+    /// ADR-033 accent focus ring RENDERS (WCAG 2.4.7) — the visible ring on an exit-adjacent
+    /// control doubles as the "way back out" affordance.</summary>
+    private void MoveKeyboardFocusForFocusMode(bool isFocusMode)
+    {
+        if (isFocusMode)
+        {
+            // Cross-namescope: the chevron lives in WorkspaceView's scope, not the window's.
+            this.FindDescendantOfType<WorkspaceView>()
+                ?.FindControl<Button>("RailCollapseToggle")
+                ?.Focus(NavigationMethod.Tab);
+        }
+        else if (FocusModeButton.IsEffectivelyVisible)
+        {
+            FocusModeButton.Focus(NavigationMethod.Tab);
+        }
+    }
+
     /// <summary>
-    /// Window teardown: unsubscribes the <c>CurrentStep</c> watcher (no leak — the shell
+    /// Window teardown: unsubscribes the shell watcher (no leak — the shell
     /// outlives the window only in theory, but the handler closes over it) and disposes the
     /// shell, the one signal that cancels the workspace's in-flight scope load (AP 2.2 S6).
     /// </summary>
     protected override void OnClosed(EventArgs e)
     {
-        if (_wiredShell is not null && _currentStepChanged is not null)
+        if (_wiredShell is not null && _shellPropertyChanged is not null)
         {
-            _wiredShell.PropertyChanged -= _currentStepChanged;
+            _wiredShell.PropertyChanged -= _shellPropertyChanged;
         }
 
         _wiredShell = null;
-        _currentStepChanged = null;
+        _shellPropertyChanged = null;
 
         (DataContext as ShellViewModel)?.Dispose();
 
