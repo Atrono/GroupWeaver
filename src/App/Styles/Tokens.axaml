@@ -66,6 +66,15 @@
            error semantic, clears 1.4.3. (Mirrors BrandTokens; reviewer enforces parity.) -->
       <SolidColorBrush x:Key="ValidationErrorTextBrush" Color="#FF8A8E" />
 
+      <!-- ADR-036 D2: the destructive-tier ink AND 1px hairline of Button.destructive. Value = the
+           WP6a-derived accessible red above, deliberately a SEPARATE role (the validation ink is
+           tuned to the error-band composites and must stay independently retunable): 7.29:1 on the
+           page, 5.77:1 on the card composite, 5.26:1 on the hover wash over card. The wash is the
+           severity red #D13438 at the AccentSoft alpha (dark 16% = 0x29). (Mirrors
+           BrandTokens.DestructiveText*/DestructiveSoft*; reviewer enforces parity.) -->
+      <SolidColorBrush x:Key="DestructiveTextBrush" Color="#FF8A8E" />
+      <SolidColorBrush x:Key="DestructiveSoftBrush" Color="#29D13438" />
+
       <!-- WP6b: the demo-preview "more findings than default" caution ink (= BrandTokens
            .PreviewCautionTextHex; reviewer enforces parity). Sits on the preview card
            (CardBackgroundBrush #14FFFFFF over the dark page ⇒ ~#2C2F37). The severity amber
@@ -110,6 +119,14 @@
            raw error red reads only 3.51:1. A deeper red (#A4262C, BrandTokens.ValidationErrorTextLightHex)
            reads 5.17:1 — still unmistakably the error red, clears 1.4.3. -->
       <SolidColorBrush x:Key="ValidationErrorTextBrush" Color="#A4262C" />
+
+      <!-- ADR-036 D2: destructive-tier ink + hairline (light) — the WP6a-derived accessible deep
+           red (see the dark note; a separate role, not a shared token): 6.25:1 on the page, 5.75:1
+           on the card composite, 4.86:1 on the hover wash over card (the floor case). Wash =
+           severity red at the light AccentSoft alpha (12% = 0x1F). (Mirrors BrandTokens;
+           reviewer enforces parity.) -->
+      <SolidColorBrush x:Key="DestructiveTextBrush" Color="#A4262C" />
+      <SolidColorBrush x:Key="DestructiveSoftBrush" Color="#1FD13438" />
 
       <!-- WP6b: the light-theme caution ink (= BrandTokens.PreviewCautionTextLightHex; reviewer
            enforces parity) on the light preview card. The card surface renders

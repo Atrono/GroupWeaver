@@ -122,6 +122,7 @@ badges use the stronger `BrandTokens.OnLightTextStrong` (#000000) ink, not the p
 - [ ] Monospace honesty: every DN + sAMAccountName (detail panel `dn-strong`/`dn`, root-picker candidate DN, workspace placeholder root DN) renders in the tabular-mono face so verbatim untouched directory data is visibly distinct from proportional display Names + prose attribute values [S:workspace-detail] [S:rootpicker-demo] [T:TypographyTests — DN/SAM resolve the Cascadia Mono stack]
 - [ ] Per-hue on-badge ink (WCAG 1.4.3, ADR-021): the severity glyph text is white on Error #D13438 (4.93:1) but DARK #1b1f27 ink on Warning #F7A30B (8.02:1) and Info #4FA3E3 (6.04:1) — the old white-on-amber 2.06 / white-on-blue 2.73 fails are gone; kind badges keep white (their fills pass); the redundant E/W/i letter + shape channels are untouched (1.4.1) [S:workspace-violations] [S:settings-rules] [S:settings-matrix]
 - [ ] Action hierarchy: primary actions are accent-filled, secondary are ghost-outlined (Connect vs Demo; settings Save vs Apply/Cancel) — no two-identical-grey-buttons ambiguity [S:connection-idle] [S:settings-file]
+- [ ] Destructive tier (ADR-036): one-click state-discarding actions — Settings "Reset to default", naming-rule "Remove", Plan "New plan" + selected-node "Remove" — carry the red destructive outline (DestructiveText ink + hairline, hollow at rest, red-soft hover); destructive is NEVER accent and never the card's primary; single-row removes (plan membership rows, ignore/exception rows) and the reversible triage actions stay non-destructive so red stays a signal, not a wall [S:settings-file] [S:settings-naming] [S:plan-editor] [T:SettingsFileTabActionHierarchyTests / PlanActionHierarchyViewTests / SettingsDestructiveClassTests / DestructiveButtonTokenParityTests]
 - [ ] Structural card chrome: the shared `BrandTokens`/`Tokens.axaml` card neutrals (translucent-white fill + hairline border + rounded corners) frame content off the void where used (connect card, unchecked-hint info block, naming cards) — distinct from the semantic palette, theme-neutral [S:connection-idle] [S:workspace-violations]
 
 ### Connect step
@@ -232,7 +233,7 @@ ADR-003 D5), opened from the shell top command strip.
 - [ ] Matrix editor: 3 parent rows (GG/DL/UG) × 6 member cols (User/Computer/GG/DL/UG/External, no OU), kind-badge headers; each cell a 5-way allow(green)/deny/error/warning/info chip with per-hue glyph ink (white on allow/deny/error, dark on warning/info — #90); Unlisted fallback + rule-wide default severity present and labeled; AGUDLP lane readable [S:settings-matrix]
 - [ ] Ignore + exceptions: dn/name mode toggle, glob field, note field rendered PLAIN TEXT (control chars never interpreted, #45), add/remove; nesting exceptions show the Any/Parent/Member endpoint control, naming/simple ones do not [S:settings-ignore] [S:settings-exceptions] [T:MatchEntryNotePlainTextTests]
 - [ ] Circular + empty-group: Enabled + Severity present [S:settings-rules]
-- [ ] File tab: Import / Export / Reset-to-default present; Save + Apply present and distinct (Apply = live no-write, Save = live + atomic persist) [S:settings-file]
+- [ ] File tab: Import / Export / Reset-to-default present; Save + Apply present and distinct (Apply = live no-write, Save = live + atomic persist); Reset to default reads as the red destructive outline (ADR-036) beside the two ghost file actions [S:settings-file]
 - [ ] Validation panel: on an invalid edit or a rejected user-file-on-open, errors list as "{path} — {message}", message STRICTLY plain text (#45); save/export blocked while invalid [S:settings-validation] [T:SettingsValidationTests]
 - [ ] Invalid-user-file banner: when the app runs on the default because the saved file was rejected, the window says so and offers Fix/Reset; the on-disk file is never auto-rewritten [S:settings-validation] [T:SettingsValidationTests — on-disk byte-unchanged]
 - [ ] Live re-thread: Apply/Save re-evaluates the open workspace (severity halos + sidebar update) with NO graph rebuild / viewport kept [I — SettingsShellIntegrationTests: Assert.Same(Graph), UpdateGraphAsync not ShowGraphAsync]
@@ -252,7 +253,9 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
       (ADR-001 guardrail 5) [S:plan-editor]
 - [ ] Header: "Plan" title on its own row, then a WrapPanel of actions — New plan / Gap analysis /
       Export script / "← Back to explore" — that reflows across rows without clipping or squeezing
-      out the title at the 380px editor column; the column scrolls without clipping at both sizes [S:plan-editor]
+      out the title at the 380px editor column; New plan is the red destructive outline (ADR-036 —
+      it empties the whole draft) among its ghost siblings; the column scrolls without clipping at
+      both sizes [S:plan-editor]
 - [ ] Add-object form: kind selector (User / Global group / Domain-local group / Universal
       group), Name field, SAM field shown ONLY for User; "Add" button; kind labels legible
       [S:plan-editor]
@@ -260,9 +263,10 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
       kind badges, "Add member" button; a hint that only a group can have members [S:plan-editor]
 - [ ] Objects list: each row a kind badge (AdObjectKindConverters palette — U #038387 /
       GG #107C10 / DL #A14000 / UG #744DA9, same kind = same color as graph/picker) + name;
-      selecting a row reveals Rename (field + button) and Remove [S:plan-editor]
+      selecting a row reveals Rename (accent) and Remove (destructive red outline, ADR-036 —
+      removing cascades every incident membership) [S:plan-editor]
 - [ ] Memberships list: "parent ← child" rows (child is a member of parent — legend reading),
-      each with a Remove affordance [S:plan-editor]
+      each with a ghost (deliberately non-destructive, ADR-036 D3) Remove affordance [S:plan-editor]
 - [ ] Live validation: the findings list ("Findings (n)") reflects the current plan after every
       edit — severity glyph (color + letter, SeverityConverters parity) + message + subject;
       all-clear text when the plan is clean [S:plan-editor] [I — PlanModeEditorTests]

@@ -107,6 +107,40 @@
       <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
     </Style>
 
+    <!-- DESTRUCTIVE outline button (ADR-036 D1, #236): the fourth tier — a red OUTLINE for
+         one-click state-discarding actions (whole-draft resets, compound/cascading deletions;
+         membership pinned by D3). Mirrors accent-outline's exact state grammar (hollow at rest,
+         opaque destructive-ink 1px hairline + ink label, translucent DestructiveSoft wash on
+         hover/pressed via the same PART_ContentPresenter seams) so it sits between the grey
+         ghosts and the filled accent in loudness — "different, careful" without shouting over
+         the card's primary (a red FILL means "finding" in this app, never "action"). Geometry
+         mirrors ghost exactly (Padding 10,6 / CornerRadius 4 / BorderThickness 1), so every
+         ghost->destructive swap is layout-stable. The ink doubles as the border (an opaque ink,
+         never a translucent line tint — the accent-outline >=3:1 non-text discipline); all
+         DynamicResource so they re-resolve on a live ThemeVariant flip. -->
+    <Style Selector="Button.destructive">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DestructiveTextBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource DestructiveTextBrush}" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Button.destructive /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource DestructiveTextBrush}" />
+    </Style>
+    <Style Selector="Button.destructive:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource DestructiveSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DestructiveTextBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource DestructiveTextBrush}" />
+    </Style>
+    <Style Selector="Button.destructive:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource DestructiveSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DestructiveTextBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource DestructiveTextBrush}" />
+    </Style>
+
     <!-- ADR-033: app-wide KEYBOARD-focus-visible ring on the native chrome (WCAG 2.4.7 / 2.4.11).
          The ring REPLACES each control's default Fluent focus visual with a custom accent FocusAdorner:
          a 2px {DynamicResource AccentTextBrush} Border (dark #A99BFF / light #4A3CC8 — >=3:1 non-text on

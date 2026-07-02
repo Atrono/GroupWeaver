@@ -215,6 +215,33 @@ public static class BrandTokens
     /// unmistakably the error red. See <see cref="ValidationErrorTextHex"/>.</summary>
     public const string ValidationErrorTextLightHex = "#A4262C";
 
+    /// <summary>DARK destructive-tier ink AND 1px hairline — light red #FF8A8E (ADR-036 D2). The
+    /// <c>Button.destructive</c> outline class (App.axaml) inks its label and border in this role;
+    /// value = the WP6a-derived accessible red (<see cref="ValidationErrorTextHex"/>'s hue) as a
+    /// deliberately SEPARATE role, so a future error-band retone cannot silently drag button
+    /// contrast. Measured (tools/check-contrast.ps1): 7.29:1 on the page #1b1f27, 5.77:1 on the
+    /// card composite #2D3138, 5.26:1 on the hover wash over card #473138 — every state clears the
+    /// 4.5:1 text floor, and the border is the same opaque ink so 3:1 non-text follows. Mirrors
+    /// Tokens.axaml; reviewer enforces parity.</summary>
+    public const string DestructiveTextHex = "#FF8A8E";
+
+    /// <summary>LIGHT destructive-tier ink + hairline — deep red #A4262C (ADR-036 D2). Measured:
+    /// 6.25:1 on the page #ECEEF1, 5.75:1 on the card composite #E3E5E8, 4.86:1 on the hover wash
+    /// over card #E1CFD3 (the floor case) — all clear 4.5:1. See
+    /// <see cref="DestructiveTextHex"/>. Mirrors Tokens.axaml; reviewer enforces parity.</summary>
+    public const string DestructiveTextLightHex = "#A4262C";
+
+    /// <summary>DARK destructive hover/pressed wash — the severity red <see cref="ErrorHex"/>
+    /// #D13438 at the dark accent-soft alpha (16% ≙ 0x29, mirroring
+    /// <see cref="AccentSoftHex"/>), #29D13438 (ADR-036 D2). Mirrors Tokens.axaml; reviewer
+    /// enforces parity.</summary>
+    public const string DestructiveSoftHex = "#29D13438";
+
+    /// <summary>LIGHT destructive hover/pressed wash — the severity red at the light accent-soft
+    /// alpha (12% ≙ 0x1F, mirroring <see cref="AccentSoftLightHex"/>), #1FD13438 (ADR-036 D2).
+    /// Mirrors Tokens.axaml; reviewer enforces parity.</summary>
+    public const string DestructiveSoftLightHex = "#1FD13438";
+
     /// <summary>DARK preview-caution ink — the WP6b "vs default · +n criticals" delta when the edited
     /// ruleset produces MORE findings than the default. The severity amber <see cref="WarningHex"/>
     /// #F7A30B on the dark preview card (~#2C2F37) reads ~6.5:1 — clears 1.4.3; the signed delta text

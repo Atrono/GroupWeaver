@@ -19,21 +19,29 @@ using Xunit;
 namespace GroupWeaver.App.Tests.Views;
 
 /// <summary>
-/// Pins issue #221 (Lever 2, action hierarchy) at the VIEW layer for the Plan editor: the
-/// create/apply PRIMARIES carry <c>accent</c> and the destructive/secondary actions carry
-/// <c>ghost</c>, so the hierarchy the implementer set (only the <c>Classes=</c> attribute
-/// changed — the existing accent/ghost classes are reused) cannot silently drift back to
-/// all-grey. A class regression on any of these buttons fails here, not in a PNG review.
+/// Pins issue #221 (Lever 2, action hierarchy) + ADR-036 D3 (issue #236, the destructive tier)
+/// at the VIEW layer for the Plan editor: the create/apply PRIMARIES carry <c>accent</c>, the
+/// benign secondaries carry <c>ghost</c>, and the two state-discarding actions carry
+/// <c>destructive</c> — so the hierarchy the implementer set (only the <c>Classes=</c>
+/// attribute changed) cannot silently drift back to all-grey OR dilute red across every row.
+/// A class regression on any of these buttons fails here, not in a PNG review.
 ///
 /// <list type="bullet">
 ///   <item><b>Primaries (accent):</b> Add-object <c>Add</c> (<c>AddObjectButton</c>),
 ///   Add-membership <c>Add member</c> (<c>AddMemberButton</c>), selected-node
-///   <c>Rename</c> (<c>RenameButton</c>).</item>
-///   <item><b>Secondary / destructive (ghost):</b> selected-node <c>Remove</c>
-///   (<c>RemoveButton</c>), the per-membership-row <c>Remove</c> (unnamed template button,
-///   located by its <c>RemoveMemberCommand</c> binding), and the four header-toolbar buttons —
-///   <c>New plan</c> (<c>NewPlanButton</c>), <c>Gap analysis</c> (<c>GapAnalysisButton</c>),
-///   <c>Export script</c> (<c>ExportScriptButton</c>), back-to-explore (<c>BackButton</c>).</item>
+///   <c>Rename</c> (<c>RenameButton</c>). Never <c>destructive</c> (ADR-036: destructive is
+///   never the primary).</item>
+///   <item><b>Destructive (ADR-036 D3 IN):</b> selected-node <c>Remove</c>
+///   (<c>RemoveButton</c> — removes the object AND cascades every incident membership,
+///   <c>PlanModel.RemoveNode</c>) and <c>New plan</c> (<c>NewPlanButton</c> — empties the whole
+///   #122 keep-alive draft). Each discards user-authored state beyond a single row, so each
+///   carries <c>destructive</c> and neither <c>accent</c> nor <c>ghost</c>.</item>
+///   <item><b>Secondary (ghost, ADR-036 D3 OUT):</b> the per-membership-row <c>Remove</c>
+///   (unnamed template button, located by its <c>RemoveMemberCommand</c> binding — deletes
+///   exactly the row it sits beside, so red here would be an alarm wall) and the remaining
+///   header-toolbar buttons — <c>Gap analysis</c> (<c>GapAnalysisButton</c>),
+///   <c>Export script</c> (<c>ExportScriptButton</c>), back-to-explore (<c>BackButton</c>).
+///   Each gains the executable dilution guard <c>DoesNotContain("destructive")</c>.</item>
 /// </list>
 ///
 /// <para>The <see cref="PlanView"/> is realized headless over a seeded plan: a group, a user,
@@ -60,6 +68,7 @@ public sealed class PlanActionHierarchyViewTests
         var add = Named(view, "AddObjectButton");
         Assert.Contains("accent", add.Classes);
         Assert.DoesNotContain("ghost", add.Classes);
+        Assert.DoesNotContain("destructive", add.Classes); // ADR-036: destructive is never the primary
 
         window.Close();
     }
@@ -72,6 +81,7 @@ public sealed class PlanActionHierarchyViewTests
         var addMember = Named(view, "AddMemberButton");
         Assert.Contains("accent", addMember.Classes);
         Assert.DoesNotContain("ghost", addMember.Classes);
+        Assert.DoesNotContain("destructive", addMember.Classes); // ADR-036: destructive is never the primary
 
         window.Close();
     }
@@ -84,23 +94,47 @@ public sealed class PlanActionHierarchyViewTests
         var rename = Named(view, "RenameButton");
         Assert.Contains("accent", rename.Classes);
         Assert.DoesNotContain("ghost", rename.Classes);
+        Assert.DoesNotContain("destructive", rename.Classes); // ADR-036: destructive is never the primary
 
         window.Close();
     }
 
-    // --- destructive / secondary actions carry ghost ------------------------------------
+    // --- state-discarding actions carry destructive (ADR-036 D3 IN) ---------------------
 
+    /// <summary>ADR-036 D3 IN: the selected-node Remove discards the object AND cascades every
+    /// incident membership (<c>PlanModel.RemoveNode</c>) — a compound deletion beyond the row it
+    /// sits beside, so it carries <c>destructive</c>, never <c>accent</c> (never the primary)
+    /// and no longer the benign <c>ghost</c> it shared with Export/Back before #236.</summary>
     [AvaloniaFact(Timeout = 60_000)]
-    public async Task SelectedNodeRemoveButton_IsGhostSecondary()
+    public async Task SelectedNodeRemoveButton_IsDestructive()
     {
         var (window, view, _) = await ShowSeededPlanAsync();
 
         var remove = Named(view, "RemoveButton");
-        Assert.Contains("ghost", remove.Classes);
-        Assert.DoesNotContain("accent", remove.Classes);
+        Assert.Contains("destructive", remove.Classes);
+        Assert.DoesNotContain("accent", remove.Classes); // destructive is never the primary
+        Assert.DoesNotContain("ghost", remove.Classes); // moved OUT of the benign ghost tier
 
         window.Close();
     }
+
+    /// <summary>ADR-036 D3 IN: New plan empties the WHOLE durable #122 keep-alive draft in one
+    /// click — the canonical whole-draft discard, so it leaves the header-toolbar ghost theory
+    /// and carries <c>destructive</c> (and neither <c>accent</c> nor <c>ghost</c>).</summary>
+    [AvaloniaFact(Timeout = 60_000)]
+    public async Task NewPlanButton_IsDestructive()
+    {
+        var (window, view, _) = await ShowSeededPlanAsync();
+
+        var newPlan = Named(view, "NewPlanButton");
+        Assert.Contains("destructive", newPlan.Classes);
+        Assert.DoesNotContain("accent", newPlan.Classes); // destructive is never the primary
+        Assert.DoesNotContain("ghost", newPlan.Classes); // moved OUT of the benign ghost tier
+
+        window.Close();
+    }
+
+    // --- benign secondary actions carry ghost (ADR-036 D3 OUT) --------------------------
 
     [AvaloniaFact(Timeout = 60_000)]
     public async Task PerMembershipRowRemoveButton_IsGhostSecondary()
@@ -115,12 +149,14 @@ public sealed class PlanActionHierarchyViewTests
 
         Assert.Contains("ghost", rowRemove.Classes);
         Assert.DoesNotContain("accent", rowRemove.Classes);
+        // ADR-036 D3 OUT (the executable dilution guard): this Remove deletes exactly the row
+        // it sits beside — red on every list row would be an alarm wall, so it STAYS ghost.
+        Assert.DoesNotContain("destructive", rowRemove.Classes);
 
         window.Close();
     }
 
     [AvaloniaTheory(Timeout = 60_000)]
-    [InlineData("NewPlanButton")]
     [InlineData("GapAnalysisButton")]
     [InlineData("ExportScriptButton")]
     [InlineData("BackButton")]
@@ -131,6 +167,9 @@ public sealed class PlanActionHierarchyViewTests
         var button = Named(view, name);
         Assert.Contains("ghost", button.Classes);
         Assert.DoesNotContain("accent", button.Classes);
+        // ADR-036 D3 OUT: these discard no user-authored work — the dilution guard keeps the
+        // red tier rare (NewPlanButton left this theory for NewPlanButton_IsDestructive).
+        Assert.DoesNotContain("destructive", button.Classes);
 
         window.Close();
     }
