@@ -32,11 +32,12 @@ jobs:
         with:
           global-json-file: global.json
 
-      # The `dotnet format` CLI-resolution flake ("Unable to locate dotnet CLI" after
-      # setup-dotnet leaves DOTNET_ROOT/DOTNET_HOST_PATH unset, e.g. run 27958292551) is
-      # now cured at the source: tools/build.ps1 pins both vars and invokes format via the
-      # absolute dotnet host, so it is deterministic in the shared gate (dev box + CI) and
-      # needs no separate CI step.
+      # The `dotnet format` "Unable to locate dotnet CLI" flake is an upstream race in
+      # dotnet-format's own CLI probe (dotnet/format#2000; still seen on 8.x per
+      # dotnet/sdk#44957). Env pinning alone did not cure it (#110 -> #232):
+      # tools/build.ps1 pins DOTNET_HOST_PATH/DOTNET_ROOT AND retries the format step
+      # once on the exact failure signature (exit 4 + that message), so the shared
+      # gate needs no separate CI step.
       - name: Cache NuGet packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
         with:
