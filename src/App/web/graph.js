@@ -1561,5 +1561,30 @@
   // single source of truth is CHROME[currentVariant]. Default currentVariant = 'dark'.
   applyChromeVariant(currentVariant);
 
-  window.bridge.send({ type: 'ready', userAgent: navigator.userAgent });
+  // ADR-037 D6 (WP2, #241): the rendering-mode truth, reported once with `ready` so logs
+  // state which mode perf numbers were measured in ("SwiftShader" = software rendering -
+  // the lab box loses its GPU driver on every rebuild). Unmasked renderer string via
+  // WEBGL_debug_renderer_info, falling back to the plain RENDERER string (modern Chromium
+  // unmasks it there anyway); null-safe when the context/extension is unavailable - the
+  // ready send must never be blocked by a WebGL failure.
+  function detectWebglRenderer() {
+    try {
+      var probeCanvas = document.createElement('canvas');
+      var gl = probeCanvas.getContext('webgl') || probeCanvas.getContext('experimental-webgl');
+      if (!gl) { return null; }
+      var info = gl.getExtension('WEBGL_debug_renderer_info');
+      var renderer = info
+        ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL)
+        : gl.getParameter(gl.RENDERER);
+      return (typeof renderer === 'string' && renderer) ? renderer : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  window.bridge.send({
+    type: 'ready',
+    userAgent: navigator.userAgent,
+    webglRenderer: detectWebglRenderer()
+  });
 })();

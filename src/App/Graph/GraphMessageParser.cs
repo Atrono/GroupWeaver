@@ -41,7 +41,7 @@ public static class GraphMessageParser
             // each case reads only what its record models.
             return type switch
             {
-                "ready" => new ReadyMessage(),
+                "ready" => ParseReady(root),
                 "loaded" => ParseLoaded(root, json),
                 "nodeClick" => ParseNodeClick(root, json),
                 "nodeExpand" => ParseNodeExpand(root, json),
@@ -52,6 +52,14 @@ public static class GraphMessageParser
             };
         }
     }
+
+    // Both fields are OPTIONAL (ADR-037 D6): graph.js sends webglRenderer:null when the WebGL
+    // context/extension is unavailable (JSON null => TryGetString false => C# null), and a bare
+    // {"type":"ready"} must keep parsing — ready is never demoted to UnknownMessage.
+    private static GraphMessage ParseReady(JsonElement root) =>
+        new ReadyMessage(
+            TryGetString(root, "webglRenderer", out var webglRenderer) ? webglRenderer : null,
+            TryGetString(root, "userAgent", out var userAgent) ? userAgent : null);
 
     private static GraphMessage ParseLoaded(JsonElement root, string raw) =>
         TryGetInt(root, "nodeCount", out var nodeCount) && TryGetInt(root, "edgeCount", out var edgeCount)

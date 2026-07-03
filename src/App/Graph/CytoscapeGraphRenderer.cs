@@ -1,10 +1,15 @@
+using System.Diagnostics;
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 
+using GroupWeaver.App.Diagnostics;
 using GroupWeaver.Core.Diff;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Rules;
+
+using Microsoft.Extensions.Logging;
 
 namespace GroupWeaver.App.Graph;
 
@@ -23,11 +28,49 @@ namespace GroupWeaver.App.Graph;
 /// raised on the UI thread — the workspace VM sets <c>[ObservableProperty]</c>
 /// members in its handlers and bindings consume the resulting PropertyChanged.
 /// </summary>
-public sealed class CytoscapeGraphRenderer : IGraphRenderer
+public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
 {
     /// <summary>Bound on each bridge wait (ready, loaded, focused) — never a hang
     /// (ADR-004 D5).</summary>
     private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>The ADR-037 D8 bridge capability probe: <c>'1'</c> iff the page accepts script
+    /// AND <c>window.bridge.dispatch</c> is wired. THE one probe — used by both the re-attach
+    /// replay loop (<see cref="ReNavigateAndReplayAsync"/>) and the liveness heartbeat
+    /// (<see cref="ProbeHeartbeatAsync"/>), so the two can never diverge on what "alive" means.</summary>
+    private const string BridgeProbeScript =
+        "(typeof window.bridge!=='undefined'&&typeof window.bridge.dispatch==='function')?'1':'0'";
+
+    /// <summary>Heartbeat cadence while attached + navigated (ADR-037 D8).</summary>
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(10);
+
+    /// <summary>Per-probe bound (same 2 s as the replay loop's probes): a wedged
+    /// <c>InvokeScript</c> is itself the miss signal, never a hang.</summary>
+    private static readonly TimeSpan HeartbeatProbeTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>Consecutive misses that escalate to <c>HeartbeatLost</c> + the RendererError
+    /// banner (ADR-037 D8: 3 × 10 s ⇒ ~30 s of dead bridge).</summary>
+    private const int HeartbeatLostThreshold = 3;
+
+    /// <summary>The <c>Graph.Renderer</c> / <c>Graph.Bridge</c> loggers (ADR-037 D5, WP2 #241).
+    /// Defaulted from <see cref="AppLog.Factory"/> (no-op NullLogger in headless tests, the
+    /// installed sink in production) — the WP1 defaulted-ctor idiom, so the composition root's
+    /// <c>() => new CytoscapeGraphRenderer()</c> and every existing test compile unchanged.</summary>
+    private readonly ILogger _rendererLog;
+    private readonly ILogger _bridgeLog;
+
+    public CytoscapeGraphRenderer(ILoggerFactory? loggerFactory = null)
+    {
+        var logFactory = loggerFactory ?? AppLog.Factory;
+        _rendererLog = logFactory.CreateLogger("Graph.Renderer");
+        _bridgeLog = logFactory.CreateLogger("Graph.Bridge");
+    }
+
+    // ADR-037 D8 heartbeat state — UI-thread-only, like every other field. The timer exists
+    // from the first StartHeartbeat until Dispose; Start/Stop toggles it across detach cycles.
+    private DispatcherTimer? _heartbeatTimer;
+    private int _heartbeatMisses;
+    private bool _heartbeatProbeInFlight;
 
     // Not readonly: reset to a fresh, uncompleted source when the native control is
     // destroyed on detach (its old "ready" no longer reflects a live page), so the next
@@ -102,7 +145,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         try
         {
             await DispatchRenderAsync(
+                "show",
                 GraphChunker.ToChunkCommands(graph, report, belowMap),
+                graph.Nodes.Count,
+                graph.Edges.Count,
                 "graph render never completed (60 s)",
                 cancellationToken);
         }
@@ -129,7 +175,10 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         try
         {
             await DispatchRenderAsync(
+                "update",
                 GraphChunker.ToUpdateCommands(graph, report, belowMap),
+                graph.Nodes.Count,
+                graph.Edges.Count,
                 "graph update never completed (60 s)",
                 cancellationToken);
         }
@@ -159,12 +208,15 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         try
         {
             await DispatchRenderAsync(
+                "diff",
                 GraphChunker.ToChunkCommands(
                     union,
                     RuleReport.Empty,
                     belowMap: null,
                     nodeDiffMap: diff.NodeStatus,
                     edgeDiffMap: diff.EdgeStatus),
+                union.Nodes.Count,
+                union.Edges.Count,
                 "gap graph render never completed (60 s)",
                 cancellationToken);
         }
@@ -198,7 +250,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 await DispatchAsync(
                     [GraphJson.Serialize(new FocusDto("focus", [.. dns]))], cancellationToken);
                 await AwaitConfirmationAsync(
-                    _focused.Task, "focus move never completed (60 s)", cancellationToken);
+                    _focused.Task, "focus move never completed (60 s)", "focus-wait", cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -233,20 +285,48 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         {
             if (!await TryAwaitReadyAsync(cancellationToken))
             {
+                _rendererLog.LogWarning(
+                    new EventId(0, "ExportPngFailed"), "ExportPngFailed {reason}", "timeout");
                 return null;
             }
 
             try
             {
+                var started = Stopwatch.GetTimestamp();
+
                 // Armed BEFORE the dispatch: the page may confirm faster than
                 // InvokeScript returns.
                 _pngExported = null;
-                _pngReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var pngReady = _pngReady =
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 await DispatchAsync(
                     [GraphJson.Serialize(new ExportPngDto("exportPng", 2, false, "#1b1f27"))], cancellationToken);
                 await AwaitConfirmationAsync(
-                    _pngReady.Task, "png export never completed (60 s)", cancellationToken);
-                return DecodePngOrNull(_pngExported);
+                    pngReady.Task, "png export never completed (60 s)", "export-wait", cancellationToken);
+                if (!pngReady.Task.IsCompletedSuccessfully)
+                {
+                    // The 60 s timeout path: AwaitConfirmationAsync already raised the
+                    // RendererError; _pngExported never arrived, so the decode would be null.
+                    _rendererLog.LogWarning(
+                        new EventId(0, "ExportPngFailed"), "ExportPngFailed {reason}", "timeout");
+                    return null;
+                }
+
+                var bytes = DecodePngOrNull(_pngExported);
+                if (bytes is null)
+                {
+                    _rendererLog.LogWarning(
+                        new EventId(0, "ExportPngFailed"), "ExportPngFailed {reason}", "decodeNull");
+                }
+                else
+                {
+                    _rendererLog.LogDebug(
+                        new EventId(0, "ExportPngCompleted"),
+                        "ExportPngCompleted {bytes} {durationMs}",
+                        bytes.Length, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                }
+
+                return bytes;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -254,6 +334,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             }
             catch (Exception ex)
             {
+                _rendererLog.LogWarning(
+                    new EventId(0, "ExportPngFailed"), ex, "ExportPngFailed {reason}", "dispatch");
                 RaiseError("renderer", $"png export failed: {ex.Message}");
                 return null;
             }
@@ -292,6 +374,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         }
         catch (Exception ex)
         {
+            _rendererLog.LogWarning(
+                new EventId(0, "FireAndForgetFailed"), ex, "FireAndForgetFailed {command}", "busy");
             RaiseError("renderer", $"busy dispatch failed: {ex.Message}");
         }
     }
@@ -322,6 +406,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         }
         catch (Exception ex)
         {
+            _rendererLog.LogWarning(
+                new EventId(0, "FireAndForgetFailed"), ex, "FireAndForgetFailed {command}", "select");
             RaiseError("renderer", $"select dispatch failed: {ex.Message}");
         }
     }
@@ -355,6 +441,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         }
         catch (Exception ex)
         {
+            _rendererLog.LogWarning(
+                new EventId(0, "FireAndForgetFailed"), ex, "FireAndForgetFailed {command}", "theme");
             RaiseError("renderer", $"theme dispatch failed: {ex.Message}");
         }
     }
@@ -411,11 +499,15 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private sealed record ExportPngDto(string Type, int Scale, bool Full, string Bg);
 
     /// <summary>One renderer call at a time, shared across show/update/focus —
-    /// an overlap is a caller bug, never queued (ADR-005 D3).</summary>
+    /// an overlap is a caller bug, never queued (ADR-005 D3). ADR-037 D5: the violation is
+    /// logged (<c>SingleFlightViolation</c>, Error) BEFORE the existing throw — log-then-
+    /// existing-behavior, the caller bug now leaves machine-readable evidence.</summary>
     private void EnterSingleFlight(string operation)
     {
         if (_commandInFlight)
         {
+            _rendererLog.LogError(
+                new EventId(0, "SingleFlightViolation"), "SingleFlightViolation {operation}", operation);
             throw new InvalidOperationException(
                 $"{operation} while another renderer call is in flight — the renderer runs one command at a time.");
         }
@@ -437,7 +529,12 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     /// <c>finally</c> stay in the caller, OUTSIDE this body (ADR-005 D3, ADR-004 D5 untouched).
     /// </summary>
     private async Task DispatchRenderAsync(
-        IReadOnlyList<string> chunks, string timeoutMessage, CancellationToken cancellationToken)
+        string kind,
+        IReadOnlyList<string> chunks,
+        int nodes,
+        int edges,
+        string timeoutMessage,
+        CancellationToken cancellationToken)
     {
         if (!await TryAwaitReadyAsync(cancellationToken))
         {
@@ -446,6 +543,24 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
         try
         {
+            // ADR-037 D5: the render pipeline's Started/Completed pair. totalBytes is the wire
+            // volume (the command JSON is ASCII by construction — GraphJson escapes non-ASCII —
+            // so char count == byte count); computed only when Debug is actually written.
+            if (_rendererLog.IsEnabled(LogLevel.Debug))
+            {
+                var totalBytes = 0L;
+                foreach (var chunk in chunks)
+                {
+                    totalBytes += chunk.Length;
+                }
+
+                _rendererLog.LogDebug(
+                    new EventId(0, "RenderDispatchStarted"),
+                    "RenderDispatchStarted {kind} {chunks} {nodes} {edges} {totalBytes}",
+                    kind, chunks.Count, nodes, edges, totalBytes);
+            }
+
+            var started = Stopwatch.GetTimestamp();
             var loaded = _loaded =
                 new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             // ADR-026 WP1b: set the canvas theme BEFORE the chunks/commit so the fresh
@@ -455,13 +570,17 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             // no post-render restyle flash. Default (dark) => the prepended command is a no-op
             // restyle to the byte-identical default.
             await DispatchAsync([ThemeCommand(), .. chunks], cancellationToken);
-            await AwaitConfirmationAsync(loaded.Task, timeoutMessage, cancellationToken);
+            await AwaitConfirmationAsync(loaded.Task, timeoutMessage, "commit-wait", cancellationToken);
 
             // Cache as the replay base only on a real confirmation — a soft 60 s timeout
             // (AwaitConfirmationAsync swallows it to a RendererError) leaves it unset/stale.
             if (loaded.Task.IsCompletedSuccessfully)
             {
                 _lastRenderChunks = chunks;
+                _rendererLog.LogInformation(
+                    new EventId(0, "RenderCompleted"),
+                    "RenderCompleted {kind} {durationMs}",
+                    kind, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -476,7 +595,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
     /// <summary>Bounded wait for the bundle's <c>ready</c>; on timeout raises
     /// <see cref="RendererError"/> and reports <c>false</c> — callers return normally
-    /// (never a hang, never a throw; ADR-004 D5).</summary>
+    /// (never a hang, never a throw; ADR-004 D5). ADR-037 D5: the timeout is attributed as
+    /// <c>RenderTimeout{phase="ready"}</c>.</summary>
     private async Task<bool> TryAwaitReadyAsync(CancellationToken cancellationToken)
     {
         try
@@ -486,15 +606,18 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         }
         catch (TimeoutException)
         {
+            _rendererLog.LogError(new EventId(0, "RenderTimeout"), "RenderTimeout {phase}", "ready");
             RaiseError("renderer", "web bundle never became ready (60 s)");
             return false;
         }
     }
 
-    /// <summary>Bounded wait for a page confirmation (<c>loaded</c>/<c>focused</c>);
-    /// timeout → <see cref="RendererError"/> and a normal return.</summary>
+    /// <summary>Bounded wait for a page confirmation (<c>loaded</c>/<c>focused</c>/
+    /// <c>pngExported</c>); timeout → <c>RenderTimeout{phase}</c> (ADR-037 D5 — which wait
+    /// timed out: commit-wait, focus-wait, export-wait, replay-commit) + <see cref="RendererError"/>
+    /// and a normal return.</summary>
     private async Task AwaitConfirmationAsync(
-        Task confirmation, string timeoutMessage, CancellationToken cancellationToken)
+        Task confirmation, string timeoutMessage, string phase, CancellationToken cancellationToken)
     {
         try
         {
@@ -502,6 +625,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         }
         catch (TimeoutException)
         {
+            _rendererLog.LogError(new EventId(0, "RenderTimeout"), "RenderTimeout {phase}", phase);
             RaiseError("renderer", timeoutMessage);
         }
     }
@@ -517,9 +641,14 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             return;
         }
 
-        foreach (var command in commands)
+        for (var i = 0; i < commands.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            var command = commands[i];
+            // ADR-037 D4 Trace: size only, never the payload. LoggerMessage source-gen —
+            // IsEnabled-guarded and allocation-free at the default Information level.
+            LogBridgeChunkSent(_bridgeLog, i, command.Length);
 
             // The command JSON is embedded verbatim as a JS object literal: safe,
             // because GraphJson's default STJ encoder emits ASCII-only output
@@ -551,6 +680,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
     private EventHandler<Avalonia.VisualTreeAttachmentEventArgs>? _onDetachedFromTree;
     private EventHandler<WebViewEnvironmentRequestedEventArgs>? _onEnvironmentRequested;
     private EventHandler<WebViewNewWindowRequestedEventArgs>? _onNewWindowRequested;
+    private EventHandler<WebViewAdapterEventArgs>? _onAdapterCreated;
+    private EventHandler<WebViewAdapterEventArgs>? _onAdapterDestroyed;
 
     private NativeWebView CreateWebView()
     {
@@ -563,13 +694,31 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         // ready gate to a fresh, uncompleted source: a later command then awaits the REAL new
         // ready (raised by the re-navigated page) instead of resuming on a stale-completed one.
         // All access is UI-thread (this handler, View creation, command resumes), so the plain
-        // field swap is safe.
+        // field swap is safe. ADR-037 D8: the heartbeat stops with the native child — while
+        // detached there is no page to probe, so a dead-page verdict here would be a lie.
         _onDetachedFromTree = (_, _) =>
+        {
+            StopHeartbeat();
             _ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        };
+
+        // ADR-037 D8: AdapterCreated/AdapterDestroyed bracket the native child's life — an
+        // AdapterDestroyed that is neither a Dispose nor a detach-driven teardown (disposed
+        // false, commandInFlight possibly true) is the WebView2-crash smell the E2E triager
+        // correlates with the heartbeat.
+        _onAdapterCreated = (_, _) =>
+            _rendererLog.LogInformation(new EventId(0, "AdapterCreated"), "AdapterCreated");
+        _onAdapterDestroyed = (_, _) =>
+            _rendererLog.LogInformation(
+                new EventId(0, "AdapterDestroyed"),
+                "AdapterDestroyed {navigated} {commandInFlight} {disposed}",
+                _navigated, _commandInFlight, _disposed);
 
         webView.WebMessageReceived += _onWebMessage;
         webView.AttachedToVisualTree += _onAttachedToTree;
         webView.DetachedFromVisualTree += _onDetachedFromTree;
+        webView.AdapterCreated += _onAdapterCreated;
+        webView.AdapterDestroyed += _onAdapterDestroyed;
 
         HardenWebView(webView);
         return webView;
@@ -587,10 +736,18 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         if (!_navigated)
         {
             NavigateOnce(webView);
-            return;
+        }
+        else
+        {
+            _ = ReNavigateAndReplayAsync(webView);
         }
 
-        _ = ReNavigateAndReplayAsync(webView);
+        // ADR-037 D8: the heartbeat runs while the surface is attached and navigated (started
+        // on BOTH the first-nav and re-attach paths, stopped on detach/Dispose). Ticks are
+        // ready-gated (ProbeHeartbeatAsync), so during page (re)load — _ready reset on detach,
+        // completed again only by the fresh page's 'ready' — no probe runs and no miss is
+        // counted; the replay loop's own bounded probe covers that window.
+        StartHeartbeat();
     }
 
     /// <summary>
@@ -639,8 +796,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 try
                 {
                     probe = await webView
-                        .InvokeScript("(typeof window.bridge!=='undefined'&&typeof window.bridge.dispatch==='function')?'1':'0'")
-                        .WaitAsync(TimeSpan.FromSeconds(2));
+                        .InvokeScript(BridgeProbeScript)
+                        .WaitAsync(HeartbeatProbeTimeout);
                 }
                 catch
                 {
@@ -655,6 +812,8 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
                 if (DateTime.UtcNow > deadline)
                 {
+                    _rendererLog.LogError(
+                        new EventId(0, "RenderTimeout"), "RenderTimeout {phase}", "replay-probe");
                     RaiseError("renderer", "recreated page never accepted script after re-attach (60 s)");
                     return;
                 }
@@ -668,7 +827,7 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
             // as DispatchRenderAsync), not a stale dark.
             await DispatchAsync([ThemeCommand(), .. chunks], cancellationToken);
             await AwaitConfirmationAsync(
-                loaded.Task, "graph replay never completed (60 s)", cancellationToken);
+                loaded.Task, "graph replay never completed (60 s)", "replay-commit", cancellationToken);
         }
         catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
         {
@@ -777,9 +936,28 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
     private void HandleMessage(string body)
     {
-        switch (GraphMessageParser.Parse(body))
+        var message = GraphMessageParser.Parse(body);
+
+        // ADR-037 D4 Trace: type + size only, never the payload (source-gen, IsEnabled-guarded).
+        LogBridgeMessageReceived(_bridgeLog, WireType(message), body.Length);
+
+        // ADR-037 D8: ANY parseable inbound message proves the page's JS is running — reset
+        // the heartbeat miss streak (successful bridge confirmations are a subset of this).
+        if (message is not UnknownMessage)
         {
-            case ReadyMessage:
+            _heartbeatMisses = 0;
+        }
+
+        switch (message)
+        {
+            case ReadyMessage ready:
+                // ADR-037 D6: the rendering-mode truth — "SwiftShader" = software rendering
+                // (the lab box loses its GPU driver on rebuild; perf numbers must state their
+                // mode). Both fields are D9-insensitive (GPU string, browser version string).
+                _bridgeLog.LogInformation(
+                    new EventId(0, "BridgeReady"),
+                    "BridgeReady {webglRenderer} {userAgent}",
+                    ready.WebglRenderer, ready.UserAgent);
                 _ready.TrySetResult();
                 break;
             case LoadedMessage:
@@ -801,14 +979,41 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 NodeExpandRequested?.Invoke(this, new GraphNodeEventArgs(expand.Id, string.Empty));
                 break;
             case JsErrorMessage error:
+                // ADR-037 D9: jsError text can embed DNs (node ids in stacks) — the structured
+                // field is scrubbed at the call site. The RendererError event keeps the raw
+                // message (UI surface, not a log).
+                _bridgeLog.LogWarning(
+                    new EventId(0, "JsErrorReported"),
+                    "JsErrorReported {source} {msgScrubbed}",
+                    error.Source, Redactor.Scrub(error.Message));
                 RendererError?.Invoke(this, new GraphErrorEventArgs(error.Source, error.Message));
                 break;
             case UnknownMessage unknown:
+                // Reason is parser-authored diagnostic text (never the raw payload), but a
+                // malformed-JSON reason can quote input fragments — scrub it too.
+                _bridgeLog.LogWarning(
+                    new EventId(0, "BridgeUnknownMessage"),
+                    "BridgeUnknownMessage {reasonScrubbed} {bytes}",
+                    Redactor.Scrub(unknown.Reason), body.Length);
                 RendererError?.Invoke(this, new GraphErrorEventArgs(
                     "renderer", $"unparseable bridge message: {unknown.Reason}"));
                 break;
         }
     }
+
+    /// <summary>The wire <c>type</c> string of a parsed bridge message — for the Trace-level
+    /// <c>BridgeMessageReceived</c> summary (types and sizes only, ADR-037 D4).</summary>
+    private static string WireType(GraphMessage message) => message switch
+    {
+        ReadyMessage => "ready",
+        LoadedMessage => "loaded",
+        NodeClickMessage => "nodeClick",
+        NodeExpandMessage => "nodeExpand",
+        FocusedMessage => "focused",
+        JsErrorMessage => "jsError",
+        PngExportedMessage => "pngExported",
+        _ => "unknown",
+    };
 
     /// <summary>ShowGraphAsync continuations already resume on the UI thread (the VM
     /// awaits on the dispatcher context), but the event contract is "always UI thread"
@@ -853,6 +1058,15 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
         _disposed = true;
         _disposeCts.Cancel();
 
+        // ADR-037 D8: the heartbeat dies with the renderer (the step teardown — no graph step,
+        // no liveness to assert). Tick handler detached so the timer cannot root this instance.
+        if (_heartbeatTimer is { } timer)
+        {
+            timer.Stop();
+            timer.Tick -= OnHeartbeatTick;
+            _heartbeatTimer = null;
+        }
+
         if (_webView is { } webView)
         {
             // Unsubscribe the exact delegates wired at creation.
@@ -881,6 +1095,16 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
                 webView.NewWindowRequested -= _onNewWindowRequested;
             }
 
+            if (_onAdapterCreated is not null)
+            {
+                webView.AdapterCreated -= _onAdapterCreated;
+            }
+
+            if (_onAdapterDestroyed is not null)
+            {
+                webView.AdapterDestroyed -= _onAdapterDestroyed;
+            }
+
             webView.NavigationStarted -= OnNavigationStarted;
 
             // Detach from whatever host still parents it (a GraphHost ContentControl, the parking
@@ -899,4 +1123,132 @@ public sealed class CytoscapeGraphRenderer : IGraphRenderer
 
         _disposeCts.Dispose();
     }
+
+    // ---------- ADR-037 D8: bridge liveness heartbeat (the WebView2-crash detector) ----------
+    // The wrapper exposes no ProcessFailed; a crashed WebView2 child leaves the Avalonia control
+    // attached and _ready stale-completed, so the ONLY reliable signal is the capability probe
+    // failing on a page that previously declared ready. State machine (UI-thread-only):
+    //   attach (first nav OR re-attach) -> StartHeartbeat (misses reset, timer running)
+    //   detach                          -> StopHeartbeat (+ _ready reset by the detach handler)
+    //   Dispose                         -> timer stopped + Tick detached
+    //   tick: skip (no miss) while a single-flight command is in flight, or while _ready is not
+    //         completed (page still (re)loading — the ADR-024 replay loop owns that window);
+    //         probe '1' or ANY inbound bridge message -> misses = 0;
+    //         probe fault/timeout/'0' -> HeartbeatMissed Warn; 3rd consecutive -> HeartbeatLost
+    //         Error + RaiseError into the existing RendererError -> LoadError surface.
+
+    /// <summary>Starts (or resumes) the heartbeat. Called from <see cref="OnAttached"/> on the
+    /// UI thread; idempotent; a disposed renderer never restarts it.</summary>
+    private void StartHeartbeat()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _heartbeatMisses = 0;
+        if (_heartbeatTimer is null)
+        {
+            _heartbeatTimer = new DispatcherTimer { Interval = HeartbeatInterval };
+            _heartbeatTimer.Tick += OnHeartbeatTick;
+        }
+
+        _heartbeatTimer.Start();
+    }
+
+    /// <summary>Stops the heartbeat (detach — no page to probe). The timer object survives for
+    /// the next <see cref="StartHeartbeat"/>; only <see cref="Dispose"/> retires it.</summary>
+    private void StopHeartbeat() => _heartbeatTimer?.Stop();
+
+    /// <summary>DispatcherTimer.Tick is an async-void seam: NOTHING may escape (an unhandled
+    /// throw would crash the app). The probe body handles every expected failure shape as a
+    /// miss; this wrapper is the last-chance guard.</summary>
+    private async void OnHeartbeatTick(object? sender, EventArgs e)
+    {
+        try
+        {
+            await ProbeHeartbeatAsync();
+        }
+        catch
+        {
+            // Never-throw: a heartbeat failure must never become an app failure.
+        }
+    }
+
+    private async Task ProbeHeartbeatAsync()
+    {
+        // Skip — never count a miss — while: torn down; a probe is already awaiting (a wedged
+        // probe outlasting the 10 s tick); a single-flight command is in flight (ADR-037 D8 —
+        // the command's own 60 s bounded wait is the liveness authority then); or the page has
+        // not (re)declared ready (startup / the detach-reset window the ADR-024 replay owns).
+        if (_disposed || _heartbeatProbeInFlight || _commandInFlight)
+        {
+            return;
+        }
+
+        if (_webView is not { } webView || !_ready.Task.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
+        _heartbeatProbeInFlight = true;
+        try
+        {
+            string? probe = null;
+            try
+            {
+                probe = await webView.InvokeScript(BridgeProbeScript)
+                    .WaitAsync(HeartbeatProbeTimeout, _disposeCts.Token);
+            }
+            catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+            {
+                return; // own-Dispose: the renderer is tearing down, nothing to judge.
+            }
+            catch
+            {
+                // A faulted or 2 s-pending InvokeScript on a ready page IS the miss signal
+                // (dead child process, wedged renderer) — fall through to the miss accounting.
+            }
+
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (probe is not null && probe.Contains('1'))
+            {
+                _heartbeatMisses = 0;
+                return;
+            }
+
+            _heartbeatMisses++;
+            _rendererLog.LogWarning(
+                new EventId(0, "HeartbeatMissed"), "HeartbeatMissed {misses}", _heartbeatMisses);
+            if (_heartbeatMisses == HeartbeatLostThreshold)
+            {
+                // Raised exactly once per loss streak (== not >=): further misses keep the Warn
+                // trail without re-banner-ing; a later successful probe/message resets the streak.
+                _rendererLog.LogError(
+                    new EventId(0, "HeartbeatLost"), "HeartbeatLost {misses}", _heartbeatMisses);
+                RaiseError(
+                    "renderer",
+                    "graph view stopped responding (3 heartbeat probes missed) - Reload scope");
+            }
+        }
+        finally
+        {
+            _heartbeatProbeInFlight = false;
+        }
+    }
+
+    // ADR-037 D4 (the FileLogSink writer-loop breadcrumb): the per-chunk / per-message Trace
+    // paths use LoggerMessage source generators — IsEnabled-guarded and allocation-free at the
+    // default Information level — NEVER params-array LoggerExtensions. Sizes and types only.
+    [LoggerMessage(EventId = 1, EventName = "BridgeChunkSent", Level = LogLevel.Trace,
+        Message = "BridgeChunkSent {i} {bytes}")]
+    private static partial void LogBridgeChunkSent(ILogger logger, int i, int bytes);
+
+    [LoggerMessage(EventId = 2, EventName = "BridgeMessageReceived", Level = LogLevel.Trace,
+        Message = "BridgeMessageReceived {type} {bytes}")]
+    private static partial void LogBridgeMessageReceived(ILogger logger, string type, int bytes);
 }
