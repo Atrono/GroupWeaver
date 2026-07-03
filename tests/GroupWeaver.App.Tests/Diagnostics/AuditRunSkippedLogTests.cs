@@ -20,8 +20,13 @@ namespace GroupWeaver.App.Tests.Diagnostics;
 /// carries the pinned vocabulary — <c>schema</c> (well-formed run, unsupported/older
 /// <c>schemaVersion</c>, incl. a JSON <c>null</c> body), <c>corrupt</c> (undeserializable JSON),
 /// <c>io</c> (unreadable file, and the runs DIRECTORY itself when the listing fails). The
-/// <c>file</c> field passes through <c>Redactor.Scrub</c> (identity in WP1 — WP10 changes the
-/// VALUE, not this shape).
+/// <c>file</c> field routes through the TYPED redaction stubs (ADR-037 D9 redaction-correct-now):
+/// <c>Redactor.RunFile</c> for a run-file name (its slug is a slugified DN),
+/// <c>Redactor.Path</c> for the runs directory (a full user path) — both identity in WP1, so the
+/// equality assertions below hold verbatim; WP10 changes the VALUES (hash the slug / reduce the
+/// path), not this shape. WHICH helper a call site uses is not observable through identity stubs
+/// (no reflection here) — it is pinned by the call-site comments in <see cref="AuditRunStore"/>
+/// and becomes observable (and re-pinned) when WP10's real implementations land.
 ///
 /// <para>Hermetic per the #124 lesson: the store is built over a
 /// <see cref="Directory.CreateTempSubdirectory(string)"/> base with an injected
@@ -69,7 +74,7 @@ public sealed class AuditRunSkippedLogTests : IDisposable
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("corrupt", entry.Fields["reason"]);
-        Assert.Equal(Path.GetFileName(path), entry.Fields["file"]);
+        Assert.Equal(Path.GetFileName(path), entry.Fields["file"]); // via Redactor.RunFile (identity in WP1)
         Assert.IsAssignableFrom<JsonException>(entry.Exception);
     }
 
@@ -96,6 +101,7 @@ public sealed class AuditRunSkippedLogTests : IDisposable
             Assert.Equal("schema", e.Fields["reason"]);
             Assert.Null(e.Exception);
         });
+        // file = the run-file NAME, via Redactor.RunFile (identity in WP1).
         Assert.Equal(Path.GetFileName(older), entries[0].Fields["file"]);
         Assert.Equal(Path.GetFileName(future), entries[1].Fields["file"]);
         Assert.Equal(Path.GetFileName(nullBody), entries[2].Fields["file"]);
@@ -115,7 +121,7 @@ public sealed class AuditRunSkippedLogTests : IDisposable
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("io", entry.Fields["reason"]);
-        Assert.Equal(Path.GetFileName(path), entry.Fields["file"]);
+        Assert.Equal(Path.GetFileName(path), entry.Fields["file"]); // via Redactor.RunFile (identity in WP1)
         Assert.IsAssignableFrom<IOException>(entry.Exception);
     }
 
@@ -147,7 +153,7 @@ public sealed class AuditRunSkippedLogTests : IDisposable
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("io", entry.Fields["reason"]);
-        Assert.Equal(_store.RunsDirectory, entry.Fields["file"]);
+        Assert.Equal(_store.RunsDirectory, entry.Fields["file"]); // via Redactor.Path (identity in WP1)
         Assert.True(
             entry.Exception is UnauthorizedAccessException or IOException,
             $"expected an access/IO failure, got {entry.Exception?.GetType().Name ?? "null"}");
