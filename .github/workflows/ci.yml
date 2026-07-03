@@ -50,6 +50,19 @@ jobs:
       - name: Build gate
         run: pwsh tools/build.ps1 -SkipAdTests
 
+      # Process-level CLI probe matrix (ADR-038 / WP3, issue #242): runs the REAL
+      # built exe through --check --demo (pinned stdout), the watchdogged bare
+      # --check (the launch-smoke-hang regression guard: bare --check once hit live
+      # LDAP on a DC-less runner and hung 44 min), the --dump-graph demo-only
+      # refusal (exit 64), and the dump-twice byte-identity pin. Reuses the build
+      # gate's Release build; the script kill-on-timeouts every child itself.
+      # timeout-minutes deliberately exceeds the script's worst-case watchdog sum
+      # (480 s) so the script always gets to print its own failure summary before
+      # the runner would kill the step.
+      - name: CLI matrix gate
+        timeout-minutes: 10
+        run: pwsh tools/test-cli-matrix.ps1
+
       - name: Cache Playwright browsers
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
         with:

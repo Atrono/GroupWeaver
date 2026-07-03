@@ -200,6 +200,43 @@ public sealed class AppCliTests
         }
     }
 
+    // --- --dump-graph determinism (WP3 / #242, ADR-038) -----------------------
+
+    /// <summary>
+    /// WP3 (#242): two independent runs must produce byte-identical dumps. The wire is
+    /// derived purely from the embedded demo dataset, the embedded default ruleset, and
+    /// pinned deterministic ordering (GraphBuilder's ordinal sorts, the RuleEngine
+    /// determinism contract) — no timestamps, GUIDs, or hash-order dependence may ever
+    /// leak in. Pinned at the PROCESS level in the house AppCliTests idiom (the app is
+    /// WinExe; <c>Main</c> is <c>[STAThread]</c> with process-global console state, so
+    /// in-proc invocation is not the sanctioned surface); the same byte-identity check
+    /// runs process-level in the <c>tools/test-cli-matrix.ps1</c> gate.
+    /// </summary>
+    [Fact]
+    public async Task DemoDumpGraph_TwoRuns_AreByteIdentical()
+    {
+        var first = TempDumpPath();
+        var second = TempDumpPath();
+        try
+        {
+            var (exitFirst, _, stderrFirst) = await RunAppAsync("--demo", "--dump-graph", first);
+            var (exitSecond, _, stderrSecond) = await RunAppAsync("--demo", "--dump-graph", second);
+
+            Assert.True(exitFirst == 0, $"first run exited with {exitFirst}; stderr: {stderrFirst}");
+            Assert.True(exitSecond == 0, $"second run exited with {exitSecond}; stderr: {stderrSecond}");
+
+            var firstBytes = await File.ReadAllBytesAsync(first);
+            var secondBytes = await File.ReadAllBytesAsync(second);
+            Assert.True(firstBytes.Length > 0, "the dump must not be empty");
+            Assert.Equal(firstBytes, secondBytes);
+        }
+        finally
+        {
+            File.Delete(first);
+            File.Delete(second);
+        }
+    }
+
     // --- helpers -------------------------------------------------------------
 
     /// <summary>
