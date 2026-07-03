@@ -1,6 +1,6 @@
 # ADR-038: Autonomous windowed E2E harness — a PowerShell scenario-runner over flag-gated app seams
 
-**Status:** Proposed · **Date:** 2026-07-03
+**Status:** Accepted · **Date:** 2026-07-03
 **Decides:** issue #239 (autonomous windowed E2E harness + scenario suite) · **Phase:** 4 (feedback-driven)
 **Builds on:** ADR-037 (the app-side evidence this harness consumes: JSONL log, crash marker, heartbeat), ADR-024/ADR-025 (the step-swap/parking lifecycle the primary scenarios pin), ADR-031 (connection targeting — the sever scenarios' entry point), `.claude/rules/lab-environment.md` (the no-input-desktop driving model, PS 5.1 + ASCII-only, capture-and-discard), `tools/smoke-back-nav.ps1` + `tools/lib/webview-capture.ps1` (the driver investment being generalized)
 
