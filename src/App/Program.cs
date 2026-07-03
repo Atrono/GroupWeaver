@@ -154,8 +154,9 @@ internal static class Program
 
     /// <summary>Writes <c>logs\crash-&lt;sid&gt;-&lt;utc&gt;.json</c> atomically (temp+move, the
     /// AuditRunStore/ADR-032 idiom) BEFORE any flush attempt — persist-first (ADR-037 D7).
-    /// Never throws.</summary>
-    private static void WriteCrashMarker(Exception? exception, string? logFile)
+    /// Never throws. Internal so the marker schema — which the E2E harness parses
+    /// (ADR-038 D5) — is test-pinnable via the ResolveLogDirectory env seam.</summary>
+    internal static void WriteCrashMarker(Exception? exception, string? logFile)
     {
         try
         {
