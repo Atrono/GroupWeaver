@@ -20,10 +20,13 @@
     Step swaps are confirmed by PIXEL signals (UIA is Chromium-blind post-WebView):
     workspace = blue External frontier blob PRESENT; fresh Plan = blob ABSENT.
 
-    %APPDATA% ui-state.json is backed up, forced to RailCollapsed=false (the
-    "Design plan" button lives INSIDE the rail), and restored in finally. This is
-    the proven-but-hazardous idiom ADR-038 D3.1 retires: once the --state-dir seam
-    lands (WP5, #244), this block is replaced by a hermetic per-scenario state dir.
+    %APPDATA% ui-state.json is backed up ON DISK (<file>.e2e-bak via the driver's
+    Backup-OperatorState), forced to RailCollapsed=false (the "Design plan" button
+    lives INSIDE the rail), and restored in finally - with leftover-recovery
+    sweeps at scenario start and in run-e2e.ps1 covering watchdog kills that skip
+    this finally. This is the proven-but-hazardous idiom ADR-038 D3.1 retires:
+    once the --state-dir seam lands (WP5, #244), this block is replaced by a
+    hermetic per-scenario state dir.
 
     Tier A input fidelity (ADR-038 D2): all actions are UIA + posted WM_*.
     Windows PowerShell 5.1 (relaunches itself from pwsh); ASCII-ONLY file.
@@ -67,24 +70,19 @@ $runStart = Get-Date
 $filterText = 'DL_FS-Finance_RW'
 $colorExternalNode = @(49, 85, 115)
 
-# --- %APPDATA% ui-state backup/restore (WP5 retires this; see header) ----------
+# --- %APPDATA% ui-state bracketing (WP5 retires this; see header) ---------------
+# Backup/restore go through the driver's ON-DISK Backup-/Restore-OperatorState
+# (<file>.e2e-bak): a runner watchdog kill skips this scenario's finally block,
+# so an in-memory backup would die with the process and leave the operator's
+# real ui-state.json clobbered. The on-disk backup survives the kill and is
+# restored by the sweeps in Backup-OperatorState (scenario start) and
+# run-e2e.ps1 (post-watchdog + end of run).
 $script:uiStatePath = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'GroupWeaver\ui-state.json'
-$script:uiStateBackup = $null
 function Set-RailExpanded {
-    $dir = Split-Path -Parent $script:uiStatePath
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
-    if (Test-Path $script:uiStatePath) {
-        $script:uiStateBackup = Get-Content -Raw $script:uiStatePath
-    }
+    Backup-OperatorState -Path $script:uiStatePath
     # Match UiState's shape (RailWidth/RailCollapsed); RailCollapsed=false = expanded.
     @{ RailWidth = 340; RailCollapsed = $false } | ConvertTo-Json | Set-Content -Encoding UTF8 $script:uiStatePath
     Write-DriverLog 'rail-forced-expanded' @{ path = $script:uiStatePath }
-}
-function Restore-RailState {
-    if ($null -ne $script:uiStateBackup) {
-        Set-Content -Encoding UTF8 $script:uiStatePath $script:uiStateBackup
-        Write-DriverLog 'ui-state-restored' @{}
-    }
 }
 
 # --- step-swap pixel confirms (from smoke-back-nav, over the driver primitive) --
@@ -203,6 +201,27 @@ try {
     Throw-IfCrashed 'Plan -> Gap step'
     Assert-Alive 'Plan -> Gap step'
     Capture-Checkpoint 'gap'
+    # Positive Gap-mount confirm (blind-spot closure): the blob probe CANNOT tell
+    # Gap from Plan (both render no blue External blob), so a drifted/missed
+    # 'Gap analysis' click would let PATH B pass vacuously (Confirm-Plan stays
+    # true on Plan; Assert-SameHwnd is trivially true on the same child). A
+    # FORWARD swap mounts a FRESH Chromium child for the entering step (ADR-024/
+    # ADR-025 - only a Back restores a parked one), so the on-screen child HWND
+    # CHANGING away from the plan's is the mount proof. Bounded poll; full
+    # step-name state confirmation arrives with the WP5/WP6 stateProbe seam.
+    $deadline = (Get-Date).AddSeconds(10)
+    while ($true) {
+        Update-ChromiumHwnd
+        $gapHwnd = Get-VisibleChromiumHwnd
+        if ($gapHwnd -ne [IntPtr]::Zero -and $gapHwnd -ne $planHwnd0) {
+            Write-DriverLog 'confirmed-gap-mount' @{ planHwnd = "0x{0:X}" -f $planHwnd0.ToInt64(); gapHwnd = "0x{0:X}" -f $gapHwnd.ToInt64() }
+            break
+        }
+        if ((Get-Date) -gt $deadline) {
+            throw "ASSERT::gap-mount - visible Chromium child is still the Plan's ($planHwnd0): Gap step never mounted (click missed?)"
+        }
+        Start-Sleep -Milliseconds 400
+    }
 
     Click-CapturePoint $PT_GapBack[0] $PT_GapBack[1] '<- Back to plan (Gap->Plan)'
     Wait-Step 'plan re-shown' 1500
@@ -237,7 +256,7 @@ catch {
 }
 finally {
     Stop-E2EAppForce
-    Restore-RailState
+    Restore-OperatorState -Path $script:uiStatePath
 }
 
 if ($failed) { exit 1 } else { exit 0 }

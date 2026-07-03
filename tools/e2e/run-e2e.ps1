@@ -139,6 +139,33 @@ function Stop-ScenarioTree {
     }
 }
 
+# --- leftover operator-state recovery (ADR-038 D6: "the runner brackets them") --------
+# Scenarios that touch the operator's real %APPDATA% state back it up ON DISK as
+# <file>.e2e-bak (driver: Backup-OperatorState) precisely because a watchdog kill
+# skips the child's finally block. The runner therefore restores leftovers itself:
+# after every watchdog kill and once at end of run. The sentinel marks a file that
+# did NOT pre-exist (recovery deletes the forced file instead of keeping it) and
+# MUST match e2e-driver.ps1's $E2eNoPriorFileSentinel.
+$noPriorFileSentinel = '__GW_E2E_NO_PRIOR_FILE__'
+function Restore-OperatorStateLeftovers {
+    param([Parameter(Mandatory)][string]$Why)
+    $operatorStateDir = Join-Path $env:APPDATA 'GroupWeaver'
+    if (-not (Test-Path $operatorStateDir)) { return }
+    foreach ($bak in @(Get-ChildItem -Path $operatorStateDir -Filter '*.e2e-bak' -File)) {
+        $target = $bak.FullName.Substring(0, $bak.FullName.Length - '.e2e-bak'.Length)
+        $content = [string](Get-Content $bak.FullName -Raw)
+        if ($content.Trim() -eq $noPriorFileSentinel) {
+            if (Test-Path $target) { Remove-Item -Force $target }
+            Remove-Item -Force $bak.FullName
+            Write-Host "    [$Why] removed forced operator state (did not pre-exist): $target" -ForegroundColor Yellow
+        }
+        else {
+            Move-Item -Force $bak.FullName $target
+            Write-Host "    [$Why] restored leftover operator state: $target" -ForegroundColor Yellow
+        }
+    }
+}
+
 # --- single scenario execution ---------------------------------------------------------
 function Invoke-ScenarioOnce {
     param(
@@ -166,6 +193,9 @@ function Invoke-ScenarioOnce {
     if ($timedOut) {
         Write-Host "    WATCHDOG: '$($Spec.Name)' exceeded $($Spec.TimeoutSec)s - killing" -ForegroundColor Red
         Stop-ScenarioTree -ChildPid $child.Id -Why 'watchdog'
+        # The kill skipped the scenario's finally - restore the operator's state
+        # from the on-disk backup NOW, before the next scenario launches the app.
+        Restore-OperatorStateLeftovers -Why 'watchdog'
     }
     else {
         # Belt-and-braces sweep: a scenario's finally should have cleaned up; kill
@@ -242,6 +272,10 @@ foreach ($spec in $selected) {
     }
     $entries.Add($entry)
 }
+
+# End-of-run safety net: no scenario is running anymore, so ANY surviving
+# .e2e-bak means a restore was missed (kill path, driver bug) - heal it here.
+Restore-OperatorStateLeftovers -Why 'end-of-run sweep'
 
 # --- summary -------------------------------------------------------------------------------
 $summary = [ordered]@{

@@ -486,6 +486,57 @@ function Test-CanvasBlob {
     return [bool]$blob
 }
 
+# --- operator-state bracketing (ADR-038 D6: "the runner brackets them") ------------
+# Scenarios that must touch the operator's REAL %APPDATA% state (until the WP5
+# --state-dir seam) protect it with an ON-DISK backup beside the file
+# (<file>.e2e-bak), NEVER an in-memory copy: the runner's watchdog kill path
+# (Stop-Process -Force) skips the scenario's finally block, so an in-memory
+# backup dies with the child and the operator's file stays clobbered. The
+# .e2e-bak survives the kill; recovery sweeps run at scenario start (inside
+# Backup-OperatorState) and in run-e2e.ps1 (after a watchdog kill + once at end
+# of run). A file that did NOT pre-exist is recorded via the sentinel content
+# below so recovery DELETES the forced file instead of leaving it behind on a
+# fresh box. The sentinel and the '*.e2e-bak' convention are mirrored in
+# run-e2e.ps1 (Restore-OperatorStateLeftovers) - keep them in sync.
+$script:E2eNoPriorFileSentinel = '__GW_E2E_NO_PRIOR_FILE__'
+
+function Backup-OperatorState {
+    param([Parameter(Mandatory)][string]$Path)
+    # Heal any leftover backup from a previously KILLED run first: the .e2e-bak
+    # holds the true original; the file on disk is a dead run's forced state.
+    Restore-OperatorState -Path $Path -Reason 'leftover-sweep (scenario start)'
+    $bak = "$Path.e2e-bak"
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    if (Test-Path $Path) {
+        Copy-Item -Force $Path $bak
+        Write-DriverLog 'operator-state-backed-up' @{ path = $Path; bak = $bak; preExisting = $true }
+    }
+    else {
+        Set-Content -Path $bak -Value $script:E2eNoPriorFileSentinel -Encoding ASCII
+        Write-DriverLog 'operator-state-backed-up' @{ path = $Path; bak = $bak; preExisting = $false }
+    }
+}
+
+function Restore-OperatorState {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$Reason = 'finally'
+    )
+    $bak = "$Path.e2e-bak"
+    if (-not (Test-Path $bak)) { return }
+    $content = [string](Get-Content $bak -Raw)
+    if ($content.Trim() -eq $script:E2eNoPriorFileSentinel) {
+        if (Test-Path $Path) { Remove-Item -Force $Path }
+        Remove-Item -Force $bak
+        Write-DriverLog 'operator-state-restored' @{ path = $Path; reason = $Reason; preExisting = $false }
+    }
+    else {
+        Move-Item -Force $bak $Path
+        Write-DriverLog 'operator-state-restored' @{ path = $Path; reason = $Reason; preExisting = $true }
+    }
+}
+
 # --- cross-cutting invariants -------------------------------------------------------
 
 # No unexpected top-level #32770 dialogs (native Win32 dialog class - Avalonia
