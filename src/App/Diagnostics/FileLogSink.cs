@@ -199,6 +199,9 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
     }
 
     // ---------- background writer (single reader) ----------
+    // WP2 (#241) note: the per-chunk Trace call sites must use LoggerMessage source-gen (not
+    // LoggerExtensions), and the cadence-flush starvation under continuous Trace traffic
+    // (needsFlush only rearms between drains) gets revisited with that volume.
 
     private async Task WriteLoopAsync()
     {
@@ -351,14 +354,18 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
     }
 
     /// <summary>5 MB roll (ADR-037 D3): close the current file, continue in
-    /// <c>&lt;base&gt;-part2.jsonl</c>, <c>-part3</c>, … Failure disables via the caller's catch.</summary>
+    /// <c>&lt;base&gt;-part2.jsonl</c>, <c>-part3</c>, … Failure disables via the caller's catch.
+    /// <see cref="CurrentLogFilePath"/> is published only AFTER the new stream exists — a failed
+    /// roll must never leave the crash marker's <c>logFile</c> naming a never-created file.</summary>
     private void Roll()
     {
         _stream!.Flush();
         _stream.Dispose();
+        _stream = null; // a throw below leaves a clean "disabled" state, never a disposed stream
         _part++;
-        CurrentLogFilePath = Path.Combine(_directory, $"{_baseFileName}-part{_part}.jsonl");
-        _stream = new FileStream(CurrentLogFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        var path = Path.Combine(_directory, $"{_baseFileName}-part{_part}.jsonl");
+        _stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        CurrentLogFilePath = path;
         _bytesWritten = 0;
     }
 

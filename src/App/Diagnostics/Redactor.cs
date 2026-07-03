@@ -31,6 +31,21 @@ public static class Redactor
     [return: NotNullIfNotNull(nameof(value))]
     public static string? Host(string? value) => value;
 
+    /// <summary>Redacts a filesystem PATH (full user paths are D9-sensitive: they embed the
+    /// user name). Identity in WP1; WP10 must reduce it to the file name only, or hash it
+    /// (<c>path#&lt;hash8&gt;</c>) — the generic <see cref="Scrub"/> pattern
+    /// (<c>(CN|OU|DC)=…</c> runs) matches no <c>C:\Users\…</c> path, so path call sites must
+    /// use THIS helper, never <see cref="Scrub"/>.</summary>
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Path(string? value) => value;
+
+    /// <summary>Redacts an audit-run FILE NAME (<c>&lt;utcstamp&gt;-&lt;rootDn-slug&gt;.json</c> —
+    /// the slug is a slugified DN, D9-sensitive but matched by NEITHER the <see cref="Scrub"/>
+    /// pattern nor <see cref="Dn"/>'s DN shape). Identity in WP1; WP10 must hash the slug
+    /// portion (<c>&lt;utcstamp&gt;-run#&lt;hash8&gt;.json</c>) keeping the timestamp joinable.</summary>
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? RunFile(string? value) => value;
+
     /// <summary>Scrubs free text (exception / jsError messages — they embed DNs; WP10 removes
     /// <c>(CN|OU|DC)=…</c> runs + learned server/baseDn strings). Identity in WP1; every
     /// <c>msgScrubbed</c> field must pass through here.</summary>

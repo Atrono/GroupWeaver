@@ -43,7 +43,15 @@ internal static class Program
         App.StartupOptions = new StartupOptions(
             Demo: demo,
             // Flag NAMES only, never values (ADR-037 D6) — the AppStarted banner logs these.
-            Flags: [.. args.Where(a => a.StartsWith("--", StringComparison.Ordinal))]);
+            // A `--name=value` token is truncated at its first '=' so the VALUE half can never
+            // reach the banner (space-separated values are separate non-`--` tokens, already
+            // excluded by the Where).
+            Flags:
+            [
+                .. args
+                    .Where(a => a.StartsWith("--", StringComparison.Ordinal))
+                    .Select(a => a.IndexOf('=') is var eq && eq >= 0 ? a[..eq] : a),
+            ]);
 
         var minLevel = ResolveLogLevel(args);
         var sink = FileLogSink.TryCreate(minLevel, AppLog.Session);
@@ -148,8 +156,9 @@ internal static class Program
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
-    /// <summary>How many crash markers a startup scan reads at most — the cap that keeps a
-    /// pathological logs directory from stalling startup (ADR-037 D7).</summary>
+    /// <summary>Where <c>markerCount</c> saturates: the cap that keeps a pathological logs
+    /// directory from inflating the startup report (ADR-037 D7) — applied AFTER the
+    /// newest-first ordering, so it never hides the newest marker.</summary>
     private const int MaxCrashMarkerScan = 100;
 
     /// <summary>Writes <c>logs\crash-&lt;sid&gt;-&lt;utc&gt;.json</c> atomically (temp+move, the
@@ -187,7 +196,9 @@ internal static class Program
 
     /// <summary>Logs <c>PreviousCrashDetected</c> (Warn) when crash markers from earlier runs
     /// exist. Markers are NOT deleted (they are the user's issue-attachment evidence, ADR-037
-    /// D7/D10); the scan is capped. Never throws.</summary>
+    /// D7/D10). Ordered by write time so <c>newestMarker</c> is the truly newest (a name sort
+    /// would order by sid before timestamp); the cap is applied AFTER ordering, so
+    /// <c>markerCount</c> saturates at <see cref="MaxCrashMarkerScan"/>. Never throws.</summary>
     private static void LogPreviousCrashMarkers()
     {
         try
@@ -198,10 +209,11 @@ internal static class Program
                 return;
             }
 
-            var markers = Directory.EnumerateFiles(directory, "crash-*.json")
+            var markers = new DirectoryInfo(directory)
+                .GetFiles("crash-*.json")
+                .OrderByDescending(f => f.LastWriteTimeUtc)
                 .Take(MaxCrashMarkerScan)
-                .Select(Path.GetFileName)
-                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Select(f => f.Name)
                 .ToList();
             if (markers.Count == 0)
             {
@@ -212,7 +224,7 @@ internal static class Program
                 new EventId(0, "PreviousCrashDetected"),
                 "PreviousCrashDetected {markerCount} {newestMarker}",
                 markers.Count,
-                markers[^1]);
+                markers[0]);
         }
         catch
         {

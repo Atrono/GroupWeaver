@@ -126,11 +126,12 @@ public sealed class AuditRunStore
             if (run is null || run.SchemaVersion != AuditRun.CurrentSchemaVersion)
             {
                 // ADR-037 D5: the never-throw skip, now machine-readable. The file name embeds
-                // a root-DN slug (sensitive per D9), so it passes through the Redactor.
+                // a root-DN slug (sensitive per D9), so it passes through the TYPED run-file
+                // redactor — Scrub's free-text pattern would never match a slugified DN.
                 _logger.LogWarning(
                     new EventId(0, "AuditRunSkipped"),
                     "AuditRunSkipped {reason} {file}",
-                    "schema", Redactor.Scrub(Path.GetFileName(path)));
+                    "schema", Redactor.RunFile(Path.GetFileName(path)));
                 return null;
             }
 
@@ -144,7 +145,7 @@ public sealed class AuditRunStore
                 new EventId(0, "AuditRunSkipped"), ex,
                 "AuditRunSkipped {reason} {file}",
                 ex is JsonException or NotSupportedException ? "corrupt" : "io",
-                Redactor.Scrub(Path.GetFileName(path)));
+                Redactor.RunFile(Path.GetFileName(path)));
             return null;
         }
     }
@@ -167,12 +168,13 @@ public sealed class AuditRunStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // The whole runs DIRECTORY is unreadable — one io-skip for the listing itself
-            // (a full user path is sensitive per ADR-037 D9, hence the Redactor).
+            // The whole runs DIRECTORY is unreadable — one io-skip for the listing itself. A
+            // full user path is D9-sensitive (embeds the user name) and matches no Scrub
+            // pattern, so it goes through the TYPED path redactor.
             _logger.LogWarning(
                 new EventId(0, "AuditRunSkipped"), ex,
                 "AuditRunSkipped {reason} {file}",
-                "io", Redactor.Scrub(RunsDirectory));
+                "io", Redactor.Path(RunsDirectory));
             return Array.Empty<AuditRun>();
         }
 

@@ -1,6 +1,6 @@
 # ADR-037: Production logging & diagnostics — a JSONL file sink, crash handling, and a bridge liveness heartbeat
 
-**Status:** Proposed · **Date:** 2026-07-03
+**Status:** Accepted (WP1 #240 landed 2026-07-03) · **Date:** 2026-07-03
 **Decides:** issue #238 (production logging/diagnostics + crash handling; consumed by the #239 E2E harness) · **Phase:** 4 (feedback-driven)
 **Builds on:** ADR-004/ADR-005 (the bridge message protocol the trace summarizes), ADR-008 + ADR-032 / `RulesetLocator` / `AuditRunStore` (the `%APPDATA%\GroupWeaver\` persistence idiom: atomic write, never-throw, injected-base-dir seam, hardened JSON), ADR-024 (`ReNavigateAndReplayAsync`'s capability probe — reused by the heartbeat), `.claude/rules/lab-environment.md` (GPU-driver loss on rebuild → the rendering-mode banner field)
 
