@@ -175,6 +175,18 @@ if (Test-Path (Join-Path $graphBundleDir 'package.json')) {
 }
 else { Log 'tests/graph-bundle not present - skipping Playwright harness setup.' }
 
+# --- 4b. WER LocalDumps for GroupWeaver.App.exe (ADR-037 D7) ------------------
+# Crash-dump capture for the E2E harness + postmortems: Windows Error Reporting
+# writes minidumps (DumpType=1) for the app to %LOCALAPPDATA%\CrashDumps, keeping
+# the last 10. Lab-box setup ONLY - the shipped app never writes HKLM (ADR-037 D7);
+# this section is idempotent (re-runs overwrite the same values).
+$werKey = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\GroupWeaver.App.exe'
+if (-not (Test-Path $werKey)) { New-Item -Path $werKey -Force | Out-Null }
+New-ItemProperty -Path $werKey -Name DumpFolder -Value '%LOCALAPPDATA%\CrashDumps' -PropertyType ExpandString -Force | Out-Null
+New-ItemProperty -Path $werKey -Name DumpType   -Value 1  -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path $werKey -Name DumpCount  -Value 10 -PropertyType DWord -Force | Out-Null
+Log 'WER LocalDumps configured for GroupWeaver.App.exe (minidumps -> %LOCALAPPDATA%\CrashDumps).'
+
 # --- 5. Plugins & MCP servers (MANUAL - not scriptable) -----------------------
 # Marketplace plugins (code-review, security-guidance, frontend-design, superpowers)
 #   are enabled via Claude Code '/plugin' Discover - they live in the user profile,

@@ -6,4 +6,7 @@ namespace GroupWeaver.App;
 /// (ADR-003 D7).
 /// </summary>
 /// <param name="Demo">Use the embedded <c>DemoProvider</c> instead of live LDAP.</param>
-public sealed record StartupOptions(bool Demo);
+/// <param name="Flags">The <c>--</c>-prefixed flag NAMES that were passed — banner-only
+/// (ADR-037 D6: flag names, NEVER values); <c>null</c> when constructed off <c>Main</c>
+/// (headless tests).</param>
+public sealed record StartupOptions(bool Demo, IReadOnlyList<string>? Flags = null);

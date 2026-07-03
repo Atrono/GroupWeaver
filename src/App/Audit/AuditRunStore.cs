@@ -1,10 +1,13 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using GroupWeaver.App.Diagnostics;
 using GroupWeaver.Core.Audit;
+
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GroupWeaver.App.Audit;
 
@@ -52,17 +55,22 @@ public sealed class AuditRunStore
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
+    /// <summary>The never-throw skip warnings' logger (ADR-037 D5: <c>AuditRunSkipped</c>) —
+    /// defaulted to a no-op so every pre-ADR-037 call site and test compiles unchanged.</summary>
+    private readonly ILogger _logger;
+
     /// <summary>Production store: the repo-wide user-persistence convention is
     /// <c>%APPDATA%\GroupWeaver\</c> (ADR-008).</summary>
-    public AuditRunStore()
-        : this(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData))
+    public AuditRunStore(ILogger? logger = null)
+        : this(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), logger)
     {
     }
 
     /// <summary>Test seam: the same <c>GroupWeaver\runs\</c> layout under an injected base directory.</summary>
-    public AuditRunStore(string baseDirectory)
+    public AuditRunStore(string baseDirectory, ILogger? logger = null)
     {
         RunsDirectory = Path.Combine(baseDirectory, "GroupWeaver", "runs");
+        _logger = logger ?? NullLogger.Instance;
     }
 
     /// <summary>Full path of the runs directory (which may not yet exist).</summary>
@@ -117,7 +125,13 @@ public sealed class AuditRunStore
             var run = JsonSerializer.Deserialize<AuditRun>(json, ReadOptions);
             if (run is null || run.SchemaVersion != AuditRun.CurrentSchemaVersion)
             {
-                Debug.WriteLine($"AuditRunStore: skipping '{path}' (unsupported or empty run schema).");
+                // ADR-037 D5: the never-throw skip, now machine-readable. The file name embeds
+                // a root-DN slug (sensitive per D9), so it passes through the TYPED run-file
+                // redactor — Scrub's free-text pattern would never match a slugified DN.
+                _logger.LogWarning(
+                    new EventId(0, "AuditRunSkipped"),
+                    "AuditRunSkipped {reason} {file}",
+                    "schema", Redactor.RunFile(Path.GetFileName(path)));
                 return null;
             }
 
@@ -127,7 +141,11 @@ public sealed class AuditRunStore
             ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException
                 or ArgumentException)
         {
-            Debug.WriteLine($"AuditRunStore: skipping unreadable run '{path}': {ex.Message}");
+            _logger.LogWarning(
+                new EventId(0, "AuditRunSkipped"), ex,
+                "AuditRunSkipped {reason} {file}",
+                ex is JsonException or NotSupportedException ? "corrupt" : "io",
+                Redactor.RunFile(Path.GetFileName(path)));
             return null;
         }
     }
@@ -150,7 +168,13 @@ public sealed class AuditRunStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"AuditRunStore: runs directory '{RunsDirectory}' unreadable: {ex.Message}");
+            // The whole runs DIRECTORY is unreadable — one io-skip for the listing itself. A
+            // full user path is D9-sensitive (embeds the user name) and matches no Scrub
+            // pattern, so it goes through the TYPED path redactor.
+            _logger.LogWarning(
+                new EventId(0, "AuditRunSkipped"), ex,
+                "AuditRunSkipped {reason} {file}",
+                "io", Redactor.Path(RunsDirectory));
             return Array.Empty<AuditRun>();
         }
 

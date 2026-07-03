@@ -5,9 +5,12 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.VisualTree;
 
+using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Export;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.ViewModels;
+
+using Microsoft.Extensions.Logging;
 
 namespace GroupWeaver.App.Views;
 
@@ -133,6 +136,8 @@ public sealed partial class MainWindow : Window
     {
         base.OnOpened(e);
 
+        LogUiEnvironment();
+
         if (GetTopLevel(this) is not { } topLevel || DataContext is not ShellViewModel shell)
         {
             return;
@@ -166,6 +171,28 @@ public sealed partial class MainWindow : Window
             }
         };
         shell.PropertyChanged += _shellPropertyChanged;
+    }
+
+    /// <summary>The <c>UiEnvironment</c> line (ADR-037 D6): screen count, the primary screen's
+    /// pixel bounds, and <see cref="TopLevel.RenderScaling"/> — the DPI/layout facts every
+    /// rendering bug report needs. Never-throw (headless platforms may expose no screens); a
+    /// NullLogger no-ops this in tests.</summary>
+    private void LogUiEnvironment()
+    {
+        try
+        {
+            var primary = Screens.Primary ?? Screens.All.FirstOrDefault();
+            AppLog.CreateLogger("App.Lifecycle").LogInformation(
+                new EventId(0, "UiEnvironment"),
+                "UiEnvironment {screens} {resolution} {renderScaling}",
+                Screens.All.Count,
+                primary is null ? null : $"{primary.Bounds.Width}x{primary.Bounds.Height}",
+                RenderScaling);
+        }
+        catch
+        {
+            // NEVER-THROW (ADR-037 D3): diagnostics must not break window startup.
+        }
     }
 
     /// <summary>Pushes the one export seam into the current step if it is exportable (a

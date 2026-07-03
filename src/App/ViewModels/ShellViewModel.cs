@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Audit;
+using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
@@ -11,6 +12,7 @@ using GroupWeaver.App.Views;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 using GroupWeaver.Core.Rules;
+using Microsoft.Extensions.Logging;
 
 namespace GroupWeaver.App.ViewModels;
 
@@ -85,6 +87,17 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// audit is abandoned (Back) or superseded. <c>null</c> when no audit is live.</summary>
     private WorkspaceViewModel? _auditBackWorkspace;
 
+    /// <summary>The <c>App.Shell</c> logger (ADR-037 D5): <c>StepChanged</c> — the E2E timeline
+    /// backbone — plus <c>WebView2Missing</c>. Defaulted to <see cref="AppLog.Factory"/> (a no-op
+    /// NullLogger in headless tests, the installed sink in production).</summary>
+    private readonly ILogger _log;
+
+    /// <summary>What caused the in-flight <see cref="CurrentStep"/> assignment — set immediately
+    /// before each assignment site, consumed (and reset) by the <c>StepChanged</c> log in
+    /// <see cref="OnCurrentStepChanged(object, object)"/>. An untagged assignment (tests setting
+    /// <see cref="CurrentStep"/> directly) logs <c>"direct"</c>.</summary>
+    private string? _stepTrigger;
+
     /// <summary>Active step content; the window's DataTemplates switch on its type.</summary>
     [ObservableProperty]
     private object _currentStep;
@@ -99,6 +112,34 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// changes (the generated setter already raises <c>CurrentStep</c>) — keeps the Focus button's
     /// visibility binding in sync as steps switch (ADR-022 addendum).</summary>
     partial void OnCurrentStepChanged(object value) => OnPropertyChanged(nameof(IsWorkspaceStep));
+
+    /// <summary>Logs <c>StepChanged{from,to,trigger}</c> (ADR-037 D5 — the E2E timeline backbone)
+    /// at the single choke point every step swap passes through. Step names only, never subject
+    /// data; the ctor's initial Connect step sets the backing field directly and is NOT logged
+    /// (the banner already marks startup).</summary>
+    partial void OnCurrentStepChanged(object? oldValue, object newValue)
+    {
+        var trigger = _stepTrigger ?? "direct";
+        _stepTrigger = null;
+        _log.LogInformation(
+            new EventId(0, "StepChanged"),
+            "StepChanged {from} {to} {trigger}",
+            StepName(oldValue), StepName(newValue), trigger);
+    }
+
+    /// <summary>The stable step name for <c>StepChanged</c> (ADR-003 D5 step machine's
+    /// vocabulary): Connect / PickRoot / Workspace / Plan / Gap / Audit.</summary>
+    private static string StepName(object? step) => step switch
+    {
+        ConnectionViewModel => "Connect",
+        RootPickerViewModel => "PickRoot",
+        WorkspaceViewModel => "Workspace",
+        PlanViewModel => "Plan",
+        GapViewModel => "Gap",
+        AuditViewModel => "Audit",
+        null => "None",
+        _ => step.GetType().Name,
+    };
 
     /// <summary>ADR-022 D2: focus (presentation) mode. The top command strip binds
     /// <c>IsVisible="{Binding !IsFocusMode}"</c> so focus mode hides it (the WebView2-missing
@@ -187,8 +228,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         UiStateStore? uiStateStore = null,
         Func<string?, string?, IDirectoryProvider>? targetedProviderFactory = null,
         AuditRunStore? auditRunStore = null,
-        IPlatformThemeProvider? platformThemeProvider = null)
+        IPlatformThemeProvider? platformThemeProvider = null,
+        ILoggerFactory? loggerFactory = null)
     {
+        // ADR-037 WP1: defaulted like the stores — AppLog.Factory is the installed sink in
+        // production and NullLoggerFactory in headless tests (which run exactly as before).
+        var logFactory = loggerFactory ?? AppLog.Factory;
+        _log = logFactory.CreateLogger("App.Shell");
         _providerFactory = providerFactory;
         _targetedProviderFactory = targetedProviderFactory;
         _graphRendererFactory = graphRendererFactory;
@@ -197,8 +243,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // pre-ADR-022 tests omit it and get the real %APPDATA% layout.
         _uiStateStore = uiStateStore ?? new UiStateStore();
         // ADR-032 (#190): defaulted like the other stores — the real %APPDATA%\GroupWeaver\runs\
-        // layout in production, a temp-dir seam in headless tests.
-        _auditRunStore = auditRunStore ?? new AuditRunStore();
+        // layout in production, a temp-dir seam in headless tests. Carries the Store.AuditRuns
+        // logger (ADR-037 D5: AuditRunSkipped replaces the old Debug.WriteLine trio).
+        _auditRunStore = auditRunStore ?? new AuditRunStore(logFactory.CreateLogger("Store.AuditRuns"));
         // ADR-026 extension (System/auto): the OS-preference seam, defaulted to the production impl
         // (reads PlatformSettings) exactly like the stores above — tests inject a fake.
         _platformThemeProvider = platformThemeProvider ?? new DefaultPlatformThemeProvider();
@@ -222,6 +269,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         var runtime = webView2Runtime ?? WebView2Runtime.Probe();
         WebView2Missing = !runtime.IsInstalled;
         WebView2Version = runtime.Version;
+        if (WebView2Missing)
+        {
+            // ADR-037 D5: the persistent banner state, now also machine-readable evidence.
+            _log.LogWarning(new EventId(0, "WebView2Missing"), "WebView2Missing");
+        }
 
         var connect = new ConnectionViewModel(providerFactory, OnConnected, _targetedProviderFactory);
         _currentStep = connect;
@@ -581,6 +633,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         Provider = provider;
         IsDemoMode = isDemo;
+        _stepTrigger = "connected";
         CurrentStep = new RootPickerViewModel(
             provider, connection, OnBackToConnect, OnRootChosen, WebView2Missing,
             _graphRendererFactory, _ruleset, _uiStateStore);
@@ -591,6 +644,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         Provider = null;
         IsDemoMode = false;
+        _stepTrigger = "backToConnect";
         CurrentStep = new ConnectionViewModel(_providerFactory, OnConnected, _targetedProviderFactory);
     }
 
@@ -606,6 +660,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // snapshot-null gate lives in OnAudit (and the command's own CanAudit).
         workspace.UseAuditCallback(() => OnAudit(workspace));
         Track(workspace);
+        _stepTrigger = "rootChosen";
         CurrentStep = workspace;
     }
 
@@ -638,6 +693,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             // PARK the workspace surface we Back INTO — SYNCHRONOUSLY, BEFORE the swap detaches the
             // leaving workspace view (the load-bearing ordering invariant; see ParkSurface).
             ParkSurface(current.GraphRenderer);
+            _stepTrigger = "designPlan";
             CurrentStep = alive;
             return;
         }
@@ -667,6 +723,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 // plan's live page + viewport survive into the re-entry instead of the detach guard
                 // releasing it). Mirror of how leaving the workspace parks the workspace surface.
                 ParkSurface(plan?.GraphRenderer);
+                _stepTrigger = "backToExplore";
                 CurrentStep = current;
             });
         // Arm the plan's "Gap analysis" button (ADR-015 / #66) — exactly like the workspace's
@@ -681,6 +738,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // single load-bearing invariant: if the swap detached first, the view's detach guard would
         // release (un-root) the live surface and reproduce the negative-control page-death.
         ParkSurface(current.GraphRenderer);
+        _stepTrigger = "designPlan";
         CurrentStep = plan;
     }
 
@@ -719,6 +777,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             // before this swap, so its re-mount preserves the viewport.
             onBack: () =>
             {
+                _stepTrigger = "backToPlan";
                 CurrentStep = plan;
                 if (gap is not null)
                 {
@@ -732,6 +791,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // OnDesignPlan). The workspace surface is already parked from the Design-plan hop, so the
         // lot now legitimately holds Workspace + Plan at once.
         ParkSurface(plan.GraphRenderer);
+        _stepTrigger = "gapAnalysis";
         CurrentStep = gap;
 
         // Fire-and-forget compute + push (it awaits renderer-ready internally, so the GapView mount
@@ -773,6 +833,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             // was parked below before this swap, so its re-mount preserves the viewport.
             onBack: () =>
             {
+                _stepTrigger = "backToWorkspace";
                 CurrentStep = current;
                 _auditBackWorkspace = null;
                 if (audit is not null)
@@ -806,6 +867,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // ordering as OnDesignPlan/OnGapAnalysis). The Audit step has no surface of its own, so it
         // never parks anything — Back must restore the live workspace viewport.
         ParkSurface(current.GraphRenderer);
+        _stepTrigger = "audit";
         CurrentStep = audit;
     }
 
