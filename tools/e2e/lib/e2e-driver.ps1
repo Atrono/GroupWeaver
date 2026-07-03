@@ -167,14 +167,37 @@ function Write-DriverLog {
 # clamps up to its logical Min). Optional env overrides are set on THIS process
 # before launch (children inherit) and restored right after - scenarios run one
 # app at a time by contract (ADR-038 D4: strictly sequential).
+#
+# -StateDir (ADR-038 D3.1, WP5): the hermetic per-scenario state seam. When given,
+# the app is launched with "--state-dir <dir>" (the app rebases ALL its %APPDATA%
+# persistence onto that base dir; DEMO-GATED app-side, so callers MUST include
+# --demo in -AppArgs or the app refuses with exit 64) and the WebView2 profile +
+# log sink are pointed inside the same dir via per-child env (WEBVIEW2_USER_DATA_FOLDER,
+# GROUPWEAVER_LOG_DIR) - one directory holds the scenario's whole on-disk footprint,
+# and the operator's real %APPDATA% is never touched. Env goes through the same
+# set-around-launch/restore bracket as -EnvOverrides (child-only, never the machine).
 function Start-E2EApp {
     param(
         [Parameter(Mandatory)][string]$ExePath,
         [string[]]$AppArgs = @(),
         [hashtable]$EnvOverrides = @{},
+        [string]$StateDir = '',
         [int]$WindowTimeoutSec = 30
     )
     if (-not (Test-Path $ExePath)) { throw "app exe not found: $ExePath (the runner builds Release; pass -AppExe)" }
+    if ($StateDir) {
+        if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Force $StateDir | Out-Null }
+        $AppArgs = @($AppArgs) + @('--state-dir', ('"{0}"' -f $StateDir))
+        # Caller-supplied overrides win; the seam only fills the two it owns.
+        $EnvOverrides = @{} + $EnvOverrides
+        if (-not $EnvOverrides.ContainsKey('WEBVIEW2_USER_DATA_FOLDER')) {
+            $EnvOverrides['WEBVIEW2_USER_DATA_FOLDER'] = (Join-Path $StateDir 'webview2')
+        }
+        if (-not $EnvOverrides.ContainsKey('GROUPWEAVER_LOG_DIR')) {
+            $EnvOverrides['GROUPWEAVER_LOG_DIR'] = (Join-Path $StateDir 'logs')
+        }
+        Write-DriverLog 'state-dir-seam' @{ stateDir = $StateDir }
+    }
     Write-DriverLog 'app-launch' @{ exe = $ExePath; args = ($AppArgs -join ' ') }
 
     $savedEnv = @{}
@@ -432,20 +455,69 @@ function Click-CapturePoint {
     Write-DriverLog 'click-capture-point' @{ label = $Label; captureX = $CaptureX; captureY = $CaptureY; clientX = $pt.X; clientY = $pt.Y }
 }
 
+# Wheel-scroll an AVALONIA page (e.g. the audit dashboard's outer ScrollViewer) by
+# posting WM_MOUSEWHEEL to the MAIN window at a capture-coordinate point. Distinct
+# from webview-capture's Send-CanvasWheel, which targets the Chromium child.
+# WM_MOUSEWHEEL carries SCREEN coordinates; Avalonia hit-tests the point and routes
+# the wheel to the ScrollViewer under it (focus-independent). Negative ticks scroll
+# DOWN. One message per detent; an over-scrolled ScrollViewer just clamps, so a
+# generous tick count pins the page deterministically at its end.
+function Send-MainWindowWheel {
+    param(
+        [Parameter(Mandatory)][int]$Ticks,
+        [Parameter(Mandatory)][int]$CaptureX,
+        [Parameter(Mandatory)][int]$CaptureY
+    )
+    $mainRect = Get-WindowRectOf $script:app.MainWindowHandle
+    $lp = [GroupWeaver.WebViewCapture]::MakeLParam(($mainRect.Left + $CaptureX), ($mainRect.Top + $CaptureY))
+    $delta = if ($Ticks -lt 0) { -120 } else { 120 }
+    $wp = [IntPtr][int64](($delta -band 0xFFFF) -shl 16)
+    for ($i = 0; $i -lt [math]::Abs($Ticks); $i++) {
+        [void][GroupWeaver.WebViewCapture]::PostMessage($script:app.MainWindowHandle, [GroupWeaver.WebViewCapture]::WM_MOUSEWHEEL, $wp, $lp)
+        Start-Sleep -Milliseconds 25
+    }
+    Write-DriverLog 'main-window-wheel' @{ ticks = $Ticks; captureX = $CaptureX; captureY = $CaptureY }
+}
+
+# --- hermetic state-dir seeding (ADR-038 D3.1, WP5) ---------------------------------
+
+# Seeds a deterministic ui-state.json into the scenario's OWN state dir (never the
+# real %APPDATA%): rail expanded (the rail action buttons must exist on screen) and
+# the dark theme (the pinned pixel-confirm palette assumes the dark canvas). The
+# property names are UiState's PascalCase on-disk shape (System.Text.Json default
+# options, case-sensitive read) - keep them in sync with UiStateStore.
+function Initialize-E2eStateDir {
+    param([Parameter(Mandatory)][string]$StateDir)
+    $gwDir = Join-Path $StateDir 'GroupWeaver'
+    if (-not (Test-Path $gwDir)) { New-Item -ItemType Directory -Force $gwDir | Out-Null }
+    $uiStatePath = Join-Path $gwDir 'ui-state.json'
+    @{ RailWidth = 340; RailCollapsed = $false; Theme = 'Dark' } | ConvertTo-Json | Set-Content -Encoding UTF8 $uiStatePath
+    Write-DriverLog 'state-dir-seeded' @{ stateDir = $StateDir; uiState = $uiStatePath }
+    return $uiStatePath
+}
+
 # --- journey building blocks --------------------------------------------------------
 
-# The proven demo connect + root-load UIA sequence (verbatim smoke-back-nav):
-# launch WITHOUT --demo, UIA-click "Demo mode" (so only demo data is ever touched
-# and the connect card with the live operator identity is never captured), filter
-# the root picker, select the first candidate, Load. UIA is reliable here because
-# the WebView child does not exist yet.
+# The proven demo connect + root-load UIA sequence (from smoke-back-nav): launch
+# WITHOUT --demo, UIA-click "Demo mode" (so only demo data is ever touched and the
+# connect card with the live operator identity is never captured), then the root
+# picker. Seamless launches only - a --state-dir scenario launches WITH --demo (the
+# app-side gate) and auto-connects past the Connect card, so it calls Invoke-RootLoad
+# directly instead.
 function Invoke-DemoRootLoad {
     param([Parameter(Mandatory)][string]$FilterText)
     [void](Wait-Uia { Find-UiaFirst ([System.Windows.Automation.ControlType]::Button) 'Demo mode' } 30 "button 'Demo mode'")
     Start-Sleep -Milliseconds 500
     Invoke-UiaButton 'Demo mode'
     Write-DriverLog 'demo-mode-clicked' @{}
+    Invoke-RootLoad -FilterText $FilterText
+}
 
+# Root-picker filter + select + Load (UIA is reliable here because the WebView
+# child does not exist yet). Entry point for --demo launches, which land on the
+# root picker directly (the startup auto-connect).
+function Invoke-RootLoad {
+    param([Parameter(Mandatory)][string]$FilterText)
     [void](Wait-Uia { Find-UiaFirst ([System.Windows.Automation.ControlType]::ListItem) $null } 30 'root candidates')
     Start-Sleep -Milliseconds 300
 
@@ -487,16 +559,18 @@ function Test-CanvasBlob {
 }
 
 # --- operator-state bracketing (ADR-038 D6: "the runner brackets them") ------------
-# Scenarios that must touch the operator's REAL %APPDATA% state (until the WP5
-# --state-dir seam) protect it with an ON-DISK backup beside the file
-# (<file>.e2e-bak), NEVER an in-memory copy: the runner's watchdog kill path
-# (Stop-Process -Force) skips the scenario's finally block, so an in-memory
-# backup dies with the child and the operator's file stays clobbered. The
-# .e2e-bak survives the kill; recovery sweeps run at scenario start (inside
-# Backup-OperatorState) and in run-e2e.ps1 (after a watchdog kill + once at end
-# of run). A file that did NOT pre-exist is recorded via the sentinel content
-# below so recovery DELETES the forced file instead of leaving it behind on a
-# fresh box. The sentinel and the '*.e2e-bak' convention are mirrored in
+# KEPT FOR LIVE-AD SCENARIOS ONLY (ADR-038 D6): the demo scenarios now run on the
+# hermetic --state-dir seam (WP5) and never touch the operator's real %APPDATA%,
+# but live-AD scenarios stay SEAMLESS by design (the D3 demo gate keeps --state-dir
+# unavailable there) and still need this bracket. Such a scenario protects the real
+# state with an ON-DISK backup beside the file (<file>.e2e-bak), NEVER an in-memory
+# copy: the runner's watchdog kill path (Stop-Process -Force) skips the scenario's
+# finally block, so an in-memory backup dies with the child and the operator's file
+# stays clobbered. The .e2e-bak survives the kill; recovery sweeps run at scenario
+# start (inside Backup-OperatorState) and in run-e2e.ps1 (after a watchdog kill +
+# once at end of run). A file that did NOT pre-exist is recorded via the sentinel
+# content below so recovery DELETES the forced file instead of leaving it behind on
+# a fresh box. The sentinel and the '*.e2e-bak' convention are mirrored in
 # run-e2e.ps1 (Restore-OperatorStateLeftovers) - keep them in sync.
 $script:E2eNoPriorFileSentinel = '__GW_E2E_NO_PRIOR_FILE__'
 

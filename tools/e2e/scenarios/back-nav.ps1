@@ -20,13 +20,14 @@
     Step swaps are confirmed by PIXEL signals (UIA is Chromium-blind post-WebView):
     workspace = blue External frontier blob PRESENT; fresh Plan = blob ABSENT.
 
-    %APPDATA% ui-state.json is backed up ON DISK (<file>.e2e-bak via the driver's
-    Backup-OperatorState), forced to RailCollapsed=false (the "Design plan" button
-    lives INSIDE the rail), and restored in finally - with leftover-recovery
-    sweeps at scenario start and in run-e2e.ps1 covering watchdog kills that skip
-    this finally. This is the proven-but-hazardous idiom ADR-038 D3.1 retires:
-    once the --state-dir seam lands (WP5, #244), this block is replaced by a
-    hermetic per-scenario state dir.
+    State is HERMETIC (ADR-038 D3.1, WP5): the app runs on '--demo --state-dir
+    <dir>' (the demo gate makes --demo mandatory; the auto-connect skips the
+    Connect card), with a deterministic ui-state.json (rail expanded - the
+    "Design plan" button lives INSIDE the rail - plus the dark theme the pinned
+    pixel palette assumes) pre-seeded into the scenario's own state dir. The
+    operator's real %APPDATA% is never read or written; the old
+    Backup-/Restore-OperatorState bracket is gone from this scenario (it remains
+    in the driver for live-AD scenarios, ADR-038 D6).
 
     Tier A input fidelity (ADR-038 D2): all actions are UIA + posted WM_*.
     Windows PowerShell 5.1 (relaunches itself from pwsh); ASCII-ONLY file.
@@ -56,8 +57,9 @@ if (-not $ArtifactDir) {
 if (-not $AppExe) {
     $AppExe = Join-Path $repoRoot 'src\App\bin\Release\net8.0-windows\GroupWeaver.App.exe'
 }
-# NOTE: $StateDir is accepted but UNUSED until the --state-dir seam lands (WP5,
-# ADR-038 D3.1); see the %APPDATA% backup/restore idiom below.
+if (-not $StateDir) {
+    $StateDir = Join-Path $env:TEMP ('gw-e2e\adhoc\back-nav-{0:yyyyMMdd-HHmmss}' -f (Get-Date))
+}
 
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\e2e-driver.ps1')
 
@@ -69,21 +71,6 @@ $runStart = Get-Date
 # Plan step starts with an EMPTY canvas (no External blob).
 $filterText = 'DL_FS-Finance_RW'
 $colorExternalNode = @(49, 85, 115)
-
-# --- %APPDATA% ui-state bracketing (WP5 retires this; see header) ---------------
-# Backup/restore go through the driver's ON-DISK Backup-/Restore-OperatorState
-# (<file>.e2e-bak): a runner watchdog kill skips this scenario's finally block,
-# so an in-memory backup would die with the process and leave the operator's
-# real ui-state.json clobbered. The on-disk backup survives the kill and is
-# restored by the sweeps in Backup-OperatorState (scenario start) and
-# run-e2e.ps1 (post-watchdog + end of run).
-$script:uiStatePath = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'GroupWeaver\ui-state.json'
-function Set-RailExpanded {
-    Backup-OperatorState -Path $script:uiStatePath
-    # Match UiState's shape (RailWidth/RailCollapsed); RailCollapsed=false = expanded.
-    @{ RailWidth = 340; RailCollapsed = $false } | ConvertTo-Json | Set-Content -Encoding UTF8 $script:uiStatePath
-    Write-DriverLog 'rail-forced-expanded' @{ path = $script:uiStatePath }
-}
 
 # --- step-swap pixel confirms (from smoke-back-nav, over the driver primitive) --
 function Confirm-Workspace([string]$Where, [int]$TimeoutSec = 15) {
@@ -116,13 +103,17 @@ function Wait-Step([string]$What, [int]$Ms = 1200) {
     Write-DriverLog 'settled' @{ afterWhat = $What }
 }
 
-Set-RailExpanded
+# Hermetic state (ADR-038 D3.1, WP5): deterministic ui-state.json (rail expanded +
+# dark theme) into the scenario's OWN state dir - never the real %APPDATA%.
+[void](Initialize-E2eStateDir -StateDir $StateDir)
 
 $failed = $false
 try {
-    [void](Start-E2EApp -ExePath $AppExe)
+    # --demo is MANDATORY with --state-dir (the app-side demo gate); the startup
+    # auto-connect lands directly on the root picker, so no 'Demo mode' click.
+    [void](Start-E2EApp -ExePath $AppExe -AppArgs @('--demo') -StateDir $StateDir)
 
-    Invoke-DemoRootLoad -FilterText $filterText
+    Invoke-RootLoad -FilterText $filterText
 
     Wait-ChromiumChild -TimeoutSec 60
     [void](Wait-NodeBlob { Save-Probe } $colorExternalNode 30 'the external frontier node (render signal)')
@@ -256,7 +247,6 @@ catch {
 }
 finally {
     Stop-E2EAppForce
-    Restore-OperatorState -Path $script:uiStatePath
 }
 
 if ($failed) { exit 1 } else { exit 0 }

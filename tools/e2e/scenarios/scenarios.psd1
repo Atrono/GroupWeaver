@@ -22,5 +22,11 @@
             TimeoutSec      = 420
             RetrySignatures = @()
         }
+        @{
+            Name            = 'audit-run-persist'
+            Tags            = @('smoke', 'full')
+            TimeoutSec      = 300
+            RetrySignatures = @()
+        }
     )
 }

@@ -51,9 +51,12 @@ a `RetrySignatures` wildcard in the manifest - never blanket retries. Default is
 1. Create `scenarios/<name>.ps1`. Start from `launch-render.ps1`: keep the
    pwsh-to-5.1 relaunch shim, the `-ArtifactDir/-StateDir/-AppExe` params, the
    `Initialize-E2eContext` call, and the try/catch/finally shape
-   (`Complete-E2eFailure` in catch, `Stop-E2EAppForce` in finally).
+   (`Complete-E2eFailure` in catch, `Stop-E2EAppForce` in finally). Demo
+   scenarios seed the hermetic state dir (`Initialize-E2eStateDir`) and launch
+   via `Start-E2EApp -AppArgs @('--demo') -StateDir $StateDir`.
 2. Drive with the driver primitives (`lib/e2e-driver.ps1`): `Start-E2EApp`,
-   `Invoke-DemoRootLoad`, `Click-CapturePoint`, `Test-CanvasBlob`,
+   `Invoke-RootLoad` (`Invoke-DemoRootLoad` for seamless launches),
+   `Click-CapturePoint`, `Send-MainWindowWheel`, `Test-CanvasBlob`,
    `Capture-Checkpoint`, `Assert-Alive`/`Throw-IfCrashed`,
    `Update-ChromiumHwnd`/`Assert-SameHwnd`.
 3. End with the cross-cutting invariant pack: `Assert-NoUnexpectedDialogs`,
@@ -79,9 +82,16 @@ artifacts/e2e/runs/<yyyyMMdd-HHmmss>/
                           # hwnd-inventory.txt, eventlog.txt, wer-dumps.txt
 ```
 
-Per-scenario state dirs land under `%TEMP%\gw-e2e\<stamp>\<scenario>` (unused
-until the WP5 `--state-dir` seam; `back-nav` still uses the documented
-`%APPDATA%` backup/restore idiom until then). `renderingMode` in the summary
+Per-scenario state dirs land under `%TEMP%\gw-e2e\<stamp>\<scenario>` and are
+the **hermetic state seam** (ADR-038 D3.1, WP5): demo scenarios launch the app
+with `--demo --state-dir <dir>` (`Start-E2EApp -StateDir`; `--demo` is mandatory
+- the app refuses the seam with exit 64 otherwise), pre-seed a deterministic
+`ui-state.json` via `Initialize-E2eStateDir` (rail expanded, dark theme), and
+get the WebView2 profile + log sink pointed inside the same dir via per-child
+env (`WEBVIEW2_USER_DATA_FOLDER`, `GROUPWEAVER_LOG_DIR`). The operator's real
+`%APPDATA%` is never touched by demo scenarios. `Backup-/Restore-OperatorState`
+and the runner's `.e2e-bak` leftover sweep REMAIN for live-AD scenarios, which
+run seamless by design (ADR-038 D6). `renderingMode` in the summary
 distinguishes GPU vs software rendering - perf budgets are keyed by mode and
 never compared across modes (ADR-038 D5).
 

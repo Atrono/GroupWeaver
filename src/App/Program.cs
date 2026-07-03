@@ -40,6 +40,54 @@ internal static class Program
         // console-only and byte-identical (their stdout is pinned by AppCliTests and
         // tools/test-cli-matrix.ps1) — no sink, no handlers, no output on them. ----------
 
+        // ADR-038 D3.1 (--state-dir): the hermetic per-scenario state root. DEMO-GATED
+        // exactly like RunDumpGraph's guard: without --demo the seam refuses with the same
+        // stderr style and exit 64, BEFORE any window (a NEW CLI path — the pinned existing
+        // outputs above are untouched). Accepts "--state-dir <path>" and "--state-dir=<path>";
+        // the banner Flags projection below truncates at '=' so the VALUE never reaches a log.
+        string? stateDir = null;
+        if (TryGetStateDirArgument(args, out var stateDirValue))
+        {
+            if (!demo)
+            {
+                EnsureConsole();
+                Console.Error.WriteLine(
+                    "--state-dir is demo-only: automation seams never run against a live directory - re-run with --demo");
+                return 64;
+            }
+
+            if (string.IsNullOrEmpty(stateDirValue))
+            {
+                EnsureConsole();
+                Console.Error.WriteLine("usage: GroupWeaver --demo --state-dir <path>");
+                return 64;
+            }
+
+            try
+            {
+                // Resolved ONCE here; the composition root (App.axaml.cs) reuses the
+                // resolved path for every store.
+                stateDir = Path.GetFullPath(stateDirValue);
+            }
+            catch (Exception ex) when (
+                ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+            {
+                EnsureConsole();
+                Console.Error.WriteLine($"--state-dir: invalid path - {ex.Message}");
+                return 64;
+            }
+
+            // Log-dir precedence (ADR-037 D3 x ADR-038 D3.1): an EXPLICIT GROUPWEAVER_LOG_DIR
+            // env var always wins; only when it is unset does the sink (and the crash markers,
+            // which share FileLogSink.ResolveLogDirectory) follow the hermetic state dir —
+            // set process-locally BEFORE the sink below resolves the directory.
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GROUPWEAVER_LOG_DIR")))
+            {
+                Environment.SetEnvironmentVariable(
+                    "GROUPWEAVER_LOG_DIR", Path.Combine(stateDir, "GroupWeaver", "logs"));
+            }
+        }
+
         App.StartupOptions = new StartupOptions(
             Demo: demo,
             // Flag NAMES only, never values (ADR-037 D6) — the AppStarted banner logs these.
@@ -51,7 +99,8 @@ internal static class Program
                 .. args
                     .Where(a => a.StartsWith("--", StringComparison.Ordinal))
                     .Select(a => a.IndexOf('=') is var eq && eq >= 0 ? a[..eq] : a),
-            ]);
+            ],
+            StateDir: stateDir);
 
         var minLevel = ResolveLogLevel(args);
         var sink = FileLogSink.TryCreate(minLevel, AppLog.Session);
@@ -116,6 +165,31 @@ internal static class Program
             "none" or "off" => LogLevel.None,
             _ => LogLevel.Information,
         };
+    }
+
+    /// <summary>Finds the <c>--state-dir</c> flag (ADR-038 D3.1). Returns <c>true</c> when the
+    /// flag is PRESENT in any form (so the demo gate fires even with a missing value);
+    /// <paramref name="value"/> is the next token for the space form, the suffix for the
+    /// <c>--state-dir=&lt;path&gt;</c> form, <c>null</c>/empty when the value is missing.</summary>
+    private static bool TryGetStateDirArgument(string[] args, out string? value)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--state-dir")
+            {
+                value = i + 1 < args.Length ? args[i + 1] : null;
+                return true;
+            }
+
+            if (args[i].StartsWith("--state-dir=", StringComparison.Ordinal))
+            {
+                value = args[i]["--state-dir=".Length..];
+                return true;
+            }
+        }
+
+        value = null;
+        return false;
     }
 
     /// <summary>The one crash path (ADR-037 D7): Critical log, then the crash marker

@@ -9,4 +9,11 @@ namespace GroupWeaver.App;
 /// <param name="Flags">The <c>--</c>-prefixed flag NAMES that were passed — banner-only
 /// (ADR-037 D6: flag names, NEVER values); <c>null</c> when constructed off <c>Main</c>
 /// (headless tests).</param>
-public sealed record StartupOptions(bool Demo, IReadOnlyList<string>? Flags = null);
+/// <param name="StateDir">The hermetic per-scenario state root (ADR-038 D3.1,
+/// <c>--state-dir</c>): when non-null, the composition root rebases EVERY user-profile
+/// store (<c>UiStateStore</c>/<c>RulesetLocator</c>/<c>AuditRunStore</c>) from
+/// <c>%APPDATA%</c> onto this base directory. Already resolved to a full path and
+/// demo-gated (exit 64 without <c>--demo</c>) by <see cref="Program"/>; <c>null</c> =
+/// the production <c>%APPDATA%</c> layout.</param>
+public sealed record StartupOptions(
+    bool Demo, IReadOnlyList<string>? Flags = null, string? StateDir = null);

@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using GroupWeaver.App.Audit;
 using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
@@ -61,12 +62,20 @@ public sealed partial class App : Application
                 Redactor.Mode,
                 StartupOptions.Flags ?? Array.Empty<string>());
 
+            // ADR-038 D3.1: the hermetic state seam. StateDir (parsed, resolved ONCE, and
+            // demo-gated in Program.Main) rebases EVERY user-profile store from %APPDATA%
+            // onto the injected base directory — the identical GroupWeaver\ layout underneath,
+            // just rebased, so demo E2E scenarios never read or write the operator's real
+            // state. The log sink was already pointed there in Program (precedence: an
+            // EXPLICIT GROUPWEAVER_LOG_DIR env var wins over --state-dir). null = production.
+            var stateDir = StartupOptions.StateDir;
+
             // The ruleset every workspace Evaluate runs against (ADR-010 §3) — located
             // ONCE here (ADR-008 whole-file precedence). EffectiveRuleset.Errors are
             // carried, surfaced by AP 3.3's settings UI; the locator never throws. The
             // same locator instance is handed to the shell so a settings Save persists to
             // its UserRulesetPath (AP 3.3 / ADR-011 §1).
-            var locator = new RulesetLocator();
+            var locator = stateDir is null ? new RulesetLocator() : new RulesetLocator(stateDir);
             var effective = locator.LoadEffective();
             if (effective.Errors.Count > 0)
             {
@@ -82,7 +91,15 @@ public sealed partial class App : Application
 
             // ADR-022 D4: the one rail-state store, threaded down the same Shell→RootPicker→
             // Workspace path as the locator so each workspace seeds + persists its rail state.
-            var uiStateStore = new UiStateStore();
+            var uiStateStore = stateDir is null ? new UiStateStore() : new UiStateStore(stateDir);
+
+            // ADR-038 D3.1: the run store follows the same rebase. null keeps ShellViewModel's
+            // production default (%APPDATA%\GroupWeaver\runs\ + the Store.AuditRuns logger),
+            // which this mirrors exactly — only the base directory differs.
+            var auditRunStore = stateDir is null
+                ? null
+                : new AuditRunStore(stateDir, AppLog.CreateLogger("Store.AuditRuns"));
+
             var shell = new ShellViewModel(
                 static demo => demo ? new DemoProvider() : (IDirectoryProvider)new LdapProvider(),
                 StartupOptions,
@@ -97,6 +114,7 @@ public sealed partial class App : Application
                 // disclosure — still integrated auth, no credentials. Inputs are validated by
                 // ConnectionTarget before reaching this; blank fields never call it (serverless default).
                 static (server, baseDn) => new LdapProvider(server, baseDn),
+                auditRunStore: auditRunStore,
                 loggerFactory: AppLog.Factory);
             desktop.MainWindow = new MainWindow { DataContext = shell };
         }
