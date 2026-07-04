@@ -501,8 +501,24 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
     /// <summary>One renderer call at a time, shared across show/update/focus —
     /// an overlap is a caller bug, never queued (ADR-005 D3). ADR-037 D5: the violation is
     /// logged (<c>SingleFlightViolation</c>, Error) BEFORE the existing throw — log-then-
-    /// existing-behavior, the caller bug now leaves machine-readable evidence.</summary>
-    private void EnterSingleFlight(string operation)
+    /// existing-behavior, the caller bug now leaves machine-readable evidence. Internal
+    /// (ADR-037 WP2, #241 test seam) — same rationale as <see cref="HandleMessage"/>.
+    /// <para><b>ACCEPTED BOUNDARY (WP2 test-engineer finding, ratified — not fixed):</b> the log
+    /// call below is NOT wrapped in its own try/catch, so a hypothetically-throwing
+    /// <see cref="ILogger"/> would propagate ITS exception here, masking this method's own
+    /// intended <see cref="InvalidOperationException"/> (pinned by
+    /// <c>RendererFaultNeverCrashesTests.ThrowingLogger_PropagatesFromEnterSingleFlight_
+    /// MaskingItsOwnIntentionalException</c>). Deliberately left as-is: "never-throw" is a
+    /// property OF the installed sink itself (<see cref="Diagnostics.FileLogSink"/>, ADR-037
+    /// D3 — every one of its public methods is try/catch-wrapped), not a defensive duty every
+    /// call site must repeat, and production only ever installs <c>FileLogSink</c> or
+    /// <see cref="Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory"/>
+    /// (<see cref="AppLog"/>'s default) — both contractually never-throw — so this scenario
+    /// cannot occur outside an adversarial test double. Wrapping it here would be defense
+    /// against a threat that does not exist in this codebase's architecture, at the cost of
+    /// silently swallowing a REAL future logger bug right where re-entrancy is diagnosed.</para>
+    /// </summary>
+    internal void EnterSingleFlight(string operation)
     {
         if (_commandInFlight)
         {
@@ -934,7 +950,12 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
         }
     }
 
-    private void HandleMessage(string body)
+    /// <summary>The inbound bridge-message router (ADR-037 D5/D6/D8: BridgeMessageReceived/
+    /// BridgeReady/JsErrorReported/BridgeUnknownMessage + the heartbeat miss-reset). Internal
+    /// (ADR-037 WP2, #241 test seam) — <c>GroupWeaver.App.Tests</c> drives this directly (no
+    /// live <see cref="NativeWebView"/> needed: it is synchronous and operates purely on parsed
+    /// JSON + primitive state), pinning the event vocabulary without reflection.</summary>
+    internal void HandleMessage(string body)
     {
         var message = GraphMessageParser.Parse(body);
 
@@ -1136,6 +1157,37 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
     //         probe '1' or ANY inbound bridge message -> misses = 0;
     //         probe fault/timeout/'0' -> HeartbeatMissed Warn; 3rd consecutive -> HeartbeatLost
     //         Error + RaiseError into the existing RendererError -> LoadError surface.
+    //
+    // ADR-037 WP2 (#241) TEST SEAM: the tick/miss/lost state machine is otherwise undrivable in a
+    // unit test (no live NativeWebView, no injectable DispatcherTimer clock). TestScriptInvoker
+    // (internal, test-only) substitutes for `_webView.InvokeScript` and — when set — ALSO bypasses
+    // the "_webView present + _ready completed" gate below (a test renderer never navigates), so
+    // ProbeHeartbeatOnceAsync() drives the REAL miss/reset/HeartbeatLost logic deterministically:
+    // construct a renderer, set TestScriptInvoker to a stub returning '1'/'0'/throwing, call
+    // ProbeHeartbeatOnceAsync() repeatedly, read HeartbeatMisses. Production never sets
+    // TestScriptInvoker, so this changes no production behavior.
+
+    /// <summary>Test seam (ADR-037 WP2, #241): substitutes for the live
+    /// <see cref="NativeWebView.InvokeScript"/> call the heartbeat probe would otherwise make.
+    /// Production leaves this <c>null</c>. When set, <see cref="ProbeHeartbeatAsync"/> ALSO skips
+    /// its normal "<c>_webView</c> present + <c>_ready</c> completed" precondition — a test
+    /// renderer never attaches/navigates, so that gate would otherwise never open.</summary>
+    internal Func<string, Task<string?>>? TestScriptInvoker { get; set; }
+
+    /// <summary>Test seam (ADR-037 WP2, #241): runs exactly one heartbeat probe cycle,
+    /// awaitably, bypassing the real 10 s <see cref="DispatcherTimer"/> entirely. Callers drive
+    /// the miss-streak state machine by awaiting this repeatedly with <see cref="TestScriptInvoker"/>
+    /// set.</summary>
+    internal Task ProbeHeartbeatOnceAsync() => ProbeHeartbeatAsync();
+
+    /// <summary>Test seam (ADR-037 WP2, #241): the current consecutive-miss streak — read after
+    /// <see cref="ProbeHeartbeatOnceAsync"/> to assert increment-on-miss / reset-on-success /
+    /// reset-on-message without reflection.</summary>
+    internal int HeartbeatMisses => _heartbeatMisses;
+
+    /// <summary>Test seam (ADR-037 WP2, #241): zeroes the miss streak so a single test can arrange
+    /// a fresh baseline between assertions without constructing a new renderer.</summary>
+    internal void ResetHeartbeatForTest() => _heartbeatMisses = 0;
 
     /// <summary>Starts (or resumes) the heartbeat. Called from <see cref="OnAttached"/> on the
     /// UI thread; idempotent; a disposed renderer never restarts it.</summary>
@@ -1181,12 +1233,14 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
         // probe outlasting the 10 s tick); a single-flight command is in flight (ADR-037 D8 —
         // the command's own 60 s bounded wait is the liveness authority then); or the page has
         // not (re)declared ready (startup / the detach-reset window the ADR-024 replay owns).
+        // TestScriptInvoker (WP2 test seam) skips the webView/ready precondition entirely — a
+        // test renderer never attaches/navigates, so that gate would otherwise never open.
         if (_disposed || _heartbeatProbeInFlight || _commandInFlight)
         {
             return;
         }
 
-        if (_webView is not { } webView || !_ready.Task.IsCompletedSuccessfully)
+        if (TestScriptInvoker is null && (_webView is null || !_ready.Task.IsCompletedSuccessfully))
         {
             return;
         }
@@ -1197,7 +1251,7 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
             string? probe = null;
             try
             {
-                probe = await webView.InvokeScript(BridgeProbeScript)
+                probe = await InvokeProbeScriptAsync()
                     .WaitAsync(HeartbeatProbeTimeout, _disposeCts.Token);
             }
             catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
@@ -1240,6 +1294,13 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
             _heartbeatProbeInFlight = false;
         }
     }
+
+    /// <summary>The probe's sole script-invocation point (ADR-037 WP2, #241): <see cref="TestScriptInvoker"/>
+    /// when set (tests — no live control touched), else the real <see cref="NativeWebView.InvokeScript"/>
+    /// on the attached <see cref="_webView"/> (production — guaranteed non-null here by the caller's
+    /// gate, which requires either a live <c>_webView</c> or a test invoker).</summary>
+    private Task<string?> InvokeProbeScriptAsync() =>
+        TestScriptInvoker is { } invoker ? invoker(BridgeProbeScript) : _webView!.InvokeScript(BridgeProbeScript);
 
     // ADR-037 D4 (the FileLogSink writer-loop breadcrumb): the per-chunk / per-message Trace
     // paths use LoggerMessage source generators — IsEnabled-guarded and allocation-free at the
