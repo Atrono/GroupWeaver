@@ -4,12 +4,18 @@
     clean shutdown (ADR-038 WP4, issue #243).
 
 .DESCRIPTION
-    The minimal end-to-end life cycle: launch the real exe (no args - demo mode is
-    chosen via the UIA 'Demo mode' click, the proven smoke-back-nav sequence, so
-    the connect card with the live operator identity is never captured and only
-    demo data is ever touched), load the proven 2-node root, gate on the rendered
-    workspace graph (the blue External frontier node blob - the never-occluded
-    render signal), capture one checkpoint, then the clean-shutdown gate.
+    The minimal end-to-end life cycle: launch the real exe on the hermetic
+    --state-dir seam (ADR-038 D3.1, WP5: '--demo --state-dir <dir>' - the demo
+    gate makes --demo mandatory, and the auto-connect skips the Connect card
+    entirely, so the live operator identity is never captured and only demo data
+    is ever touched), load the proven 2-node root, gate on the rendered workspace
+    graph (the blue External frontier node blob - the never-occluded render
+    signal), capture one checkpoint, then the clean-shutdown gate.
+
+    State is HERMETIC: a deterministic ui-state.json (rail expanded, dark theme)
+    is pre-seeded into the scenario's own state dir; the app, its WebView2
+    profile, and its log sink all live under that dir. The operator's real
+    %APPDATA% is never read or written (no Backup-OperatorState needed).
 
     Cross-cutting invariants (ADR-038 D4): alive at each boundary, no unexpected
     top-level #32770 dialogs, clean shutdown (exit <= 5 s, code 0), clean stderr,
@@ -43,14 +49,18 @@ if (-not $ArtifactDir) {
 if (-not $AppExe) {
     $AppExe = Join-Path $repoRoot 'src\App\bin\Release\net8.0-windows\GroupWeaver.App.exe'
 }
-# NOTE: $StateDir is accepted but UNUSED until the --state-dir seam lands (WP5,
-# ADR-038 D3.1). This scenario reads the operator's real %APPDATA% state (launch +
-# render only - it never changes UI state, so no backup/restore is needed here).
+if (-not $StateDir) {
+    $StateDir = Join-Path $env:TEMP ('gw-e2e\adhoc\launch-render-{0:yyyyMMdd-HHmmss}' -f (Get-Date))
+}
 
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'lib\e2e-driver.ps1')
 
 Initialize-E2eContext -ScenarioName 'launch-render' -ArtifactDir $ArtifactDir
 $runStart = Get-Date
+
+# Hermetic state (ADR-038 D3.1, WP5): deterministic ui-state.json into the
+# scenario's OWN state dir - the operator's real %APPDATA% is never touched.
+[void](Initialize-E2eStateDir -StateDir $StateDir)
 
 # Proven render-confirmation root + rendered node color, identical to
 # smoke-back-nav / record-demo-gif: the blue External frontier node of the 2-node
@@ -60,10 +70,12 @@ $colorExternalNode = @(49, 85, 115)
 
 $failed = $false
 try {
-    [void](Start-E2EApp -ExePath $AppExe)
+    # --demo is MANDATORY with --state-dir (the app-side demo gate); the startup
+    # auto-connect lands directly on the root picker, so no 'Demo mode' click.
+    [void](Start-E2EApp -ExePath $AppExe -AppArgs @('--demo') -StateDir $StateDir)
     Assert-Alive 'launch (window up)'
 
-    Invoke-DemoRootLoad -FilterText $filterText
+    Invoke-RootLoad -FilterText $filterText
     Assert-Alive 'demo connect + root load'
 
     Wait-ChromiumChild -TimeoutSec 60

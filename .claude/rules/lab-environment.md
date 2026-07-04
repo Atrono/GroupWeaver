@@ -1,5 +1,15 @@
 # Lab box environment facts
 
+- **PS 5.1 children spawned from pwsh 7 inherit pwsh's PSModulePath — script
+  FUNCTIONS from Windows-PowerShell modules fail to auto-load (found session 42,
+  WP5):** the e2e runner (pwsh 7) launches scenario children as `powershell.exe`
+  5.1; the child inherits the pwsh `PSModulePath`, so module members implemented
+  as *script functions* (e.g. `Get-FileHash` in Microsoft.PowerShell.Utility)
+  resolve to the pwsh-core module version and fail under 5.1, while *compiled
+  cmdlets* from the same module keep working. Symptoms look like "command exists
+  but explodes". Fix: in PS 5.1 harness code prefer .NET APIs directly (e.g.
+  `[System.Security.Cryptography.SHA256]`) or reset `PSModulePath` in the child;
+  `tools/e2e/scenarios/audit-run-persist.ps1` shows the .NET-hash idiom.
 - **Stale agent worktrees hijack the shell cwd (found in session 8):** the
   PowerShell tool's working directory persists across tool calls and can be
   left inside a finished subagent's `.claude/worktrees/agent-*` dir. Once that
