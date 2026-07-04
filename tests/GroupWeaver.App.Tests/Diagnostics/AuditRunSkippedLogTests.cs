@@ -1,7 +1,5 @@
 using System;
 using System.IO;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 
@@ -127,36 +125,35 @@ public sealed class AuditRunSkippedLogTests : IDisposable
 
     // === 4. io: the runs DIRECTORY itself is unlistable ========================================
 
-    /// <summary>When the runs directory exists but cannot be ENUMERATED (an ACL denying
-    /// list-directory to the current user — the "unreadable directory" arm), <c>List()</c>
-    /// degrades to empty with ONE io-skip naming the DIRECTORY, not a file.</summary>
-    [Fact]
-    public void UnlistableRunsDirectory_ListsEmpty_WithOneIoSkipNamingTheDirectory()
+    /// <summary>When the runs directory exists but cannot be ENUMERATED (an IOException or
+    /// UnauthorizedAccessException out of the listing call — the "unreadable directory" arm),
+    /// <c>List()</c> degrades to empty with ONE io-skip naming the DIRECTORY, not a file.
+    ///
+    /// <para>Drives the failure through the internal <see cref="AuditRunStore"/> listing seam
+    /// (issue #254) rather than a deny ACL: this lab box's session runs as the elevated built-in
+    /// domain Administrator, which silently bypasses a directory-listing Deny ACE, so the
+    /// ACL-simulation version of this test flaked (empty capture — no skip ever fired). The seam
+    /// proves the exact same catch clause (<c>ex is IOException or UnauthorizedAccessException</c>)
+    /// deterministically, for BOTH exception types the clause accepts.</para></summary>
+    [Theory]
+    [InlineData(typeof(IOException))]
+    [InlineData(typeof(UnauthorizedAccessException))]
+    public void UnlistableRunsDirectory_ListsEmpty_WithOneIoSkipNamingTheDirectory(Type exceptionType)
     {
-        var dirInfo = new DirectoryInfo(_store.RunsDirectory);
-        var user = WindowsIdentity.GetCurrent().User!;
-        var deny = new FileSystemAccessRule(user, FileSystemRights.ListDirectory, AccessControlType.Deny);
-        var acl = dirInfo.GetAccessControl();
-        acl.AddAccessRule(deny);
-        dirInfo.SetAccessControl(acl);
-        try
-        {
-            Assert.Empty(_store.List());
-        }
-        finally
-        {
-            var restore = dirInfo.GetAccessControl();
-            restore.RemoveAccessRule(deny);
-            dirInfo.SetAccessControl(restore);
-        }
+        var thrown = (Exception)Activator.CreateInstance(exceptionType, "simulated unlistable runs directory (#254)")!;
+        var store = new AuditRunStore(
+            _baseDir,
+            _capture.CreateLogger("Store.AuditRuns"),
+            listRunFiles: _ => throw thrown);
+        Directory.CreateDirectory(store.RunsDirectory);
+
+        Assert.Empty(store.List());
 
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("io", entry.Fields["reason"]);
-        Assert.Equal(_store.RunsDirectory, entry.Fields["file"]); // via Redactor.Path (identity in WP1)
-        Assert.True(
-            entry.Exception is UnauthorizedAccessException or IOException,
-            $"expected an access/IO failure, got {entry.Exception?.GetType().Name ?? "null"}");
+        Assert.Equal(store.RunsDirectory, entry.Fields["file"]); // via Redactor.Path (identity in WP1)
+        Assert.Same(thrown, entry.Exception);
     }
 
     // === helpers ===============================================================================

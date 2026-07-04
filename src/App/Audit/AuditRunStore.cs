@@ -59,6 +59,13 @@ public sealed class AuditRunStore
     /// defaulted to a no-op so every pre-ADR-037 call site and test compiles unchanged.</summary>
     private readonly ILogger _logger;
 
+    /// <summary>The runs-directory listing call used by <see cref="List"/>, defaulted to the real
+    /// <see cref="Directory.GetFiles(string, string)"/>. Internal test seam (issue #254): lets a test
+    /// inject a throwing stub to prove the "unlistable runs directory" io-skip arm directly, instead of
+    /// simulating it via a deny ACL — an elevated built-in Administrator account (this lab box's session)
+    /// silently bypasses directory-listing deny ACEs, which made the ACL-based test flake.</summary>
+    private readonly Func<string, string[]> _listRunFiles;
+
     /// <summary>Production store: the repo-wide user-persistence convention is
     /// <c>%APPDATA%\GroupWeaver\</c> (ADR-008).</summary>
     public AuditRunStore(ILogger? logger = null)
@@ -68,10 +75,20 @@ public sealed class AuditRunStore
 
     /// <summary>Test seam: the same <c>GroupWeaver\runs\</c> layout under an injected base directory.</summary>
     public AuditRunStore(string baseDirectory, ILogger? logger = null)
+        : this(baseDirectory, logger, DefaultListRunFiles)
+    {
+    }
+
+    /// <summary>Internal test seam (issue #254): as above, plus an injectable runs-directory listing
+    /// delegate so a test can force the "unlistable directory" io-skip without OS-level ACL mechanics.</summary>
+    internal AuditRunStore(string baseDirectory, ILogger? logger, Func<string, string[]> listRunFiles)
     {
         RunsDirectory = Path.Combine(baseDirectory, "GroupWeaver", "runs");
         _logger = logger ?? NullLogger.Instance;
+        _listRunFiles = listRunFiles;
     }
+
+    private static string[] DefaultListRunFiles(string directory) => Directory.GetFiles(directory, "*.json");
 
     /// <summary>Full path of the runs directory (which may not yet exist).</summary>
     public string RunsDirectory { get; }
@@ -164,7 +181,7 @@ public sealed class AuditRunStore
                 return Array.Empty<AuditRun>();
             }
 
-            files = Directory.GetFiles(RunsDirectory, "*.json");
+            files = _listRunFiles(RunsDirectory);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
