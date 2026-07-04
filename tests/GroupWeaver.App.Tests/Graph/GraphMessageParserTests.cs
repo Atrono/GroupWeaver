@@ -27,6 +27,64 @@ public sealed class GraphMessageParserTests
         Assert.IsType<ReadyMessage>(message);
     }
 
+    // --- ready's ADR-037 D6 growth: webglRenderer/userAgent (the rendering-mode truth) ------
+
+    [Fact]
+    public void Parse_Ready_ExtractsWebglRendererAndUserAgent_WhenBothPresent()
+    {
+        var message = GraphMessageParser.Parse(
+            """{"type":"ready","webglRenderer":"ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)","userAgent":"Mozilla/5.0 WebView2"}""");
+
+        var ready = Assert.IsType<ReadyMessage>(message);
+        Assert.Equal("ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)", ready.WebglRenderer);
+        Assert.Equal("Mozilla/5.0 WebView2", ready.UserAgent);
+    }
+
+    [Fact]
+    public void Parse_Ready_WebglRendererIsExplicitJsonNull_ExtractsNull_KeepsUserAgent()
+    {
+        // graph.js sends webglRenderer:null when the WEBGL_debug_renderer_info extension is
+        // unavailable — a JSON null must decode to a C# null, not the empty string.
+        var message = GraphMessageParser.Parse(
+            """{"type":"ready","webglRenderer":null,"userAgent":"Mozilla/5.0 WebView2"}""");
+
+        var ready = Assert.IsType<ReadyMessage>(message);
+        Assert.Null(ready.WebglRenderer);
+        Assert.Equal("Mozilla/5.0 WebView2", ready.UserAgent);
+    }
+
+    [Fact]
+    public void Parse_Ready_BothFieldsAbsent_BareLegacyReadyStillParses_BothNull()
+    {
+        var message = GraphMessageParser.Parse("""{"type":"ready"}""");
+
+        var ready = Assert.IsType<ReadyMessage>(message);
+        Assert.Null(ready.WebglRenderer);
+        Assert.Null(ready.UserAgent);
+    }
+
+    [Fact]
+    public void Parse_Ready_WrongJsonTypeForWebglRenderer_ExtractsNull_NeverDemotesToUnknown()
+    {
+        // A non-string webglRenderer (malformed/older bundle) must not demote a well-formed
+        // ready to UnknownMessage — TryGetString's ValueKind guard falls back to null.
+        var message = GraphMessageParser.Parse("""{"type":"ready","webglRenderer":123}""");
+
+        var ready = Assert.IsType<ReadyMessage>(message);
+        Assert.Null(ready.WebglRenderer);
+    }
+
+    [Fact]
+    public void Parse_Ready_ToleratesUnknownExtraFields_AlongsideWebglRendererAndUserAgent()
+    {
+        var message = GraphMessageParser.Parse(
+            """{"type":"ready","webglRenderer":"SwiftShader","userAgent":"UA","cyVersion":"3.28.1","seq":1}""");
+
+        var ready = Assert.IsType<ReadyMessage>(message);
+        Assert.Equal("SwiftShader", ready.WebglRenderer);
+        Assert.Equal("UA", ready.UserAgent);
+    }
+
     [Fact]
     public void Parse_Loaded_ExtractsNodeAndEdgeCounts()
     {

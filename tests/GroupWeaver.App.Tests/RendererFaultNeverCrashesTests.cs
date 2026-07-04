@@ -8,10 +8,13 @@ using Avalonia.Threading;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.Tests.Fakes;
+using GroupWeaver.App.Tests.Graph;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 using GroupWeaver.Providers;
+
+using Microsoft.Extensions.Logging;
 
 using Xunit;
 
@@ -207,6 +210,101 @@ public sealed class RendererFaultNeverCrashesTests
         Assert.Same(workspace, shell.CurrentStep);
 
         shell.Dispose();
+    }
+
+    // === Logger resilience (ADR-037 WP2, #241): the renderer's new log call sites ==============
+
+    /// <summary>
+    /// Wires an <see cref="ILoggerFactory"/> whose <see cref="ILogger.Log{TState}"/> ALWAYS throws
+    /// into the REAL <see cref="CytoscapeGraphRenderer"/> (never <see cref="FakeGraphRenderer"/>,
+    /// which has no logging surface at all) and drives the inbound bridge-message router
+    /// (<c>HandleMessage</c>, via <see cref="CytoscapeGraphRendererTestAccess"/> — the one ADR-037
+    /// D5 hot log site reachable without a live WebView, see its doc comment). A jsError message
+    /// is used so the driven path both logs (<c>JsErrorReported</c>) AND raises
+    /// <see cref="IGraphRenderer.RendererError"/>.
+    ///
+    /// <para><b>Result, pinned:</b> the call site does NOT wrap its <see cref="ILogger"/> calls —
+    /// a misbehaving logger's exception propagates verbatim, verified empirically (WP2
+    /// test-engineer finding). This mirrors the codebase's established single-point-of-defense
+    /// architecture (ADR-037 D3): "never-throw" is a property OF <c>FileLogSink</c> itself (every
+    /// one of its public methods is try/catch-wrapped), not a defensive wrapper every call site
+    /// must repeat — production only ever installs <c>FileLogSink</c> or
+    /// <c>NullLoggerFactory.Instance</c> (<see cref="GroupWeaver.App.Diagnostics.AppLog"/>'s
+    /// default), both contractually never-throw, so this scenario cannot occur in practice. This
+    /// test PINS the current, deliberately-chosen behavior rather than asserting an aspirational
+    /// "always swallowed" contract that would fail against the shipped architecture — reported to
+    /// the orchestrator/reviewer to explicitly RATIFY (accept the sink-scoped boundary, as pinned
+    /// here) or HARDEN (wrap the call sites) as a conscious decision, not a silent gap.</para>
+    /// </summary>
+    [Fact]
+    public void ThrowingLogger_PropagatesFromHandleMessage_TheSinkIsTheOnlyGuaranteedNeverThrowPoint()
+    {
+        var renderer = new CytoscapeGraphRenderer(new ThrowingLoggerFactory());
+
+        var ex = Record.Exception(() => CytoscapeGraphRendererTestAccess.InvokeHandleMessage(
+            renderer, """{"type":"jsError","source":"s","message":"m"}"""));
+
+        Assert.IsType<InvalidOperationException>(ex);
+        Assert.Equal(ThrowingLoggerFactory.FailureMessage, ex!.Message);
+    }
+
+    /// <summary>
+    /// The single-flight guard's <c>SingleFlightViolation</c> log runs BEFORE its own intentional
+    /// <see cref="InvalidOperationException"/> (log-then-throw, ADR-037 D5). With a throwing
+    /// logger, the LOGGING failure is what escapes — MASKING the intended re-entrancy exception
+    /// (same exception TYPE, but the wrong message: a caller pattern-matching on the "while
+    /// another renderer call is in flight" text would misdiagnose a logger bug as a re-entrancy
+    /// bug). Pinned as the sharper half of the same finding above.
+    /// </summary>
+    [Fact]
+    public void ThrowingLogger_PropagatesFromEnterSingleFlight_MaskingItsOwnIntentionalException()
+    {
+        var renderer = new CytoscapeGraphRenderer(new ThrowingLoggerFactory());
+        CytoscapeGraphRendererTestAccess.InvokeEnterSingleFlight(renderer, "first"); // no log yet — succeeds
+
+        var ex = Record.Exception(
+            () => CytoscapeGraphRendererTestAccess.InvokeEnterSingleFlight(renderer, "second"));
+
+        Assert.IsType<InvalidOperationException>(ex);
+        // The LOGGER's exception, not EnterSingleFlight's own ("... while another renderer call
+        // is in flight ..." never appears) — the masking this finding is about.
+        Assert.Equal(ThrowingLoggerFactory.FailureMessage, ex!.Message);
+    }
+
+    /// <summary>An <see cref="ILoggerFactory"/>/<see cref="ILogger"/> pair whose every
+    /// <see cref="ILogger.Log{TState}"/> call throws — an adversarial stand-in for "the installed
+    /// logger violates the never-throw contract" (never true for the shipped
+    /// <c>FileLogSink</c>/<c>NullLoggerFactory</c>, ADR-037 D3).</summary>
+    private sealed class ThrowingLoggerFactory : ILoggerFactory
+    {
+        public const string FailureMessage =
+            "test-injected logger failure (never happens with FileLogSink/NullLoggerFactory)";
+
+        public ILogger CreateLogger(string categoryName) => new ThrowingLogger();
+
+        public void AddProvider(ILoggerProvider provider)
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class ThrowingLogger : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                throw new InvalidOperationException(FailureMessage);
+        }
     }
 
     // === helpers =============================================================================
