@@ -8,7 +8,6 @@ using Avalonia.Threading;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Startup;
 using GroupWeaver.App.Tests.Fakes;
-using GroupWeaver.App.Tests.Graph;
 using GroupWeaver.App.ViewModels;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
@@ -218,10 +217,9 @@ public sealed class RendererFaultNeverCrashesTests
     /// Wires an <see cref="ILoggerFactory"/> whose <see cref="ILogger.Log{TState}"/> ALWAYS throws
     /// into the REAL <see cref="CytoscapeGraphRenderer"/> (never <see cref="FakeGraphRenderer"/>,
     /// which has no logging surface at all) and drives the inbound bridge-message router
-    /// (<c>HandleMessage</c>, via <see cref="CytoscapeGraphRendererTestAccess"/> — the one ADR-037
-    /// D5 hot log site reachable without a live WebView, see its doc comment). A jsError message
-    /// is used so the driven path both logs (<c>JsErrorReported</c>) AND raises
-    /// <see cref="IGraphRenderer.RendererError"/>.
+    /// (the internal <c>HandleMessage</c> test seam, ADR-037 WP2 — reachable without a live WebView
+    /// per its own doc comment). A jsError message is used so the driven path both logs
+    /// (<c>JsErrorReported</c>) AND raises <see cref="IGraphRenderer.RendererError"/>.
     ///
     /// <para><b>Result, pinned:</b> the call site does NOT wrap its <see cref="ILogger"/> calls —
     /// a misbehaving logger's exception propagates verbatim, verified empirically (WP2
@@ -241,8 +239,8 @@ public sealed class RendererFaultNeverCrashesTests
     {
         var renderer = new CytoscapeGraphRenderer(new ThrowingLoggerFactory());
 
-        var ex = Record.Exception(() => CytoscapeGraphRendererTestAccess.InvokeHandleMessage(
-            renderer, """{"type":"jsError","source":"s","message":"m"}"""));
+        var ex = Record.Exception(
+            () => renderer.HandleMessage("""{"type":"jsError","source":"s","message":"m"}"""));
 
         Assert.IsType<InvalidOperationException>(ex);
         Assert.Equal(ThrowingLoggerFactory.FailureMessage, ex!.Message);
@@ -260,10 +258,9 @@ public sealed class RendererFaultNeverCrashesTests
     public void ThrowingLogger_PropagatesFromEnterSingleFlight_MaskingItsOwnIntentionalException()
     {
         var renderer = new CytoscapeGraphRenderer(new ThrowingLoggerFactory());
-        CytoscapeGraphRendererTestAccess.InvokeEnterSingleFlight(renderer, "first"); // no log yet — succeeds
+        renderer.EnterSingleFlight("first"); // no log yet — succeeds
 
-        var ex = Record.Exception(
-            () => CytoscapeGraphRendererTestAccess.InvokeEnterSingleFlight(renderer, "second"));
+        var ex = Record.Exception(() => renderer.EnterSingleFlight("second"));
 
         Assert.IsType<InvalidOperationException>(ex);
         // The LOGGER's exception, not EnterSingleFlight's own ("... while another renderer call

@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading.Tasks;
 
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Tests.Diagnostics;
@@ -7,19 +8,19 @@ using Microsoft.Extensions.Logging;
 
 using Xunit;
 
-using static GroupWeaver.App.Tests.Graph.CytoscapeGraphRendererTestAccess;
-
 namespace GroupWeaver.App.Tests.Graph;
 
 /// <summary>
 /// Pins the ADR-037 D5/D8 <c>Graph.Renderer</c>/<c>Graph.Bridge</c> event vocabulary on the REAL
 /// <see cref="CytoscapeGraphRenderer"/> — never <see cref="Fakes.FakeGraphRenderer"/>, which has no
-/// logging surface at all. Exercises exactly the two hot log sites reachable without a live
-/// <c>NativeWebView</c> (see <see cref="CytoscapeGraphRendererTestAccess"/> for why): the inbound
-/// bridge-message router and the single-flight guard. The renderer is constructed through its
-/// PUBLIC, already-shipped ctor seam (<c>CytoscapeGraphRenderer(ILoggerFactory? loggerFactory =
-/// null)</c>, ADR-037 WP1 defaulted-ctor idiom) with a <see cref="CapturingLoggerFactory"/> — no
-/// reflection is needed to get the logger IN, only to drive the private methods that consume it.
+/// logging surface at all. Exercises the internal <c>HandleMessage</c>/<c>EnterSingleFlight</c> test
+/// seam (ADR-037 WP2, #241) directly — both are synchronous and operate purely on parsed JSON /
+/// primitive state, so no live <c>NativeWebView</c> is needed for this slice of the surface. The
+/// renderer is constructed through its PUBLIC, already-shipped ctor seam
+/// (<c>CytoscapeGraphRenderer(ILoggerFactory? loggerFactory = null)</c>, ADR-037 WP1 defaulted-ctor
+/// idiom) with a <see cref="CapturingLoggerFactory"/>. The heartbeat TICK/MISS/LOST state machine
+/// itself is pinned separately in <c>CytoscapeRendererHeartbeatTests</c> via the
+/// <c>TestScriptInvoker</c>/<c>ProbeHeartbeatOnceAsync</c> seam.
 /// </summary>
 public sealed class CytoscapeRendererEventLogTests
 {
@@ -31,8 +32,7 @@ public sealed class CytoscapeRendererEventLogTests
         var capture = new CapturingLoggerFactory();
         var renderer = new CytoscapeGraphRenderer(capture);
 
-        InvokeHandleMessage(
-            renderer,
+        renderer.HandleMessage(
             """{"type":"ready","webglRenderer":"ANGLE (Intel, Intel(R) UHD Graphics 620)","userAgent":"Mozilla/5.0 WebView2"}""");
 
         var entry = Assert.Single(capture.EntriesNamed("BridgeReady"));
@@ -48,7 +48,7 @@ public sealed class CytoscapeRendererEventLogTests
         var capture = new CapturingLoggerFactory();
         var renderer = new CytoscapeGraphRenderer(capture);
 
-        InvokeHandleMessage(renderer, """{"type":"ready"}""");
+        renderer.HandleMessage("""{"type":"ready"}""");
 
         var entry = Assert.Single(capture.EntriesNamed("BridgeReady"));
         Assert.Null(entry.Fields["webglRenderer"]);
@@ -72,7 +72,7 @@ public sealed class CytoscapeRendererEventLogTests
         var capture = new CapturingLoggerFactory();
         var renderer = new CytoscapeGraphRenderer(capture);
 
-        InvokeHandleMessage(renderer, body);
+        renderer.HandleMessage(body);
 
         var entry = Assert.Single(capture.EntriesNamed("BridgeMessageReceived"));
         Assert.Equal("Graph.Bridge", entry.Category);
@@ -89,8 +89,7 @@ public sealed class CytoscapeRendererEventLogTests
         var capture = new CapturingLoggerFactory();
         var renderer = new CytoscapeGraphRenderer(capture);
 
-        InvokeHandleMessage(
-            renderer,
+        renderer.HandleMessage(
             """{"type":"jsError","source":"handler:graphCommit","message":"TypeError: cy is undefined"}""");
 
         var entry = Assert.Single(capture.EntriesNamed("JsErrorReported"));
@@ -109,7 +108,7 @@ public sealed class CytoscapeRendererEventLogTests
         GraphErrorEventArgs? raised = null;
         renderer.RendererError += (_, e) => raised = e;
 
-        InvokeHandleMessage(renderer, """{"type":"jsError","source":"s","message":"boom"}""");
+        renderer.HandleMessage("""{"type":"jsError","source":"s","message":"boom"}""");
 
         Assert.NotNull(raised);
         Assert.Equal("s", raised!.Source);
@@ -126,7 +125,7 @@ public sealed class CytoscapeRendererEventLogTests
         var renderer = new CytoscapeGraphRenderer(capture);
         const string Raw = """{"type":"teleport"}""";
 
-        InvokeHandleMessage(renderer, Raw);
+        renderer.HandleMessage(Raw);
 
         var entry = Assert.Single(capture.EntriesNamed("BridgeUnknownMessage"));
         Assert.Equal("Graph.Bridge", entry.Category);
@@ -144,7 +143,7 @@ public sealed class CytoscapeRendererEventLogTests
         GraphErrorEventArgs? raised = null;
         renderer.RendererError += (_, e) => raised = e;
 
-        InvokeHandleMessage(renderer, """{"type":"teleport"}""");
+        renderer.HandleMessage("""{"type":"teleport"}""");
 
         Assert.NotNull(raised);
         Assert.Equal("renderer", raised!.Source);
@@ -159,11 +158,11 @@ public sealed class CytoscapeRendererEventLogTests
         var capture = new CapturingLoggerFactory();
         var renderer = new CytoscapeGraphRenderer(capture);
 
-        InvokeEnterSingleFlight(renderer, "ShowGraphAsync"); // first call: succeeds silently
+        renderer.EnterSingleFlight("ShowGraphAsync"); // first call: succeeds silently
         Assert.Empty(capture.EntriesNamed("SingleFlightViolation"));
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => InvokeEnterSingleFlight(renderer, "UpdateGraphAsync"));
+            () => renderer.EnterSingleFlight("UpdateGraphAsync"));
         Assert.Contains("UpdateGraphAsync", ex.Message);
 
         var entry = Assert.Single(capture.EntriesNamed("SingleFlightViolation"));
@@ -172,65 +171,77 @@ public sealed class CytoscapeRendererEventLogTests
         Assert.Equal("UpdateGraphAsync", entry.Fields["operation"]);
     }
 
-    // === 6. Heartbeat miss-reset-on-message (ADR-037 D8) — no timer needed ========================
+    // === 6. Heartbeat miss-reset-on-message (ADR-037 D8) — via the TestScriptInvoker seam ========
+    //
+    // Arranges a genuine pre-existing miss streak through the REAL probe path (a failing
+    // TestScriptInvoker + ProbeHeartbeatOnceAsync, never a field poke), then proves HandleMessage's
+    // miss-reset rule against it.
 
     [Fact]
-    public void ParseableMessage_ResetsTheHeartbeatMissStreak()
+    public async Task ParseableMessage_ResetsTheHeartbeatMissStreak()
     {
         var capture = new CapturingLoggerFactory();
-        var renderer = new CytoscapeGraphRenderer(capture);
-        SetHeartbeatMisses(renderer, 2);
+        var renderer = new CytoscapeGraphRenderer(capture) { TestScriptInvoker = Miss };
+        await renderer.ProbeHeartbeatOnceAsync();
+        await renderer.ProbeHeartbeatOnceAsync();
+        Assert.Equal(2, renderer.HeartbeatMisses);
 
-        InvokeHandleMessage(renderer, """{"type":"focused"}""");
+        renderer.HandleMessage("""{"type":"focused"}""");
 
-        Assert.Equal(0, GetHeartbeatMisses(renderer));
+        Assert.Equal(0, renderer.HeartbeatMisses);
     }
 
     [Theory]
     [InlineData("""{"type":"ready"}""")]
     [InlineData("""{"type":"loaded","nodeCount":1,"edgeCount":1}""")]
     [InlineData("""{"type":"jsError","source":"s","message":"m"}""")]
-    public void EveryParseableMessageType_ResetsTheHeartbeatMissStreak(string body)
+    public async Task EveryParseableMessageType_ResetsTheHeartbeatMissStreak(string body)
     {
         var capture = new CapturingLoggerFactory();
-        var renderer = new CytoscapeGraphRenderer(capture);
-        SetHeartbeatMisses(renderer, 3);
+        var renderer = new CytoscapeGraphRenderer(capture) { TestScriptInvoker = Miss };
+        await renderer.ProbeHeartbeatOnceAsync();
+        await renderer.ProbeHeartbeatOnceAsync();
+        Assert.Equal(2, renderer.HeartbeatMisses);
 
-        InvokeHandleMessage(renderer, body);
+        renderer.HandleMessage(body);
 
-        Assert.Equal(0, GetHeartbeatMisses(renderer));
+        Assert.Equal(0, renderer.HeartbeatMisses);
     }
 
     [Fact]
-    public void UnknownMessage_DoesNotResetTheHeartbeatMissStreak()
+    public async Task UnknownMessage_DoesNotResetTheHeartbeatMissStreak()
     {
         var capture = new CapturingLoggerFactory();
-        var renderer = new CytoscapeGraphRenderer(capture);
-        SetHeartbeatMisses(renderer, 2);
+        var renderer = new CytoscapeGraphRenderer(capture) { TestScriptInvoker = Miss };
+        await renderer.ProbeHeartbeatOnceAsync();
+        await renderer.ProbeHeartbeatOnceAsync();
+        Assert.Equal(2, renderer.HeartbeatMisses);
 
-        InvokeHandleMessage(renderer, """{"type":"teleport"}""");
+        renderer.HandleMessage("""{"type":"teleport"}""");
 
-        Assert.Equal(2, GetHeartbeatMisses(renderer));
+        Assert.Equal(2, renderer.HeartbeatMisses);
     }
+
+    private static Task<string?> Miss(string script) => Task.FromResult<string?>("0");
 
     // === 7. Evt-name uniqueness within the new surface (the machine-contract pin) ================
 
     /// <summary>Drives every reachable ADR-037 WP2 event once and asserts the captured NAMES are
     /// exactly the expected 5-element vocabulary with NO accidental collisions (a duplicate name
     /// across two semantically different events would silently merge them for the E2E triager's
-    /// grep). This does not (and per <see cref="CytoscapeGraphRendererTestAccess"/> cannot) cover
-    /// the WebView/timer-gated remainder of the surface — see the WP2 report for that gap.</summary>
+    /// grep). The heartbeat's own <c>HeartbeatMissed</c>/<c>HeartbeatLost</c> names are pinned
+    /// separately in <c>CytoscapeRendererHeartbeatTests</c>.</summary>
     [Fact]
     public void ReachableEventNames_AreExactlyTheExpectedDistinctVocabulary()
     {
         var capture = new CapturingLoggerFactory();
         var renderer = new CytoscapeGraphRenderer(capture);
 
-        InvokeHandleMessage(renderer, """{"type":"ready","webglRenderer":"SwiftShader","userAgent":"UA"}""");
-        InvokeHandleMessage(renderer, """{"type":"jsError","source":"s","message":"m"}""");
-        InvokeHandleMessage(renderer, """{"type":"teleport"}""");
-        InvokeEnterSingleFlight(renderer, "ShowGraphAsync");
-        Assert.Throws<InvalidOperationException>(() => InvokeEnterSingleFlight(renderer, "FocusAsync"));
+        renderer.HandleMessage("""{"type":"ready","webglRenderer":"SwiftShader","userAgent":"UA"}""");
+        renderer.HandleMessage("""{"type":"jsError","source":"s","message":"m"}""");
+        renderer.HandleMessage("""{"type":"teleport"}""");
+        renderer.EnterSingleFlight("ShowGraphAsync");
+        Assert.Throws<InvalidOperationException>(() => renderer.EnterSingleFlight("FocusAsync"));
 
         var names = capture.Entries.Select(e => e.EventName).Distinct().OrderBy(n => n, StringComparer.Ordinal);
         Assert.Equal(
