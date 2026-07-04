@@ -171,11 +171,16 @@ function Write-DriverLog {
 # -StateDir (ADR-038 D3.1, WP5): the hermetic per-scenario state seam. When given,
 # the app is launched with "--state-dir <dir>" (the app rebases ALL its %APPDATA%
 # persistence onto that base dir; DEMO-GATED app-side, so callers MUST include
-# --demo in -AppArgs or the app refuses with exit 64) and the WebView2 profile +
-# log sink are pointed inside the same dir via per-child env (WEBVIEW2_USER_DATA_FOLDER,
-# GROUPWEAVER_LOG_DIR) - one directory holds the scenario's whole on-disk footprint,
-# and the operator's real %APPDATA% is never touched. Env goes through the same
-# set-around-launch/restore bracket as -EnvOverrides (child-only, never the machine).
+# --demo in -AppArgs or the app refuses with exit 64) and the log sink is pointed
+# inside the same dir via per-child env (GROUPWEAVER_LOG_DIR) - the operator's real
+# %APPDATA% is never touched. WEBVIEW2_USER_DATA_FOLDER is ALSO set here for the
+# same reason, but is CURRENTLY A NO-OP: Avalonia.Controls.WebView pins its own
+# user-data folder next to the exe regardless of this env var (issue #253) - so
+# WebView2 browser-profile isolation across scenarios is not yet achieved. Kept set
+# for forward-compatibility (the day the renderer exposes a real seam, this starts
+# working with no driver change) and because it's harmless while inert.
+# Env goes through the same set-around-launch/restore bracket as -EnvOverrides
+# (child-only, never the machine).
 function Start-E2EApp {
     param(
         [Parameter(Mandatory)][string]$ExePath,

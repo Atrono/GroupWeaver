@@ -87,13 +87,17 @@ the **hermetic state seam** (ADR-038 D3.1, WP5): demo scenarios launch the app
 with `--demo --state-dir <dir>` (`Start-E2EApp -StateDir`; `--demo` is mandatory
 - the app refuses the seam with exit 64 otherwise), pre-seed a deterministic
 `ui-state.json` via `Initialize-E2eStateDir` (rail expanded, dark theme), and
-get the WebView2 profile + log sink pointed inside the same dir via per-child
-env (`WEBVIEW2_USER_DATA_FOLDER`, `GROUPWEAVER_LOG_DIR`). The operator's real
-`%APPDATA%` is never touched by demo scenarios. `Backup-/Restore-OperatorState`
-and the runner's `.e2e-bak` leftover sweep REMAIN for live-AD scenarios, which
-run seamless by design (ADR-038 D6). `renderingMode` in the summary
-distinguishes GPU vs software rendering - perf budgets are keyed by mode and
-never compared across modes (ADR-038 D5).
+get the log sink pointed inside the same dir via per-child env
+(`GROUPWEAVER_LOG_DIR`). The operator's real `%APPDATA%` is never touched by
+demo scenarios. The driver also sets `WEBVIEW2_USER_DATA_FOLDER` into the same
+dir, but this is **currently a no-op** - `Avalonia.Controls.WebView` pins its
+own user-data folder next to the exe regardless (issue #253), so WebView2
+browser-profile isolation across scenarios isn't achieved yet; the env var is
+kept for forward-compatibility and is harmless while inert.
+`Backup-/Restore-OperatorState` and the runner's `.e2e-bak` leftover sweep
+REMAIN for live-AD scenarios, which run seamless by design (ADR-038 D6).
+`renderingMode` in the summary distinguishes GPU vs software rendering - perf
+budgets are keyed by mode and never compared across modes (ADR-038 D5).
 
 `tools/smoke-back-nav.ps1` is a deprecation wrapper around
 `run-e2e.ps1 -Scenario back-nav`; the journey now lives in
