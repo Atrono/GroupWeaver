@@ -199,9 +199,10 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
     }
 
     // ---------- background writer (single reader) ----------
-    // WP2 (#241) note: the per-chunk Trace call sites must use LoggerMessage source-gen (not
-    // LoggerExtensions), and the cadence-flush starvation under continuous Trace traffic
-    // (needsFlush only rearms between drains) gets revisited with that volume.
+    // WP2 (#241): both breadcrumbs honored — the renderer's per-chunk/per-message Trace call
+    // sites use LoggerMessage source-gen (CytoscapeGraphRenderer), and the cadence flush now
+    // also enforces its ~500 ms deadline at drain time (lastFlush below), so continuous Trace
+    // traffic can no longer starve it (the WhenAny race alone never fired without a quiet gap).
 
     private async Task WriteLoopAsync()
     {
@@ -210,6 +211,7 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
             var reader = _channel.Reader;
             Task<bool>? pendingWait = null;
             var needsFlush = false;
+            var lastFlush = Environment.TickCount64;
             while (true)
             {
                 var waitTask = pendingWait ?? reader.WaitToReadAsync().AsTask();
@@ -223,6 +225,7 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
                     {
                         TryFlush();
                         needsFlush = false;
+                        lastFlush = Environment.TickCount64;
                         pendingWait = waitTask;
                         continue;
                     }
@@ -252,10 +255,15 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
                     urgent = true;
                 }
 
-                if (urgent)
+                // WP2 (#241): urgent (Warning+) flushes immediately; otherwise the ~500 ms
+                // cadence deadline is ALSO checked here at drain time — under continuous
+                // (Trace-volume) traffic the reader always wins the WhenAny race above, so
+                // without this check the cadence flush would starve until the next quiet gap.
+                if (urgent || Environment.TickCount64 - lastFlush >= (long)FlushInterval.TotalMilliseconds)
                 {
-                    TryFlush(); // Warning+ flushes immediately
+                    TryFlush();
                     needsFlush = false;
+                    lastFlush = Environment.TickCount64;
                 }
                 else
                 {

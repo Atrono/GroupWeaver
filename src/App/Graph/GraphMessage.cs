@@ -7,8 +7,14 @@ namespace GroupWeaver.App.Graph;
 /// </summary>
 public abstract record GraphMessage;
 
-/// <summary>graph.js finished loading and the bridge is live (<c>{"type":"ready"}</c>).</summary>
-public sealed record ReadyMessage : GraphMessage;
+/// <summary>graph.js finished loading and the bridge is live (<c>{"type":"ready"}</c>).
+/// ADR-037 D6 (WP2): optionally carries the page's rendering-mode truth —
+/// <paramref name="WebglRenderer"/> is the unmasked <c>WEBGL_debug_renderer_info</c> string
+/// ("SwiftShader" = software rendering; <c>null</c> when the context/extension is unavailable
+/// or the field is absent on the wire) and <paramref name="UserAgent"/> the embedded browser's
+/// UA string. Both optional: a bare <c>{"type":"ready"}</c> still parses (never demoted to
+/// <see cref="UnknownMessage"/>), so older bundles and existing tests are unaffected.</summary>
+public sealed record ReadyMessage(string? WebglRenderer = null, string? UserAgent = null) : GraphMessage;
 
 /// <summary>The committed graph finished rendering (<c>{"type":"loaded"}</c>).</summary>
 public sealed record LoadedMessage(int NodeCount, int EdgeCount) : GraphMessage;
