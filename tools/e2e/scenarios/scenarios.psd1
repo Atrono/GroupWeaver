@@ -64,5 +64,11 @@
             TimeoutSec      = 300
             RetrySignatures = @()
         }
+        @{
+            Name            = 'golden-journey'
+            Tags            = @('full')
+            TimeoutSec      = 600
+            RetrySignatures = @()
+        }
     )
 }
