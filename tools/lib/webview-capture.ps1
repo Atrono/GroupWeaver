@@ -313,6 +313,19 @@ function Send-Key([int]$vk) {
     [void][GroupWeaver.WebViewCapture]::PostMessage($app.MainWindowHandle, [GroupWeaver.WebViewCapture]::WM_KEYUP, [IntPtr]$vk, [IntPtr]::Zero)
 }
 
+# Identical to Send-Key, but targets the Chromium child HWND (caller-scoped
+# $chromiumHwnd) instead of MainWindow - needed because on-canvas keyboard
+# shortcuts (the zoom '+'/'-' keys) are read by the web bundle's OWN
+# document.addEventListener('keydown', ...) listener (src/App/web/graph.js),
+# which only sees input delivered to the Chromium child, never MainWindow.
+# Same single-key-only caveat as Send-Key applies here too (no chord/modifier
+# key-state).
+function Send-CanvasKey([int]$vk) {
+    [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_KEYDOWN, [IntPtr]$vk, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 40
+    [void][GroupWeaver.WebViewCapture]::PostMessage($chromiumHwnd, [GroupWeaver.WebViewCapture]::WM_KEYUP, [IntPtr]$vk, [IntPtr]::Zero)
+}
+
 # Densest blob of a palette color in a capture region - 'canvas' = the Chromium
 # child rect, 'detail' = the Avalonia detail column right of it (kind badge!).
 # Returns @{X=..;Y=..;Count=..} in capture coordinates or $null.
