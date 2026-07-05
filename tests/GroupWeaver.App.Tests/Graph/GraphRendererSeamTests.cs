@@ -21,11 +21,16 @@ namespace GroupWeaver.App.Tests.Graph;
 /// unit-testable surface — its JS half is covered by the Playwright harness
 /// (<c>tests/graph-bundle</c>, ADR-004 D6).
 ///
-/// <para><b>ProbeStateAsync note:</b> as of WP6, no production caller invokes it yet — the
-/// <c>--e2e</c> channel's <c>state</c> command reads its reply straight off
-/// <c>ShellViewModel</c>/<c>WorkspaceViewModel</c> properties instead (see
-/// <c>E2eChannelCliTests</c>). These tests pin the SEAM (interface shape + fake recording) the
-/// way every other renderer method is pinned here; they are not a claim that anything calls it.</para>
+/// <para><b>ProbeStateAsync note:</b> the <c>--e2e</c> channel's <c>state</c> command DOES call
+/// it now (the WP6 test-engineer finding this comment used to document — fixed):
+/// <c>E2eChannel.EmitStateReplyAsync</c> merges its <c>zoom</c>/<c>panX</c>/<c>panY</c>/
+/// <c>animated</c> page truth into the reply alongside the VM-level fields
+/// <c>ShellViewModel</c>/<c>WorkspaceViewModel</c> still supply directly (see
+/// <c>E2eChannelStateProbeMergeTests</c> for that merge, in-process over a
+/// <see cref="FakeGraphRenderer"/>; <c>E2eChannelCliTests</c> pins the wire framing at the
+/// process level but never advances past PickRoot, so it never observes a live renderer).
+/// These tests still pin the SEAM itself (interface shape + fake recording) at the unit
+/// level, the way every other renderer method is pinned here.</para>
 /// </summary>
 public sealed class GraphRendererSeamTests
 {

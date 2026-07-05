@@ -570,14 +570,26 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>The graph renderer a tracked step owns, or <c>null</c> for a graph-less step (or a
-    /// step whose renderer was never built — null factory / missing WebView2).</summary>
-    private static IGraphRenderer? RendererOf(IDisposable step) => step switch
+    /// step whose renderer was never built — null factory / missing WebView2). <c>internal</c>
+    /// (not just the <see cref="ApplyCanvasTheme"/> call site below): ADR-038 WP6 (#245) added a
+    /// second caller, <see cref="ActiveGraphRenderer"/>. Parameter widened from <c>IDisposable</c>
+    /// to <c>object?</c> for that caller — <see cref="CurrentStep"/> itself is untyped
+    /// <c>object</c>; every existing <c>IDisposable</c> call site still binds via implicit
+    /// reference widening.</summary>
+    internal static IGraphRenderer? RendererOf(object? step) => step switch
     {
         WorkspaceViewModel workspace => workspace.GraphRenderer,
         PlanViewModel plan => plan.GraphRenderer,
         GapViewModel gap => gap.GraphRenderer,
         _ => null,
     };
+
+    /// <summary>The CURRENT step's graph renderer, or <c>null</c> on a renderer-less step
+    /// (Connect/PickRoot/Audit) or before the renderer factory built one (ADR-038 D3.2 / WP6,
+    /// #245): the <c>--e2e</c> channel's <c>state</c> command merges this renderer's
+    /// <see cref="IGraphRenderer.ProbeStateAsync"/> page truth (zoom/pan/animated) into its reply
+    /// alongside the VM-level fields <see cref="CurrentStepName"/> already exposes.</summary>
+    internal IGraphRenderer? ActiveGraphRenderer => RendererOf(CurrentStep);
 
     /// <summary>Applies the RESOLVED variant (<see cref="ResolvedIsLight"/> — Dark/Light pass
     /// through, System reads <see cref="IPlatformThemeProvider.GetOsPreference"/>) to

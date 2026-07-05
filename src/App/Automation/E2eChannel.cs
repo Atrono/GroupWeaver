@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 
 using GroupWeaver.App.Diagnostics;
+using GroupWeaver.App.Graph;
 using GroupWeaver.App.ViewModels;
 
 namespace GroupWeaver.App.Automation;
@@ -31,10 +32,15 @@ namespace GroupWeaver.App.Automation;
 /// <para><b>stdin</b> — a background read loop accepting EXACTLY two commands (ADR-038 D2 —
 /// never more, never a mutation): <c>{"cmd":"state","seq":N}</c> replies on stdout
 /// <c>{"reply":N,"step":…,"nodeCount":…,"edgeCount":…,"selectedDn":…,"isLoading":…,
-/// "loadError":…}</c> read live off the shell / the active <see cref="WorkspaceViewModel"/>;
-/// <c>{"cmd":"quit"}</c> closes the window gracefully (UI thread) so a scenario can tell a
-/// clean exit from a kill. A malformed line, an unknown <c>cmd</c>, or any exception is
-/// silently ignored — NEVER throws, NEVER crashes the app, NEVER touches Active Directory.</para>
+/// "loadError":…,"zoom":…,"panX":…,"panY":…,"animated":…}</c> — the first seven fields read live
+/// off the shell / the active <see cref="WorkspaceViewModel"/>; the last four are MERGED
+/// (ADR-038 D3 item 3) from the active step's renderer via
+/// <see cref="IGraphRenderer.ProbeStateAsync"/> — <c>null</c> when no renderer is active (e.g.
+/// Connect/PickRoot) or the probe times out/faults, and NEVER delaying or failing the reply's
+/// VM-level fields on that account; <c>{"cmd":"quit"}</c> closes the window gracefully (UI
+/// thread) so a scenario can tell a clean exit from a kill. A malformed line, an unknown
+/// <c>cmd</c>, or any exception is silently ignored — NEVER throws, NEVER crashes the app, NEVER
+/// touches Active Directory.</para>
 /// </summary>
 public sealed class E2eChannel : IDisposable
 {
@@ -164,7 +170,10 @@ public sealed class E2eChannel : IDisposable
                     // VM state is UI-thread-affine (ObservableObject, no thread-safety contract) —
                     // read it on the UI thread, mirroring every other cross-thread bridge hand-off
                     // in this codebase (e.g. CytoscapeGraphRenderer.OnWebMessageReceived).
-                    Dispatcher.UIThread.Post(() => EmitStateReply(seq));
+                    // Fire-and-forget (the ShellViewModel.ApplyCanvasTheme idiom): EmitStateReplyAsync
+                    // never throws (the page-truth probe below is wrapped in its own try/catch), so
+                    // discarding the task here is safe.
+                    Dispatcher.UIThread.Post(() => _ = EmitStateReplyAsync(seq));
                     break;
                 case "quit":
                     // Graceful close (UI thread): MainWindow.OnClosed disposes the shell, which
@@ -182,10 +191,42 @@ public sealed class E2eChannel : IDisposable
 
     /// <summary>Builds the <c>state</c> command's reply from whatever the CURRENT step (and, if
     /// it is the workspace, the active <see cref="WorkspaceViewModel"/>) exposes today — never
-    /// invented fields. A non-workspace step reports the zeroed/idle defaults.</summary>
-    private void EmitStateReply(long seq)
+    /// invented fields — MERGED (ADR-038 D3 item 3, the test-engineer WP6 finding this fixes)
+    /// with the active step's renderer page truth: <see cref="ShellViewModel.ActiveGraphRenderer"/>
+    /// covers Workspace/Plan/Gap identically (whichever the current step is), so a <c>state</c>
+    /// probe issued from any of those three steps observes the live camera, not just Workspace's.
+    /// A non-workspace step reports the zeroed/idle VM defaults; a step with no renderer (Connect/
+    /// PickRoot/Audit) — or a probe that times out, faults, or hits the renderer's single-flight
+    /// guard (<see cref="CytoscapeGraphRenderer.EnterSingleFlight"/> mid another command) —
+    /// reports the four page-truth fields as JSON <c>null</c>. Either way the VM-level fields are
+    /// ALWAYS returned promptly: a slow/absent page truth must never fail or hang the whole
+    /// reply.
+    /// <para><c>internal</c> (not <c>private</c>): a direct pin for the merge itself, over the
+    /// injected in-memory stdin/stdout seam — the same access-for-testing rationale as
+    /// <see cref="CytoscapeGraphRenderer.EnterSingleFlight"/>'s existing internal seam. The full
+    /// stdio wire framing stays pinned at the process level in <c>E2eChannelCliTests</c>.</para>
+    /// </summary>
+    internal async Task EmitStateReplyAsync(long seq)
     {
         var workspace = _shell.CurrentStep as WorkspaceViewModel;
+
+        GraphStateReport? probe = null;
+        if (_shell.ActiveGraphRenderer is { } renderer)
+        {
+            try
+            {
+                probe = await renderer.ProbeStateAsync();
+            }
+            catch
+            {
+                // Never-throw: ProbeStateAsync's own contract already maps a page-side timeout/
+                // error to a null result, but a renderer command already in flight throws
+                // SYNCHRONOUSLY instead (EnterSingleFlight) — folded into the same "no page truth
+                // available right now" outcome so the state command can never fail or hang on it.
+                probe = null;
+            }
+        }
+
         WriteLine(writer =>
         {
             writer.WriteStartObject();
@@ -196,6 +237,24 @@ public sealed class E2eChannel : IDisposable
             WriteNullableString(writer, "selectedDn", Redactor.Dn(workspace?.SelectedDn));
             writer.WriteBoolean("isLoading", workspace?.IsLoading ?? false);
             WriteNullableString(writer, "loadError", Redactor.Scrub(workspace?.LoadError));
+            if (probe is { } report)
+            {
+                writer.WriteNumber("zoom", report.Zoom);
+                writer.WriteNumber("panX", report.PanX);
+                writer.WriteNumber("panY", report.PanY);
+                writer.WriteBoolean("animated", report.Animated);
+            }
+            else
+            {
+                // Keys always present (matching selectedDn/loadError's always-present-maybe-null
+                // shape above) rather than omitted — a fixed reply shape is simpler for a
+                // PowerShell scenario driver to consume than an optional-key one.
+                writer.WriteNull("zoom");
+                writer.WriteNull("panX");
+                writer.WriteNull("panY");
+                writer.WriteNull("animated");
+            }
+
             writer.WriteEndObject();
         });
     }
