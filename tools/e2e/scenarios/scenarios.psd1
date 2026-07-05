@@ -46,5 +46,11 @@
             TimeoutSec      = 360
             RetrySignatures = @()
         }
+        @{
+            Name            = 'settings-rethread'
+            Tags            = @('full')
+            TimeoutSec      = 300
+            RetrySignatures = @()
+        }
     )
 }
