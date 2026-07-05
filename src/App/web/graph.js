@@ -1177,6 +1177,33 @@
         case 'ping':
           window.bridge.send({ type: 'pong', seq: cmd.seq });
           break;
+        case 'stateProbe':
+          // ADR-038 D3.2 (WP6, #245): the --e2e page-truth reply, cloned from the ping/pong
+          // seq idiom above. SCALARS ONLY (the historical Playwright-serialization-trap
+          // lesson - never a rich cytoscape object). cy===null -> an idle snapshot (never a
+          // jsError: a probe racing ahead of the first graphCommit is a legitimate
+          // observation, unlike graphUpdate/exportPng which act on a live instance).
+          if (cy === null) {
+            window.bridge.send({
+              type: 'stateReport', seq: cmd.seq, nodes: 0, edges: 0, zoom: 0, panX: 0, panY: 0,
+              selected: null, animated: false
+            });
+            break;
+          }
+          var probePan = cy.pan();
+          var probeSelected = cy.$(':selected');
+          window.bridge.send({
+            type: 'stateReport',
+            seq: cmd.seq,
+            nodes: cy.nodes().length,
+            edges: cy.edges().length,
+            zoom: cy.zoom(),
+            panX: probePan.x,
+            panY: probePan.y,
+            selected: probeSelected.nonempty() ? probeSelected[0].id() : null,
+            animated: cy.animated()
+          });
+          break;
         default:
           window.bridge.send({ type: 'jsError', source: 'bridge', message: 'unknown command: ' + cmd.type });
       }

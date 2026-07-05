@@ -48,6 +48,7 @@ public static class GraphMessageParser
                 "focused" => new FocusedMessage(),
                 "jsError" => ParseJsError(root, json),
                 "pngExported" => ParsePngExported(root, json),
+                "stateReport" => ParseStateReport(root, json),
                 _ => new UnknownMessage(json, $"unknown message type '{type}'"),
             };
         }
@@ -96,6 +97,29 @@ public static class GraphMessageParser
         return new PngExportedMessage(data, width, height);
     }
 
+    // ADR-038 D3.2 (WP6, #245): the `--e2e` page-truth reply. `selected` is the ONE genuinely
+    // OPTIONAL field (JSON null or absent both mean "nothing selected" — GetNullableString);
+    // every other field is required (a malformed reply must not silently report zeroed state).
+    private static GraphMessage ParseStateReport(JsonElement root, string raw)
+    {
+        if (!TryGetInt(root, "seq", out var seq)
+            || !TryGetInt(root, "nodes", out var nodes)
+            || !TryGetInt(root, "edges", out var edges)
+            || !TryGetDouble(root, "zoom", out var zoom)
+            || !TryGetDouble(root, "panX", out var panX)
+            || !TryGetDouble(root, "panY", out var panY)
+            || !TryGetBool(root, "animated", out var animated))
+        {
+            return new UnknownMessage(
+                raw,
+                "stateReport: integer 'seq'/'nodes'/'edges', number 'zoom'/'panX'/'panY', "
+                    + "and boolean 'animated' are required");
+        }
+
+        return new StateReportMessage(
+            seq, nodes, edges, zoom, panX, panY, GetNullableString(root, "selected"), animated);
+    }
+
     private static bool TryGetString(JsonElement obj, string name, out string value)
     {
         if (obj.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String)
@@ -108,6 +132,13 @@ public static class GraphMessageParser
         return false;
     }
 
+    // OPTIONAL string field (ADR-037 D6 idiom, e.g. ReadyMessage's webglRenderer/userAgent):
+    // absent, JSON null, or the wrong type all map to null — no UnknownMessage demotion.
+    private static string? GetNullableString(JsonElement obj, string name) =>
+        obj.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
     private static bool TryGetInt(JsonElement obj, string name, out int value)
     {
         if (obj.TryGetProperty(name, out var property) &&
@@ -118,6 +149,32 @@ public static class GraphMessageParser
         }
 
         value = 0;
+        return false;
+    }
+
+    private static bool TryGetDouble(JsonElement obj, string name, out double value)
+    {
+        if (obj.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number &&
+            property.TryGetDouble(out value))
+        {
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static bool TryGetBool(JsonElement obj, string name, out bool value)
+    {
+        if (obj.TryGetProperty(name, out var property) &&
+            property.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            value = property.GetBoolean();
+            return true;
+        }
+
+        value = false;
         return false;
     }
 }

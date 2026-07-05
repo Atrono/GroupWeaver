@@ -123,6 +123,17 @@ public interface IGraphRenderer : IDisposable
     Task SetThemeAsync(bool isLightTheme, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 
+    /// <summary>The <c>--e2e</c> page-truth probe (ADR-038 D3.2 / WP6, #245): dispatches
+    /// <c>{type:'stateProbe', seq}</c> — cloned from graph.js's existing ping/pong <c>seq</c>
+    /// idiom — and completes once the page's <c>stateReport</c> reply lands, bounded exactly
+    /// like <see cref="FocusAsync"/> (single-flight, 60 s <c>BridgeTimeout</c>,
+    /// RendererError-and-return-normally on timeout/error). Returns <c>null</c> on timeout or
+    /// any error (the never-throw renderer contract, mirroring <see cref="ExportPngAsync"/>) —
+    /// OBSERVATION-ONLY: never mutates the live graph. Default no-op (<c>null</c>): renderer
+    /// fakes inherit it; the real <c>CytoscapeGraphRenderer</c> overrides it.</summary>
+    Task<GraphStateReport?> ProbeStateAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<GraphStateReport?>(null);
+
     /// <summary>A node was tapped (drives the AP 2.5 detail-panel selection).</summary>
     event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
@@ -143,3 +154,12 @@ public sealed record GraphNodeEventArgs(string Dn, string Kind);
 /// <summary>Renderer error payload (same shape as <see cref="JsErrorMessage"/>);
 /// plain record for the same reason as <see cref="GraphNodeEventArgs"/>.</summary>
 public sealed record GraphErrorEventArgs(string Source, string Message);
+
+/// <summary>The <see cref="IGraphRenderer.ProbeStateAsync"/> result (ADR-038 D3.2 / WP6,
+/// #245) — the seam-level projection of a <see cref="StateReportMessage"/> (its <c>Seq</c> is
+/// transport-only and dropped here). SCALARS ONLY, mirroring the wire message: <c>Zoom</c>/
+/// <c>PanX</c>/<c>PanY</c> are the live camera; <c>Selected</c> is the selected node id or
+/// <c>null</c>; <c>Animated</c> is <c>cy.animated()</c> — the settle-barrier boolean the house
+/// flake-mitigation rules require a scenario to gate on before asserting.</summary>
+public sealed record GraphStateReport(
+    int Nodes, int Edges, double Zoom, double PanX, double PanY, string? Selected, bool Animated);

@@ -113,18 +113,29 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// visibility binding in sync as steps switch (ADR-022 addendum).</summary>
     partial void OnCurrentStepChanged(object value) => OnPropertyChanged(nameof(IsWorkspaceStep));
 
+    /// <summary>ADR-038 WP6 (#245): the <c>--e2e</c> channel's step-change tap, raised from the
+    /// SAME choke point <see cref="OnCurrentStepChanged(object?, object)"/> logs
+    /// <c>StepChanged</c> from — never a second hook onto <see cref="CurrentStep"/>. The
+    /// composition root's <c>Automation.E2eChannel</c> subscribes this (when <c>--e2e</c> is
+    /// set) to mirror the log line onto its stdout trace; <c>null</c> when nothing is
+    /// subscribed (headless tests, no <c>--e2e</c>) so every pre-WP6 caller is unaffected.</summary>
+    public event EventHandler<StepChangedEventArgs>? StepChanged;
+
     /// <summary>Logs <c>StepChanged{from,to,trigger}</c> (ADR-037 D5 — the E2E timeline backbone)
-    /// at the single choke point every step swap passes through. Step names only, never subject
-    /// data; the ctor's initial Connect step sets the backing field directly and is NOT logged
-    /// (the banner already marks startup).</summary>
+    /// at the single choke point every step swap passes through, THEN raises
+    /// <see cref="StepChanged"/> with the identical (from, to, trigger) triple (ADR-038 WP6) —
+    /// the log call is never duplicated. Step names only, never subject data; the ctor's initial
+    /// Connect step sets the backing field directly and is NOT logged/raised (the banner already
+    /// marks startup).</summary>
     partial void OnCurrentStepChanged(object? oldValue, object newValue)
     {
         var trigger = _stepTrigger ?? "direct";
         _stepTrigger = null;
+        var from = StepName(oldValue);
+        var to = StepName(newValue);
         _log.LogInformation(
-            new EventId(0, "StepChanged"),
-            "StepChanged {from} {to} {trigger}",
-            StepName(oldValue), StepName(newValue), trigger);
+            new EventId(0, "StepChanged"), "StepChanged {from} {to} {trigger}", from, to, trigger);
+        StepChanged?.Invoke(this, new StepChangedEventArgs(from, to, trigger));
     }
 
     /// <summary>The stable step name for <c>StepChanged</c> (ADR-003 D5 step machine's
@@ -140,6 +151,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         null => "None",
         _ => step.GetType().Name,
     };
+
+    /// <summary>The CURRENT step's stable name (ADR-038 WP6, #245): the <c>--e2e</c> channel's
+    /// <c>state</c> command reply reuses this SAME vocabulary rather than re-deriving it.</summary>
+    public string CurrentStepName => StepName(CurrentStep);
 
     /// <summary>ADR-022 D2: focus (presentation) mode. The top command strip binds
     /// <c>IsVisible="{Binding !IsFocusMode}"</c> so focus mode hides it (the WebView2-missing
@@ -555,14 +570,26 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>The graph renderer a tracked step owns, or <c>null</c> for a graph-less step (or a
-    /// step whose renderer was never built — null factory / missing WebView2).</summary>
-    private static IGraphRenderer? RendererOf(IDisposable step) => step switch
+    /// step whose renderer was never built — null factory / missing WebView2). <c>internal</c>
+    /// (not just the <see cref="ApplyCanvasTheme"/> call site below): ADR-038 WP6 (#245) added a
+    /// second caller, <see cref="ActiveGraphRenderer"/>. Parameter widened from <c>IDisposable</c>
+    /// to <c>object?</c> for that caller — <see cref="CurrentStep"/> itself is untyped
+    /// <c>object</c>; every existing <c>IDisposable</c> call site still binds via implicit
+    /// reference widening.</summary>
+    internal static IGraphRenderer? RendererOf(object? step) => step switch
     {
         WorkspaceViewModel workspace => workspace.GraphRenderer,
         PlanViewModel plan => plan.GraphRenderer,
         GapViewModel gap => gap.GraphRenderer,
         _ => null,
     };
+
+    /// <summary>The CURRENT step's graph renderer, or <c>null</c> on a renderer-less step
+    /// (Connect/PickRoot/Audit) or before the renderer factory built one (ADR-038 D3.2 / WP6,
+    /// #245): the <c>--e2e</c> channel's <c>state</c> command merges this renderer's
+    /// <see cref="IGraphRenderer.ProbeStateAsync"/> page truth (zoom/pan/animated) into its reply
+    /// alongside the VM-level fields <see cref="CurrentStepName"/> already exposes.</summary>
+    internal IGraphRenderer? ActiveGraphRenderer => RendererOf(CurrentStep);
 
     /// <summary>Applies the RESOLVED variant (<see cref="ResolvedIsLight"/> — Dark/Light pass
     /// through, System reads <see cref="IPlatformThemeProvider.GetOsPreference"/>) to
@@ -928,3 +955,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _disposableSteps.Clear();
     }
 }
+
+/// <summary>ADR-038 WP6 (#245) payload for <see cref="ShellViewModel.StepChanged"/> — the SAME
+/// (from, to, trigger) triple the <c>StepChanged</c> log line carries, never a richer object
+/// (step names only, no subject data).</summary>
+public sealed record StepChangedEventArgs(string From, string To, string Trigger);

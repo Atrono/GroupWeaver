@@ -242,6 +242,97 @@ public sealed class GraphMessageParserTests
         Assert.Equal(raw, unknown.Raw);
     }
 
+    // --- stateReport (ADR-038 D3.2, WP6, #245; the --e2e stateProbe page-truth reply) ----
+    //
+    // graph.js's stateProbe handler sends, verbatim (cloned from the ping/pong seq idiom):
+    //   window.bridge.send({ type: 'stateReport', seq, nodes, edges, zoom, panX, panY,
+    //                         selected, animated });
+    // `selected` is the ONE genuinely optional field (JSON null or absent both mean "nothing
+    // selected"); every other field is required — a malformed reply must not silently report
+    // zeroed state (GetNullableString/TryGetInt/TryGetDouble/TryGetBool in GraphMessageParser).
+
+    [Fact]
+    public void Parse_StateReport_ExtractsAllFields_FromRealisticBridgeJson()
+    {
+        var message = GraphMessageParser.Parse(
+            """{"type":"stateReport","seq":3,"nodes":196,"edges":337,"zoom":1.5,"panX":-12.25,"panY":40,"selected":"CN=GG_Sales,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example","animated":true}""");
+
+        var report = Assert.IsType<StateReportMessage>(message);
+        Assert.Equal(3, report.Seq);
+        Assert.Equal(196, report.Nodes);
+        Assert.Equal(337, report.Edges);
+        Assert.Equal(1.5, report.Zoom);
+        Assert.Equal(-12.25, report.PanX);
+        Assert.Equal(40, report.PanY);
+        Assert.Equal("CN=GG_Sales,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example", report.Selected);
+        Assert.True(report.Animated);
+    }
+
+    [Fact]
+    public void Parse_StateReport_SelectedIsExplicitJsonNull_ExtractsNull_NothingSelected()
+    {
+        var message = GraphMessageParser.Parse(
+            """{"type":"stateReport","seq":1,"nodes":0,"edges":0,"zoom":1,"panX":0,"panY":0,"selected":null,"animated":false}""");
+
+        var report = Assert.IsType<StateReportMessage>(message);
+        Assert.Null(report.Selected);
+        Assert.False(report.Animated);
+    }
+
+    [Fact]
+    public void Parse_StateReport_SelectedAbsent_ExtractsNull_NeverDemotesToUnknown()
+    {
+        // cy===null (probe raced ahead of the first graphCommit) — the idle snapshot graph.js
+        // sends never includes `selected` at all; absence must mean the same as JSON null.
+        var message = GraphMessageParser.Parse(
+            """{"type":"stateReport","seq":1,"nodes":0,"edges":0,"zoom":0,"panX":0,"panY":0,"animated":false}""");
+
+        var report = Assert.IsType<StateReportMessage>(message);
+        Assert.Null(report.Selected);
+    }
+
+    [Fact]
+    public void Parse_StateReport_IntegerZoomPanValues_ParseAsDoubles()
+    {
+        // zoom/panX/panY are JSON numbers without a fractional part on a freshly-loaded/centered
+        // graph (cy.zoom() can be exactly 1, cy.pan() exactly {x:0,y:0}) — TryGetDouble must
+        // accept an integer-shaped JSON number, not just ones with a decimal point.
+        var message = GraphMessageParser.Parse(
+            """{"type":"stateReport","seq":1,"nodes":5,"edges":4,"zoom":1,"panX":0,"panY":-3,"animated":false}""");
+
+        var report = Assert.IsType<StateReportMessage>(message);
+        Assert.Equal(1d, report.Zoom);
+        Assert.Equal(0d, report.PanX);
+        Assert.Equal(-3d, report.PanY);
+    }
+
+    [Fact]
+    public void Parse_StateReport_ExtraUnknownFieldsAreTolerated()
+    {
+        var message = GraphMessageParser.Parse(
+            """{"type":"stateReport","seq":1,"nodes":1,"edges":0,"zoom":1,"panX":0,"panY":0,"animated":false,"cyVersion":"3.28.1"}""");
+
+        Assert.IsType<StateReportMessage>(message);
+    }
+
+    [Theory]
+    [InlineData("""{"type":"stateReport","nodes":1,"edges":0,"zoom":1,"panX":0,"panY":0,"animated":false}""")] // seq missing
+    [InlineData("""{"type":"stateReport","seq":"1","nodes":1,"edges":0,"zoom":1,"panX":0,"panY":0,"animated":false}""")] // seq wrong type
+    [InlineData("""{"type":"stateReport","seq":1,"edges":0,"zoom":1,"panX":0,"panY":0,"animated":false}""")] // nodes missing
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"zoom":1,"panX":0,"panY":0,"animated":false}""")] // edges missing
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"edges":0,"panX":0,"panY":0,"animated":false}""")] // zoom missing
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"edges":0,"zoom":"1","panX":0,"panY":0,"animated":false}""")] // zoom wrong type
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"edges":0,"zoom":1,"panY":0,"animated":false}""")] // panX missing
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"edges":0,"zoom":1,"panX":0,"animated":false}""")] // panY missing
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"edges":0,"zoom":1,"panX":0,"panY":0}""")] // animated missing
+    [InlineData("""{"type":"stateReport","seq":1,"nodes":1,"edges":0,"zoom":1,"panX":0,"panY":0,"animated":"yes"}""")] // animated wrong type
+    public void Parse_StateReport_MissingOrInvalidRequiredField_ReturnsUnknown(string raw)
+    {
+        var unknown = Assert.IsType<UnknownMessage>(GraphMessageParser.Parse(raw));
+
+        Assert.Equal(raw, unknown.Raw);
+    }
+
     // --- the Unknown fallback ----------------------------------------------------------
 
     [Fact]

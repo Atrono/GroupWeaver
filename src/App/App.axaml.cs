@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using GroupWeaver.App.Audit;
+using GroupWeaver.App.Automation;
 using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
@@ -25,6 +26,15 @@ public sealed partial class App : Application
     /// <see cref="OnFrameworkInitializationCompleted"/>.
     /// </summary>
     public static StartupOptions StartupOptions { get; set; } = new(Demo: false);
+
+    /// <summary>ADR-038 WP6 fix (#245): held so <see cref="E2eChannel.Dispose"/> (which
+    /// unsubscribes <see cref="ViewModels.ShellViewModel.StepChanged"/>) actually runs on a clean
+    /// exit. <c>shell</c>/<c>mainWindow</c> below stay locals — nothing downstream needs to
+    /// unwind them explicitly — but this one holds a live cross-object event subscription, so it
+    /// needs both a field to outlive this method and the <c>Exit</c> hook below to tear it down;
+    /// <c>null</c> outside <c>--e2e</c> (the common case) or before the framework finishes
+    /// initializing.</summary>
+    private E2eChannel? _e2eChannel;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -116,7 +126,21 @@ public sealed partial class App : Application
                 static (server, baseDn) => new LdapProvider(server, baseDn),
                 auditRunStore: auditRunStore,
                 loggerFactory: AppLog.Factory);
-            desktop.MainWindow = new MainWindow { DataContext = shell };
+            var mainWindow = new MainWindow { DataContext = shell };
+            desktop.MainWindow = mainWindow;
+
+            // ADR-038 D3.2 (--e2e, WP6, #245): the observation-only stdio channel. Demo-gated by
+            // Program before any window (exit 64 without --demo); wired here, alongside the
+            // StateDir/logging seams above, so a no-op leaves production behavior byte-identical.
+            // Held in the _e2eChannel field (not a discarded local) and disposed on a clean exit
+            // (the WP6 test-engineer finding this fixes) so Dispose() actually unsubscribes
+            // ShellViewModel.StepChanged instead of leaking the subscription for the process's life.
+            if (StartupOptions.E2e)
+            {
+                _e2eChannel = new E2eChannel(shell, mainWindow);
+                _e2eChannel.Start();
+                desktop.Exit += (_, _) => _e2eChannel?.Dispose();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

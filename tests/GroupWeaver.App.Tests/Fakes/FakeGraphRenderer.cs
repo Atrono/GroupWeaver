@@ -217,6 +217,29 @@ internal sealed class FakeGraphRenderer : IGraphRenderer
         return SetThemeResult;
     }
 
+    /// <summary>How many times <see cref="ProbeStateAsync"/> was invoked (ADR-038 D3.2 / WP6,
+    /// #245 — its OWN channel, never <see cref="FocusCalls"/>).</summary>
+    public int ProbeStateCalls { get; private set; }
+
+    /// <summary>The cancellation token observed by each <see cref="ProbeStateAsync"/> call.</summary>
+    public List<CancellationToken> ProbeStateTokens { get; } = [];
+
+    /// <summary>Result returned by <see cref="ProbeStateAsync"/>: a canned all-zero/no-selection
+    /// report by default (a trivial stub — no live renderer to probe). Set to <c>null</c> to model
+    /// the never-throw timeout contract, or a never-completing task to model an in-flight probe.</summary>
+    public Task<GraphStateReport?> ProbeStateResult { get; set; } =
+        Task.FromResult<GraphStateReport?>(new GraphStateReport(0, 0, 1, 0, 0, null, false));
+
+    /// <summary>ADR-038 D3.2 (WP6, #245): records the call + observed token and returns the
+    /// injected <see cref="ProbeStateResult"/>. Overrides the <see cref="IGraphRenderer.ProbeStateAsync"/>
+    /// default no-op so the observation-only page-truth probe is pinnable.</summary>
+    public Task<GraphStateReport?> ProbeStateAsync(CancellationToken cancellationToken = default)
+    {
+        ProbeStateCalls++;
+        ProbeStateTokens.Add(cancellationToken);
+        return ProbeStateResult;
+    }
+
     public event EventHandler<GraphNodeEventArgs>? NodeClicked;
 
     public event EventHandler<GraphNodeEventArgs>? NodeExpandRequested;

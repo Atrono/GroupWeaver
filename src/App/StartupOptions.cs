@@ -15,5 +15,10 @@ namespace GroupWeaver.App;
 /// <c>%APPDATA%</c> onto this base directory. Already resolved to a full path and
 /// demo-gated (exit 64 without <c>--demo</c>) by <see cref="Program"/>; <c>null</c> =
 /// the production <c>%APPDATA%</c> layout.</param>
+/// <param name="E2e">The <c>--e2e</c> observation-only automation channel (ADR-038 D3.2,
+/// WP6, #245): when <c>true</c>, the composition root wires an
+/// <c>Automation.E2eChannel</c> over stdio. Demo-gated (exit 64 without <c>--demo</c>) by
+/// <see cref="Program"/>, same style as <see cref="StateDir"/>; <c>false</c> = no channel,
+/// byte-identical production behavior.</param>
 public sealed record StartupOptions(
-    bool Demo, IReadOnlyList<string>? Flags = null, string? StateDir = null);
+    bool Demo, IReadOnlyList<string>? Flags = null, string? StateDir = null, bool E2e = false);

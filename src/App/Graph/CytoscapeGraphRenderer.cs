@@ -84,6 +84,14 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
     private TaskCompletionSource? _focused;
     private TaskCompletionSource? _pngReady;
     private string? _pngExported;
+
+    // ADR-038 D3.2 (WP6, #245): the --e2e stateProbe/stateReport pair, mirroring the
+    // _pngReady/_pngExported split above — the TCS gates completion, the field carries the
+    // reply payload (armed BEFORE dispatch, same rationale as every other bridge command).
+    private TaskCompletionSource? _stateReported;
+    private GraphStateReport? _stateReport;
+    private int _stateProbeSeq;
+
     private NativeWebView? _webView;
     private bool _navigated;
     private bool _commandInFlight;
@@ -259,6 +267,53 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
             catch (Exception ex)
             {
                 RaiseError("renderer", $"focus dispatch failed: {ex.Message}");
+            }
+        }
+        finally
+        {
+            _commandInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// The <c>--e2e</c> page-truth probe (ADR-038 D3.2 / WP6, #245): sends
+    /// <c>{type:'stateProbe', seq}</c> and completes once the page's <c>stateReport</c> reply
+    /// lands, returning the parsed <see cref="GraphStateReport"/>. Identical single-flight
+    /// guard and 60 s bounded-wait → RendererError-and-return-<c>null</c> policy as
+    /// <see cref="FocusAsync"/> (see <see cref="ShowGraphAsync"/> remarks) — OBSERVATION-ONLY,
+    /// never mutates the live graph.
+    /// </summary>
+    public async Task<GraphStateReport?> ProbeStateAsync(CancellationToken cancellationToken = default)
+    {
+        EnterSingleFlight(nameof(ProbeStateAsync));
+        try
+        {
+            if (!await TryAwaitReadyAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            try
+            {
+                // Armed BEFORE the dispatch: the page may confirm faster than
+                // InvokeScript returns (same rationale as _focused/_pngReady above).
+                _stateReport = null;
+                var stateReported = _stateReported =
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await DispatchAsync(
+                    [GraphJson.Serialize(new StateProbeDto("stateProbe", ++_stateProbeSeq))], cancellationToken);
+                await AwaitConfirmationAsync(
+                    stateReported.Task, "state probe never completed (60 s)", "state-wait", cancellationToken);
+                return stateReported.Task.IsCompletedSuccessfully ? _stateReport : null;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                RaiseError("renderer", $"state probe failed: {ex.Message}");
+                return null;
             }
         }
         finally
@@ -678,6 +733,10 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
     /// <see cref="GraphJson"/> so comma/quote-containing DNs are escaped correctly.</summary>
     private sealed record FocusDto(string Type, IReadOnlyList<string> Ids);
 
+    /// <summary>The <c>stateProbe</c> bridge command (ADR-038 D3.2 / WP6, #245) — cloned from
+    /// the existing ping/pong <c>seq</c> idiom in graph.js.</summary>
+    private sealed record StateProbeDto(string Type, int Seq);
+
     /// <summary>The <c>busy</c> bridge command (ADR-019); serialized through
     /// <see cref="GraphJson"/> so a comma/quote-containing DN is escaped (same rationale
     /// as <see cref="FocusDto"/>).</summary>
@@ -991,6 +1050,14 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
                 _pngExported = png.Data;
                 _pngReady?.TrySetResult();
                 break;
+            case StateReportMessage state:
+                // ADR-038 D3.2 (WP6, #245): the --e2e page-truth reply. Seq is transport-only
+                // (the single-flight guard already ensures at most one probe in flight) — the
+                // seam-level GraphStateReport drops it, mirroring _pngReady/_pngExported.
+                _stateReport = new GraphStateReport(
+                    state.Nodes, state.Edges, state.Zoom, state.PanX, state.PanY, state.Selected, state.Animated);
+                _stateReported?.TrySetResult();
+                break;
             case NodeClickMessage click:
                 NodeClicked?.Invoke(this, new GraphNodeEventArgs(click.Id, click.Kind));
                 break;
@@ -1033,6 +1100,7 @@ public sealed partial class CytoscapeGraphRenderer : IGraphRenderer
         FocusedMessage => "focused",
         JsErrorMessage => "jsError",
         PngExportedMessage => "pngExported",
+        StateReportMessage => "stateReport",
         _ => "unknown",
     };
 

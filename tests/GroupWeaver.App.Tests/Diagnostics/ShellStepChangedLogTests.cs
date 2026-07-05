@@ -34,6 +34,12 @@ namespace GroupWeaver.App.Tests.Diagnostics;
 /// temp-dir <see cref="UiStateStore"/> (the #124 rule) AND a temp-dir <see cref="AuditRunStore"/>
 /// — nothing touches the real <c>%APPDATA%</c>. Construction/drive idioms mirror
 /// <c>AuditNavigationTests</c>/<c>BackNavigationStepSwapTests</c>.</para>
+///
+/// <para><b>WP6 growth (ADR-038 D3.2, #245):</b> the <c>--e2e</c> channel's
+/// <see cref="ShellViewModel.StepChanged"/> C# event is raised from this SAME choke point,
+/// never a duplicate hook — the "1b"-numbered tests below pin the event mirrors the log
+/// sequence exactly, and that <see cref="ShellViewModel.CurrentStepName"/> is already live
+/// (reflects the destination step) by the time a subscriber observes it.</para>
 /// </summary>
 public sealed class ShellStepChangedLogTests
 {
@@ -103,6 +109,92 @@ public sealed class ShellStepChangedLogTests
         window.Close();
     }
 
+    // === 1b. The ADR-038 WP6 (#245) StepChanged EVENT mirrors the log line, verbatim, from the
+    //         SAME choke point (never a duplicate hook) — the --e2e channel's tap point =========
+
+    /// <summary>
+    /// <see cref="ShellViewModel.StepChanged"/> (ADR-038 WP6, #245) is raised from the identical
+    /// <c>OnCurrentStepChanged(object?, object)</c> choke point the <c>StepChanged</c> LOG line
+    /// comes from — never a second hook onto <c>CurrentStep</c>. Driving the SAME full journey as
+    /// <see cref="FullJourney_EmitsThePinnedStepChangedSequence"/> and capturing the C# event
+    /// instead of the log stream must yield the EXACT SAME (from, to, trigger) sequence, proving
+    /// the two surfaces never drift apart. Also pins that by the time a subscriber observes the
+    /// event, <see cref="ShellViewModel.CurrentStepName"/> already reflects the DESTINATION
+    /// step (<c>to</c>) — the <c>state</c> command's reply (<c>E2eChannelCliTests</c>) depends on
+    /// this ordering being "log/raise, then the property is already live", not the reverse.
+    /// </summary>
+    [AvaloniaFact(Timeout = 60_000)]
+    public async Task FullJourney_StepChangedEvent_MirrorsThePinnedLogSequence_AndCurrentStepNameIsAlreadyLive()
+    {
+        var capture = new CapturingLoggerFactory();
+        var (window, shell) = ShowShell(capture);
+
+        var eventSteps = new List<(string From, string To, string Trigger, string CurrentStepNameAtEmit)>();
+        void OnStepChanged(object? sender, StepChangedEventArgs e) =>
+            eventSteps.Add((e.From, e.To, e.Trigger, shell.CurrentStepName));
+        shell.StepChanged += OnStepChanged;
+
+        var workspace = await DriveToWorkspaceAsync(shell);
+        Assert.NotNull(workspace.Snapshot);
+
+        shell.OnDesignPlan(workspace);
+        var plan = Assert.IsType<PlanViewModel>(shell.CurrentStep);
+        shell.OnGapAnalysis(plan, workspace);
+        var gap = Assert.IsType<GapViewModel>(shell.CurrentStep);
+        gap.BackCommand.Execute(null);
+        Assert.Same(plan, shell.CurrentStep);
+        plan.BackCommand.Execute(null);
+        Assert.Same(workspace, shell.CurrentStep);
+        shell.OnAudit(workspace);
+        var audit = Assert.IsType<AuditViewModel>(shell.CurrentStep);
+        audit.BackCommand.Execute(null);
+        Assert.Same(workspace, shell.CurrentStep);
+
+        shell.StepChanged -= OnStepChanged;
+
+        // The SAME pinned sequence as the log-line test — the event is not a paraphrase.
+        Assert.Equal(
+            new[]
+            {
+                ("Connect", "PickRoot", "connected"),
+                ("PickRoot", "Workspace", "rootChosen"),
+                ("Workspace", "Plan", "designPlan"),
+                ("Plan", "Gap", "gapAnalysis"),
+                ("Gap", "Plan", "backToPlan"),
+                ("Plan", "Workspace", "backToExplore"),
+                ("Workspace", "Audit", "audit"),
+                ("Audit", "Workspace", "backToWorkspace"),
+            },
+            eventSteps.Select(e => (e.From, e.To, e.Trigger)).ToArray());
+
+        // CurrentStepName is already the DESTINATION by the time every subscriber observes the
+        // event — never the stale source, never "None"/empty.
+        Assert.All(eventSteps, e => Assert.Equal(e.To, e.CurrentStepNameAtEmit));
+
+        shell.Dispose();
+        window.Close();
+    }
+
+    /// <summary>The ctor's initial Connect step is set directly on the backing field and is
+    /// deliberately NOT logged (see <see cref="ShellViewModel"/>'s ctor remarks) — the SAME
+    /// choke point never runs, so <see cref="ShellViewModel.StepChanged"/> must not fire either,
+    /// and <see cref="ShellViewModel.CurrentStepName"/> must already read "Connect" with zero
+    /// events observed.</summary>
+    [AvaloniaFact]
+    public void FreshShell_NeverRaisesStepChanged_AndCurrentStepNameIsConnect()
+    {
+        var capture = new CapturingLoggerFactory();
+        var shell = NewShell(capture);
+
+        var raised = 0;
+        shell.StepChanged += (_, _) => raised++;
+
+        Assert.Equal(0, raised);
+        Assert.Equal("Connect", shell.CurrentStepName);
+
+        shell.Dispose();
+    }
+
     // === 2. The untagged-assignment fallback: trigger "direct" =================================
 
     /// <summary>An UNTAGGED <see cref="ShellViewModel.CurrentStep"/> assignment (tests set it
@@ -120,6 +212,28 @@ public sealed class ShellStepChangedLogTests
         Assert.Equal("Connect", Assert.IsType<string>(entry.Fields["from"]));
         Assert.Equal("Object", Assert.IsType<string>(entry.Fields["to"]));
         Assert.Equal("direct", Assert.IsType<string>(entry.Fields["trigger"]));
+
+        shell.Dispose();
+    }
+
+    /// <summary>The event-surface twin of <see cref="DirectStepAssignment_LogsTriggerDirect_WithTheTypeNameFallback"/>:
+    /// an untagged assignment raises <see cref="ShellViewModel.StepChanged"/> with the identical
+    /// "direct"/type-name-fallback shape the log line carries.</summary>
+    [AvaloniaFact]
+    public void DirectStepAssignment_RaisesStepChangedEvent_WithTheTypeNameFallback()
+    {
+        var capture = new CapturingLoggerFactory();
+        var shell = NewShell(capture);
+        var raised = new List<StepChangedEventArgs>();
+        shell.StepChanged += (_, e) => raised.Add(e);
+
+        shell.CurrentStep = new object();
+
+        var entry = Assert.Single(raised);
+        Assert.Equal("Connect", entry.From);
+        Assert.Equal("Object", entry.To);
+        Assert.Equal("direct", entry.Trigger);
+        Assert.Equal("Object", shell.CurrentStepName);
 
         shell.Dispose();
     }
