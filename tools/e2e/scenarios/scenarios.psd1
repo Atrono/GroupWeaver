@@ -52,5 +52,11 @@
             TimeoutSec      = 300
             RetrySignatures = @()
         }
+        @{
+            Name            = 'lazy-expand-race'
+            Tags            = @('full')
+            TimeoutSec      = 300
+            RetrySignatures = @()
+        }
     )
 }
