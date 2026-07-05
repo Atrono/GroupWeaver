@@ -9,9 +9,10 @@ namespace GroupWeaver.App.Tests.Graph;
 
 /// <summary>
 /// Pins the AP 2.3 growth of the renderer seam (ADR-005 D2):
-/// <c>Task UpdateGraphAsync(GraphModel, CancellationToken = default)</c> and
-/// <c>Task FocusAsync(IReadOnlyCollection&lt;string&gt;, CancellationToken = default)</c>
-/// on <see cref="IGraphRenderer"/>. Every call goes through an
+/// <c>Task UpdateGraphAsync(GraphModel, CancellationToken = default)</c>,
+/// <c>Task FocusAsync(IReadOnlyCollection&lt;string&gt;, CancellationToken = default)</c>, and
+/// (ADR-038 D3.2, WP6, #245) <c>Task&lt;GraphStateReport?&gt; ProbeStateAsync(CancellationToken =
+/// default)</c> on <see cref="IGraphRenderer"/>. Every call goes through an
 /// <see cref="IGraphRenderer"/>-TYPED reference, so these tests are a compile-time
 /// pin of the exact interface signatures (including the optional-token defaults,
 /// which only bind through the interface declaration) plus a runtime pin of the
@@ -19,6 +20,12 @@ namespace GroupWeaver.App.Tests.Graph;
 /// on. The production <c>CytoscapeGraphRenderer</c> is WebView-bound and has no
 /// unit-testable surface — its JS half is covered by the Playwright harness
 /// (<c>tests/graph-bundle</c>, ADR-004 D6).
+///
+/// <para><b>ProbeStateAsync note:</b> as of WP6, no production caller invokes it yet — the
+/// <c>--e2e</c> channel's <c>state</c> command reads its reply straight off
+/// <c>ShellViewModel</c>/<c>WorkspaceViewModel</c> properties instead (see
+/// <c>E2eChannelCliTests</c>). These tests pin the SEAM (interface shape + fake recording) the
+/// way every other renderer method is pinned here; they are not a claim that anything calls it.</para>
 /// </summary>
 public sealed class GraphRendererSeamTests
 {
@@ -123,6 +130,74 @@ public sealed class GraphRendererSeamTests
         Assert.False(task.IsCompleted);
         pending.SetResult();
         Assert.True(task.IsCompletedSuccessfully);
+    }
+
+    // --- ProbeStateAsync (the --e2e page-truth probe, ADR-038 D3.2 / WP6, #245) ------
+
+    [Fact]
+    public async Task ProbeStateAsync_ThroughTheSeam_RecordsTheTokenOnItsOwnChannel()
+    {
+        var fake = new FakeGraphRenderer();
+        IGraphRenderer renderer = fake;
+        using var cts = new CancellationTokenSource();
+
+        await renderer.ProbeStateAsync(cts.Token);
+
+        Assert.Equal(1, fake.ProbeStateCalls);
+        Assert.Equal(cts.Token, Assert.Single(fake.ProbeStateTokens));
+
+        // Its OWN channel — never conflated with Focus/UpdateGraph (different post-conditions).
+        Assert.Empty(fake.FocusCalls);
+        Assert.Empty(fake.UpdatedGraphs);
+    }
+
+    [Fact]
+    public async Task ProbeStateAsync_CancellationTokenIsOptional()
+    {
+        var fake = new FakeGraphRenderer();
+        IGraphRenderer renderer = fake;
+
+        // Compiles only if the INTERFACE declares `CancellationToken = default`.
+        var report = await renderer.ProbeStateAsync();
+
+        Assert.Equal(CancellationToken.None, Assert.Single(fake.ProbeStateTokens));
+        Assert.NotNull(report);
+    }
+
+    [Fact]
+    public async Task ProbeStateAsync_ReturnsTheInjectedResult_ScalarsOnly()
+    {
+        var fake = new FakeGraphRenderer
+        {
+            ProbeStateResult = Task.FromResult<GraphStateReport?>(
+                new GraphStateReport(196, 337, 1.5, -12.25, 40, "CN=GG_Sales,OU=X,DC=x", true)),
+        };
+        IGraphRenderer renderer = fake;
+
+        var report = await renderer.ProbeStateAsync();
+
+        Assert.NotNull(report);
+        Assert.Equal(196, report!.Nodes);
+        Assert.Equal(337, report.Edges);
+        Assert.Equal(1.5, report.Zoom);
+        Assert.Equal(-12.25, report.PanX);
+        Assert.Equal(40, report.PanY);
+        Assert.Equal("CN=GG_Sales,OU=X,DC=x", report.Selected);
+        Assert.True(report.Animated);
+    }
+
+    /// <summary>The never-throw renderer contract (mirrors <see cref="IGraphRenderer.ExportPngAsync"/>):
+    /// <c>null</c> models the real <c>CytoscapeGraphRenderer</c>'s timeout/error path — callers
+    /// must treat it as "no page truth available" rather than a fault.</summary>
+    [Fact]
+    public async Task ProbeStateAsync_NullResult_ModelsTheTimeoutOrErrorPath()
+    {
+        var fake = new FakeGraphRenderer { ProbeStateResult = Task.FromResult<GraphStateReport?>(null) };
+        IGraphRenderer renderer = fake;
+
+        var report = await renderer.ProbeStateAsync();
+
+        Assert.Null(report);
     }
 
     // --- helpers -----------------------------------------------------------------------
