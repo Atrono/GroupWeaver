@@ -113,18 +113,29 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// visibility binding in sync as steps switch (ADR-022 addendum).</summary>
     partial void OnCurrentStepChanged(object value) => OnPropertyChanged(nameof(IsWorkspaceStep));
 
+    /// <summary>ADR-038 WP6 (#245): the <c>--e2e</c> channel's step-change tap, raised from the
+    /// SAME choke point <see cref="OnCurrentStepChanged(object?, object)"/> logs
+    /// <c>StepChanged</c> from — never a second hook onto <see cref="CurrentStep"/>. The
+    /// composition root's <c>Automation.E2eChannel</c> subscribes this (when <c>--e2e</c> is
+    /// set) to mirror the log line onto its stdout trace; <c>null</c> when nothing is
+    /// subscribed (headless tests, no <c>--e2e</c>) so every pre-WP6 caller is unaffected.</summary>
+    public event EventHandler<StepChangedEventArgs>? StepChanged;
+
     /// <summary>Logs <c>StepChanged{from,to,trigger}</c> (ADR-037 D5 — the E2E timeline backbone)
-    /// at the single choke point every step swap passes through. Step names only, never subject
-    /// data; the ctor's initial Connect step sets the backing field directly and is NOT logged
-    /// (the banner already marks startup).</summary>
+    /// at the single choke point every step swap passes through, THEN raises
+    /// <see cref="StepChanged"/> with the identical (from, to, trigger) triple (ADR-038 WP6) —
+    /// the log call is never duplicated. Step names only, never subject data; the ctor's initial
+    /// Connect step sets the backing field directly and is NOT logged/raised (the banner already
+    /// marks startup).</summary>
     partial void OnCurrentStepChanged(object? oldValue, object newValue)
     {
         var trigger = _stepTrigger ?? "direct";
         _stepTrigger = null;
+        var from = StepName(oldValue);
+        var to = StepName(newValue);
         _log.LogInformation(
-            new EventId(0, "StepChanged"),
-            "StepChanged {from} {to} {trigger}",
-            StepName(oldValue), StepName(newValue), trigger);
+            new EventId(0, "StepChanged"), "StepChanged {from} {to} {trigger}", from, to, trigger);
+        StepChanged?.Invoke(this, new StepChangedEventArgs(from, to, trigger));
     }
 
     /// <summary>The stable step name for <c>StepChanged</c> (ADR-003 D5 step machine's
@@ -140,6 +151,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         null => "None",
         _ => step.GetType().Name,
     };
+
+    /// <summary>The CURRENT step's stable name (ADR-038 WP6, #245): the <c>--e2e</c> channel's
+    /// <c>state</c> command reply reuses this SAME vocabulary rather than re-deriving it.</summary>
+    public string CurrentStepName => StepName(CurrentStep);
 
     /// <summary>ADR-022 D2: focus (presentation) mode. The top command strip binds
     /// <c>IsVisible="{Binding !IsFocusMode}"</c> so focus mode hides it (the WebView2-missing
@@ -928,3 +943,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _disposableSteps.Clear();
     }
 }
+
+/// <summary>ADR-038 WP6 (#245) payload for <see cref="ShellViewModel.StepChanged"/> — the SAME
+/// (from, to, trigger) triple the <c>StepChanged</c> log line carries, never a richer object
+/// (step names only, no subject data).</summary>
+public sealed record StepChangedEventArgs(string From, string To, string Trigger);

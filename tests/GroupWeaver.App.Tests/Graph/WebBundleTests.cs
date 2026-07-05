@@ -169,6 +169,11 @@ public sealed class WebBundleTests
             "jsError", "pngExported", "pong",
             // {type:'…'} object literals graph.js builds for a re-dispatch / theme.
             "graphChunk", "theme",
+            // ADR-038 D3.2 (WP6, #245): the --e2e page-truth pair, cloned from the ping/pong
+            // seq idiom — a deliberately ADR-sanctioned wire addition, not a discoverability
+            // regression. 'stateReport' is the graph -> .NET send; the inbound {type:'stateProbe'}
+            // command literal is matched by GraphMessageParserTests, not this bundle-text scan.
+            "stateReport",
         ];
         var unexpected = typeLiterals.Except(knownTypeLiterals).ToList();
         Assert.True(

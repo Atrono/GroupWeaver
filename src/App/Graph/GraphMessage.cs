@@ -39,5 +39,16 @@ public sealed record JsErrorMessage(string Source, string Message) : GraphMessag
 /// (<c>CytoscapeGraphRenderer.HandleMessage</c>).</summary>
 public sealed record PngExportedMessage(string Data, int Width, int Height) : GraphMessage;
 
+/// <summary>The <c>--e2e</c> page-truth reply (<c>{"type":"stateReport"}</c>, ADR-038 D3.2 /
+/// WP6, #245) to a <c>stateProbe</c> command — cloned from the existing ping/pong <c>seq</c>
+/// idiom (<c>{"type":"ping"}</c>/<c>{"type":"pong"}</c> in graph.js). SCALARS ONLY (the
+/// historical Playwright-serialization-trap lesson — never a rich cytoscape object).
+/// <paramref name="Seq"/> echoes the probe's seq; <paramref name="Selected"/> is the
+/// currently-selected node id, or <c>null</c>; <paramref name="Animated"/> is
+/// <c>cy.animated()</c> — the settle-barrier boolean the house flake-mitigation rules require.</summary>
+public sealed record StateReportMessage(
+    int Seq, int Nodes, int Edges, double Zoom, double PanX, double PanY, string? Selected, bool Animated)
+    : GraphMessage;
+
 /// <summary>Fallback for malformed JSON, unknown message types, or missing required fields.</summary>
 public sealed record UnknownMessage(string Raw, string? Reason) : GraphMessage;

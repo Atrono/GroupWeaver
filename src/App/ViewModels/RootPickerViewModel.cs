@@ -79,6 +79,12 @@ public sealed partial class RootPickerViewModel : ObservableObject
     /// </summary>
     public Task LoadCandidates { get; }
 
+    /// <summary>Connection summary handed over from the Connect step (ADR-038 WP6, #245:
+    /// the <c>--e2e</c> channel's <c>DemoConnected</c> event reads <c>GroupCount</c> from
+    /// this the moment the picker is reached, mirroring the <c>--check --demo</c> stdout
+    /// line) — mirrors <see cref="WorkspaceViewModel.Connection"/>.</summary>
+    public DirectoryConnection Connection => _connection;
+
     /// <summary>
     /// <see cref="Candidates"/> narrowed by <see cref="Filter"/> — case-insensitive
     /// substring match on Name, SamAccountName and Dn; blank filter shows everything.

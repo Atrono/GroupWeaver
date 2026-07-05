@@ -88,6 +88,19 @@ internal static class Program
             }
         }
 
+        // ADR-038 D3.2 (--e2e): the observation-only stdio automation channel (issue #245).
+        // DEMO-GATED exactly like --state-dir/--dump-graph above: without --demo it refuses
+        // with the same stderr style and exit 64, BEFORE any window. A bare flag - no value
+        // to parse.
+        var e2e = args.Contains("--e2e");
+        if (e2e && !demo)
+        {
+            EnsureConsole();
+            Console.Error.WriteLine(
+                "--e2e is demo-only: automation seams never run against a live directory - re-run with --demo");
+            return 64;
+        }
+
         App.StartupOptions = new StartupOptions(
             Demo: demo,
             // Flag NAMES only, never values (ADR-037 D6) — the AppStarted banner logs these.
@@ -100,7 +113,8 @@ internal static class Program
                     .Where(a => a.StartsWith("--", StringComparison.Ordinal))
                     .Select(a => a.IndexOf('=') is var eq && eq >= 0 ? a[..eq] : a),
             ],
-            StateDir: stateDir);
+            StateDir: stateDir,
+            E2e: e2e);
 
         var minLevel = ResolveLogLevel(args);
         var sink = FileLogSink.TryCreate(minLevel, AppLog.Session);

@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using GroupWeaver.App.Audit;
+using GroupWeaver.App.Automation;
 using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
@@ -116,7 +117,16 @@ public sealed partial class App : Application
                 static (server, baseDn) => new LdapProvider(server, baseDn),
                 auditRunStore: auditRunStore,
                 loggerFactory: AppLog.Factory);
-            desktop.MainWindow = new MainWindow { DataContext = shell };
+            var mainWindow = new MainWindow { DataContext = shell };
+            desktop.MainWindow = mainWindow;
+
+            // ADR-038 D3.2 (--e2e, WP6, #245): the observation-only stdio channel. Demo-gated by
+            // Program before any window (exit 64 without --demo); wired here, alongside the
+            // StateDir/logging seams above, so a no-op leaves production behavior byte-identical.
+            if (StartupOptions.E2e)
+            {
+                new E2eChannel(shell, mainWindow).Start();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
