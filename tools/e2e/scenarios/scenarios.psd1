@@ -58,5 +58,11 @@
             TimeoutSec      = 300
             RetrySignatures = @()
         }
+        @{
+            Name            = 'keyboard-sweep'
+            Tags            = @('full')
+            TimeoutSec      = 300
+            RetrySignatures = @()
+        }
     )
 }
