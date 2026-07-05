@@ -34,5 +34,11 @@
             TimeoutSec      = 360
             RetrySignatures = @()
         }
+        @{
+            Name            = 'selection-sync'
+            Tags            = @('smoke', 'full')
+            TimeoutSec      = 300
+            RetrySignatures = @()
+        }
     )
 }
