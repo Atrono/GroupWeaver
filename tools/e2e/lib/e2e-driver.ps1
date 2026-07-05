@@ -41,6 +41,8 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
 . (Join-Path $PSScriptRoot '..\..\lib\webview-capture.ps1')
 # On-failure evidence collectors (final burst, UIA dump, HWND inventory, event log, WER scan).
 . (Join-Path $PSScriptRoot 'e2e-evidence.ps1')
+# --e2e stdio channel consumer (state/quit + trace.jsonl polling, ADR-038 WP6b).
+. (Join-Path $PSScriptRoot 'e2e-channel.ps1')
 
 # Native helpers beyond the shared lib: ScreenToClient (main-window client-coord
 # clicks), the largest-VISIBLE-Chromium-child disambiguation (#122 parking-lot:
@@ -131,6 +133,10 @@ function Initialize-E2eContext {
     $script:E2eCheckpointIndex = 0
     $script:E2eStdOutFile = Join-Path $ArtifactDir 'app-stdout.txt'
     $script:E2eStdErrFile = Join-Path $ArtifactDir 'app-stderr.txt'
+    # Populated only by Start-E2EApp -E2e (the --e2e stdio channel's event trace,
+    # ADR-038 D5); set unconditionally so Get-E2eTraceLines (e2e-channel.ps1) has a
+    # stable path to check even when a scenario never launches -E2e.
+    $script:E2eTraceFile = Join-Path $ArtifactDir 'trace.jsonl'
     if (-not (Test-Path $ArtifactDir)) { New-Item -ItemType Directory -Force $ArtifactDir | Out-Null }
     Write-DriverLog 'scenario-start' @{ psVersion = $PSVersionTable.PSVersion.ToString() }
 }
@@ -181,12 +187,26 @@ function Write-DriverLog {
 # working with no driver change) and because it's harmless while inert.
 # Env goes through the same set-around-launch/restore bracket as -EnvOverrides
 # (child-only, never the machine).
+#
+# -E2e (ADR-038 D3.2/WP6b): additive, orthogonal to -StateDir (a scenario will
+# usually pass both together, but neither requires the other here). Appends
+# "--e2e" to the app args the same way -StateDir appends "--state-dir", and
+# requires "--demo" already be present in -AppArgs - the app itself exit-64s on
+# --e2e without --demo (the seam is demo-gated), so this is a scenario-author-
+# facing early error instead of a stderr-reading exercise. When set, the launch
+# path switches from Start-Process file-redirection to a live
+# System.Diagnostics.Process (Start-E2EAppProcess below) so StandardInput/Output
+# stay LIVE handles for the state/quit channel and the trace.jsonl event feed -
+# Start-Process's file-redirection handles are dead once the file is opened.
+# When NOT set (the default; the 3 pre-existing scenarios never pass it),
+# behavior is BYTE IDENTICAL to before this switch existed.
 function Start-E2EApp {
     param(
         [Parameter(Mandatory)][string]$ExePath,
         [string[]]$AppArgs = @(),
         [hashtable]$EnvOverrides = @{},
         [string]$StateDir = '',
+        [switch]$E2e,
         [int]$WindowTimeoutSec = 30
     )
     if (-not (Test-Path $ExePath)) { throw "app exe not found: $ExePath (the runner builds Release; pass -AppExe)" }
@@ -203,6 +223,13 @@ function Start-E2EApp {
         }
         Write-DriverLog 'state-dir-seam' @{ stateDir = $StateDir }
     }
+    if ($E2e) {
+        if ($AppArgs -notcontains '--demo') {
+            throw 'Start-E2EApp: -E2e requires --demo already present in -AppArgs (the app exit-64s on --e2e without --demo; the seam is demo-gated).'
+        }
+        $AppArgs = @($AppArgs) + @('--e2e')
+        Write-DriverLog 'e2e-channel-seam' @{}
+    }
     Write-DriverLog 'app-launch' @{ exe = $ExePath; args = ($AppArgs -join ' ') }
 
     $savedEnv = @{}
@@ -211,7 +238,10 @@ function Start-E2EApp {
         [Environment]::SetEnvironmentVariable($name, [string]$EnvOverrides[$name])
     }
     try {
-        if ($AppArgs.Count -gt 0) {
+        if ($E2e) {
+            $script:app = Start-E2EAppProcess -ExePath $ExePath -AppArgs $AppArgs
+        }
+        elseif ($AppArgs.Count -gt 0) {
             $script:app = Start-Process -FilePath $ExePath -ArgumentList $AppArgs -PassThru `
                 -RedirectStandardError $script:E2eStdErrFile -RedirectStandardOutput $script:E2eStdOutFile
         }
@@ -244,6 +274,95 @@ function Start-E2EApp {
     [void][GroupWeaver.WebViewCapture]::SetWindowPos($script:app.MainWindowHandle, [IntPtr]::Zero, 60, 60, 1480, 920, 0x14)
     Write-DriverLog 'app-window-up' @{ appPid = $script:app.Id; hwnd = "0x{0:X}" -f $script:app.MainWindowHandle.ToInt64() }
     return $script:app
+}
+
+# The -E2e launch path: a live System.Diagnostics.Process/ProcessStartInfo instead of
+# Start-Process, so StandardInput/Output/Error stay LIVE handles - Start-Process's file
+# redirection was chosen for the two-stream-deadlock reason above, but a dead file
+# handle cannot carry the state/quit channel or a real-time trace. BeginOutputReadLine/
+# BeginErrorReadLine + Register-ObjectEvent are the event-driven-read replacement for
+# that same deadlock class (never poll-read a live pipe synchronously on this thread).
+#
+# Arguments are joined into ONE command-line string (mirroring Start-Process's own
+# array handling above, which is why -StateDir already pre-quotes its path argument) -
+# NOT ProcessStartInfo.ArgumentList, which would apply its OWN escaping on top of that
+# pre-quoted string and double-quote the state-dir path.
+function Start-E2EAppProcess {
+    param(
+        [Parameter(Mandatory)][string]$ExePath,
+        [Parameter(Mandatory)][string[]]$AppArgs
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $ExePath
+    $psi.Arguments = ($AppArgs -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $psi.StandardOutputEncoding = $utf8NoBom
+    $psi.StandardErrorEncoding = $utf8NoBom
+    # NOTE: ProcessStartInfo has NO StandardInputEncoding property (output/error only).
+    # Accessing/creating a redirected Process.StandardInput ITSELF (a .NET internal, not
+    # anything this driver or e2e-channel.ps1 does) flushes a 3-byte UTF-8 BOM preamble
+    # into the pipe as a one-time side effect of process start-up - verified empirically
+    # (found during WP6b bring-up: it reproduces on a bare non-Avalonia WinExe too, so it
+    # is not GroupWeaver-specific), independent of write method (StreamWriter.WriteLine
+    # AND raw BaseStream byte writes both see it). Those 3 stray bytes land glued onto
+    # whatever the FIRST real line sent happens to be, which corrupts its JSON and gets
+    # silently swallowed by E2eChannel's never-throw parse (ADR-038 D2) - i.e. the first
+    # 'state' command a scenario ever sends would look like a permanently missing reply.
+    # The warm-up write below (right after Start()) burns that one-time artifact on a
+    # harmless, cmd-less JSON object BEFORE any real command is ever sent - E2eChannel
+    # ignores any line without a recognized "cmd" (HandleLine's TryGetProperty guard), so
+    # this is a silent no-op on the app side even if the warm-up itself gets BOM-glued.
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    $proc.EnableRaisingEvents = $true
+
+    # Register-ObjectEvent action scriptblocks run in a PRIVATE event-subscriber scope
+    # that is NOT this function's scope, and (verified empirically on this box/PS 5.1 -
+    # do not assume) does NOT reliably see variables bound via .GetNewClosure() either
+    # when the closure itself was created INSIDE a called function (as opposed to at
+    # top-level script scope): the closure silently never fires/writes and no error
+    # surfaces anywhere. -MessageData + $Event.MessageData is the fix that DOES work
+    # from inside a function - it round-trips the payload through the subscription
+    # object itself rather than the scriptblock's captured scope.
+    [void]$proc.Start()
+    # Tracked (script scope) so Stop-E2EAppForce can Unregister-Event them. Each
+    # scenario runs in its own fresh powershell.exe child today (run-e2e.ps1's
+    # Invoke-ScenarioOnce), so an un-torn-down subscription isn't a live leak, but it's
+    # a latent trap for any future ad-hoc/interactive reuse of this function within one
+    # long-lived session - tear down defensively regardless.
+    $script:E2eEventSubscriptions = @(
+        (Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -MessageData @{
+            StdOutFile = $script:E2eStdOutFile
+            TraceFile  = $script:E2eTraceFile
+        } -Action {
+            if ($null -ne $EventArgs.Data) {
+                Add-Content -Path $Event.MessageData.StdOutFile -Value $EventArgs.Data -Encoding UTF8
+                Add-Content -Path $Event.MessageData.TraceFile -Value $EventArgs.Data -Encoding UTF8
+            }
+        })
+        (Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -MessageData $script:E2eStdErrFile -Action {
+            if ($null -ne $EventArgs.Data) {
+                Add-Content -Path $Event.MessageData -Value $EventArgs.Data -Encoding UTF8
+            }
+        })
+    )
+    $proc.BeginOutputReadLine()
+    $proc.BeginErrorReadLine()
+
+    # Burn the one-time StandardInput BOM artifact (see the note above) on a harmless
+    # cmd-less line, BEFORE the caller (Start-E2EApp/e2e-channel.ps1) ever sends a real
+    # command. Anonymous pipes buffer regardless of reader readiness, so this is safe
+    # even though the app's stdin read loop may not have started yet.
+    $warmupBytes = [System.Text.Encoding]::UTF8.GetBytes("{}`n")
+    $proc.StandardInput.BaseStream.Write($warmupBytes, 0, $warmupBytes.Length)
+    $proc.StandardInput.BaseStream.Flush()
+
+    return $proc
 }
 
 # Graceful close -> WaitForExit(grace) -> Kill. Returns @{ Graceful; AlreadyExited;
@@ -751,6 +870,12 @@ function Complete-E2eFailure {
 
 # Final teardown for scenario finally blocks: make sure the app is gone.
 function Stop-E2EAppForce {
+    if ($script:E2eEventSubscriptions) {
+        foreach ($sub in $script:E2eEventSubscriptions) {
+            try { Unregister-Event -SourceIdentifier $sub.Name -ErrorAction SilentlyContinue } catch { }
+        }
+        $script:E2eEventSubscriptions = $null
+    }
     if ($script:app) {
         try {
             $script:app.Refresh()

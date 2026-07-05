@@ -46,6 +46,32 @@ Retry policy: a failed scenario is retried ONCE iff its result signature matches
 a `RetrySignatures` wildcard in the manifest - never blanket retries. Default is
 `@()` (no retry) for every scenario.
 
+## The `--e2e` channel (ADR-038 D3.2, WP6b)
+
+`Start-E2EApp -E2e` (additive; the 3 original scenarios never pass it and are
+byte-behavior-unchanged) launches via a live `System.Diagnostics.Process`
+instead of file redirection, so `lib/e2e-channel.ps1`'s helpers can write
+`state`/`quit` commands to the app's stdin and read its JSONL event trace
+(`trace.jsonl` in the scenario's artifact dir) in real time:
+
+- `Wait-E2eState -TimeoutSec -What` — sends one `state` command, returns the
+  parsed reply (`step`/`nodeCount`/`edgeCount`/`selectedDn`/`isLoading`/
+  `loadError`/`zoom`/`panX`/`panY`/`animated`).
+- `Wait-E2eSettled` — polls `state` until `animated` is `false` (no active
+  renderer counts as settled) — the replacement for a guessed
+  `Start-Sleep` after any step-swap or camera move.
+- `Wait-E2eStep -Expected <name>` — polls `state` until `.step` matches —
+  a real step-name confirmation instead of a pixel/HWND heuristic.
+- `Wait-E2eEvent -Evt <name> [-Where {...}]` — polls the trace for
+  `StepChanged`/`LoadError`/`RendererError`/`DemoConnected`.
+- `Assert-E2eNoUnexpectedTraceErrors` — end-of-scenario invariant: no
+  `LoadError`/`RendererError` anywhere in the trace.
+
+Per ADR-038 D2 the channel is **observe-only** — these helpers only ever
+gate/assert; every scenario action is still real UIA/posted `WM_*` input via
+the Tier-A primitives above. No generic "send any command" helper is exposed,
+on purpose: `state`/`quit` are the only two commands that will ever exist.
+
 ## How to add a scenario
 
 1. Create `scenarios/<name>.ps1`. Start from `launch-render.ps1`: keep the

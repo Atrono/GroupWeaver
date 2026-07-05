@@ -28,5 +28,11 @@
             TimeoutSec      = 300
             RetrySignatures = @()
         }
+        @{
+            Name            = 'step-swap-churn'
+            Tags            = @('smoke', 'full')
+            TimeoutSec      = 360
+            RetrySignatures = @()
+        }
     )
 }

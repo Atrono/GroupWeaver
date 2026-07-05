@@ -1,5 +1,30 @@
 # Lab box environment facts
 
+- **`Register-ObjectEvent -Action {}` scriptblocks don't see `.GetNewClosure()`
+  variables when the closure was built inside a called function, on this
+  box/PS 5.1 (found WP6b, ADR-038 e2e-channel bring-up):** binding artifact
+  paths into an `OutputDataReceived`/`ErrorDataReceived` handler via
+  `.GetNewClosure()` silently no-ops — the action never fires observably wrong,
+  it just never sees the bound variable, and nothing errors anywhere. This only
+  reproduced when the closure was created inside a function (`Start-E2EAppProcess`);
+  the usual advice ("GetNewClosure fixes scope capture") assumes top-level script
+  scope. Fix: use `Register-ObjectEvent -MessageData <payload>` and read
+  `$Event.MessageData` inside the action — it round-trips through the
+  subscription object itself rather than the scriptblock's captured scope, and
+  is confirmed to work from inside a function. See
+  `tools/e2e/lib/e2e-driver.ps1`'s `Start-E2EAppProcess`.
+- **A redirected `Process.StandardInput` flushes a one-time 3-byte UTF-8 BOM
+  preamble into the pipe on process startup — a general .NET/Windows quirk,
+  reproduces on a bare non-Avalonia WinExe too (found WP6b, ADR-038 e2e-channel
+  bring-up):** independent of write method (`StreamWriter.WriteLine` and raw
+  `BaseStream` byte writes both see it). Those 3 stray bytes glue onto whatever
+  the FIRST line written to `StandardInput` is, corrupting its JSON — silently
+  swallowed by any never-throw parser (e.g. `E2eChannel`'s `HandleLine`), so the
+  first command sent looks like a permanently missing reply with no visible
+  error anywhere. Fix: burn it with a harmless warm-up write immediately after
+  `Process.Start()`, before any real command — anonymous pipes buffer
+  regardless of reader readiness, so this is safe even before the child's read
+  loop has started. See `Start-E2EAppProcess`'s warm-up write.
 - **PS 5.1 children spawned from pwsh 7 inherit pwsh's PSModulePath — script
   FUNCTIONS from Windows-PowerShell modules fail to auto-load (found session 42,
   WP5):** the e2e runner (pwsh 7) launches scenario children as `powershell.exe`
