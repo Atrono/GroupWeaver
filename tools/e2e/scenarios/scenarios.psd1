@@ -40,5 +40,11 @@
             TimeoutSec      = 300
             RetrySignatures = @()
         }
+        @{
+            Name            = 'audit-zero-drift'
+            Tags            = @('full')
+            TimeoutSec      = 360
+            RetrySignatures = @()
+        }
     )
 }
