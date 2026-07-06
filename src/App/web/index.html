@@ -26,12 +26,16 @@
       --gw-chrome-title: #8A93A3;
       --gw-chrome-label: #E8ECF2;
       --gw-chrome-count: #C8CFDB;
-      --gw-chrome-count-zero: #5A6171;
+      /* #268 graph-4: retuned from #5A6171 (~2.80:1) to clear WCAG 1.4.3 4.5:1 against the
+         composited #legend surface (4.92:1); mirror of CHROME.dark['--gw-chrome-count-zero']. */
+      --gw-chrome-count-zero: #828992;
       --gw-chrome-edge-text: #A6AEBC;
       --gw-input-bg: rgba(0, 0, 0, 0.25);
-      --gw-input-border: rgba(255, 255, 255, 0.12);
+      /* #268 graph-3: retuned from 0.12 (~1.43:1) to clear WCAG 1.4.11 3:1 against the
+         composited #controls surface (3.33:1); mirror of CHROME.dark border tokens. */
+      --gw-input-border: rgba(255, 255, 255, 0.36);
       --gw-btn-bg: rgba(255, 255, 255, 0.06);
-      --gw-btn-border: rgba(255, 255, 255, 0.12);
+      --gw-btn-border: rgba(255, 255, 255, 0.36);
       --gw-btn-hover-bg: rgba(255, 255, 255, 0.12);
       --gw-focus-ring: #4FA3E3;
       --gw-no-match: #F7A30B;

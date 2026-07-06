@@ -103,12 +103,16 @@
       '--gw-chrome-title': '#8A93A3',
       '--gw-chrome-label': '#E8ECF2',
       '--gw-chrome-count': '#C8CFDB',
-      '--gw-chrome-count-zero': '#5A6171',
+      // #268 graph-4: retuned from #5A6171 (~2.80:1) to clear WCAG 1.4.3 4.5:1 against the
+      // composited #legend surface (4.92:1) while staying visibly dimmer than --gw-chrome-count.
+      '--gw-chrome-count-zero': '#828992',
       '--gw-chrome-edge-text': '#A6AEBC',
       '--gw-input-bg': 'rgba(0, 0, 0, 0.25)',
-      '--gw-input-border': 'rgba(255, 255, 255, 0.12)',
+      // #268 graph-3: retuned from 0.12 (~1.43:1) to clear WCAG 1.4.11 3:1 against the
+      // composited #controls surface (3.33:1).
+      '--gw-input-border': 'rgba(255, 255, 255, 0.36)',
       '--gw-btn-bg': 'rgba(255, 255, 255, 0.06)',
-      '--gw-btn-border': 'rgba(255, 255, 255, 0.12)',
+      '--gw-btn-border': 'rgba(255, 255, 255, 0.36)',
       '--gw-btn-hover-bg': 'rgba(255, 255, 255, 0.12)',
       '--gw-focus-ring': '#4FA3E3',
       '--gw-no-match': '#F7A30B',
@@ -129,12 +133,16 @@
       '--gw-chrome-title': '#5A636E',
       '--gw-chrome-label': '#1C2127',
       '--gw-chrome-count': '#3A424E',
-      '--gw-chrome-count-zero': '#A0A6AF',
+      // #268 graph-4: retuned from #A0A6AF (~2.44:1) to clear WCAG 1.4.3 4.5:1 against the
+      // composited #legend surface (4.82:1) while staying visibly dimmer than --gw-chrome-count.
+      '--gw-chrome-count-zero': '#6C727B',
       '--gw-chrome-edge-text': '#5A636E',
       '--gw-input-bg': 'rgba(0, 0, 0, 0.04)',
-      '--gw-input-border': 'rgba(0, 0, 0, 0.18)',
+      // #268 graph-3: retuned from 0.18 (~1.53:1) to clear WCAG 1.4.11 3:1 against the
+      // composited #controls surface (3.46:1).
+      '--gw-input-border': 'rgba(0, 0, 0, 0.46)',
       '--gw-btn-bg': 'rgba(0, 0, 0, 0.05)',
-      '--gw-btn-border': 'rgba(0, 0, 0, 0.18)',
+      '--gw-btn-border': 'rgba(0, 0, 0, 0.46)',
       '--gw-btn-hover-bg': 'rgba(0, 0, 0, 0.10)',
       '--gw-focus-ring': '#2F6FE0',
       // ADR-035 D4: deepened amber-brown so the light "No match" text clears the WCAG
