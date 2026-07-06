@@ -772,15 +772,15 @@
         // (canvas-only cytoscape has no pseudo-elements) - the count is
         // authoritative in the sidebar (AP 3.4 S4/S5).
         {
-          selector: 'node[below]',
+          selector: 'node[below][!sev]',
           style: { 'overlay-padding': 10, 'overlay-opacity': t.rollupOpacity, 'overlay-color': t.sevError }
         },
         {
-          selector: "node[below][belowSev='warning']",
+          selector: "node[below][!sev][belowSev='warning']",
           style: { 'overlay-color': t.sevWarning }
         },
         {
-          selector: "node[below][belowSev='info']",
+          selector: "node[below][!sev][belowSev='info']",
           style: { 'overlay-color': t.sevInfo }
         },
         // ADR-019 (#94, F12 split from ADR-017): the in-canvas BUSY ring — a static

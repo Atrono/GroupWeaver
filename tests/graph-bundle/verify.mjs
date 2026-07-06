@@ -75,9 +75,11 @@ const SEVERITY_OVERLAY = {
 };
 // The roll-up "n below" ring cue (ADR-010 D4): a loaded group hiding flagged
 // descendants gets a WIDER, FAINTER max-severity glow keyed off belowSev. The
-// node[below] rules sit AFTER node[sev=...] so they win the overlay channel even
-// on a node that is itself flagged - padding 10 (> every per-sev padding),
-// opacity 0.30 (< every per-sev opacity), color = SEVERITY[belowSev].
+// node[below] rules sit AFTER node[sev=...] but are gated [!sev] (issue #268 /
+// graph-1 fix) so a node's OWN severity always wins the overlay channel over the
+// fainter roll-up ring - the roll-up cue paints ONLY on a node with no finding of
+// its own - padding 10 (> every per-sev padding), opacity 0.30 (< every per-sev
+// opacity), color = SEVERITY[belowSev].
 const ROLLUP_OVERLAY = { opacity: 0.30, padding: 10 };
 
 // THE in-canvas busy-ring tripwire (ADR-019 / #94). The graph.js node[busy][!sev]
@@ -2586,6 +2588,62 @@ async function main() {
       'roll-up geometry invariant broken: padding must exceed and opacity must undercut every per-sev value');
     phase(`severity: roll-up ring (wider/fainter belowSev cue) ('${BELOW_PIN}')`);
 
+    // Own-severity vs roll-up-ring collision (issue #268 / finding graph-1
+    // regression pin). A node can carry BOTH its own `sev` (a live finding) AND
+    // `below`/`belowSev` (a hidden flagged descendant under it, e.g. a collapsed
+    // subtree) - before #268 the node[below] rules had no `[!sev]` guard, so they
+    // cascaded OVER node[sev=...] and the fainter/wider roll-up ring silently
+    // replaced the node's OWN severity halo on the overlay-* channel whenever both
+    // were present. The fix added `[!sev]` to all three node[below] selectors
+    // (mirroring the existing node[busy][!sev] precedent just below them) so a
+    // node's own severity now always wins. Mutate BELOW_PIN in place - it is
+    // already proven above to be below>0/belowSev='${belowFx.belowSev}' with no
+    // own sev - by adding sev='error' via the SAME live `data()` field graph.js
+    // reads, WITHOUT touching belowSev (so the roll-up values are still present
+    // and would win here if the guard regressed). Restored immediately after the
+    // assert so the live-cy state does not leak into any downstream block (the
+    // WP3b issues-only-filter's `!!sev || !!below` predicate already treats this
+    // node as flagged via `below` alone, so this is belt-and-suspenders, not load-
+    // bearing for that block - but keeping this block side-effect-free is cheap).
+    const collisionBefore = await overlayOf(page, BELOW_PIN);
+    assert(toHex(collisionBefore.color) === SEVERITY[belowFx.belowSev].toUpperCase(),
+      `precondition: '${BELOW_PIN}' must still show the plain roll-up ring before the collision mutation`);
+    await page.evaluate(
+      (id) => window.__cy.getElementById(id).data('sev', 'error'), BELOW_PIN);
+    const collision = await overlayOf(page, BELOW_PIN);
+    assert(collision.found, `collision node '${BELOW_PIN}' not found after adding sev='error'`);
+    assert(toHex(collision.color) === SEVERITY_OVERLAY.error.color.toUpperCase(),
+      `own-sev-vs-roll-up collision (#268): '${BELOW_PIN}' with sev='error' AND below/belowSev=`
+      + `'${belowFx.belowSev}' must render its OWN severity overlay-color, rendered '${collision.color}' `
+      + `(${toHex(collision.color)}) != error halo ${SEVERITY_OVERLAY.error.color} `
+      + `(node[below][!sev] guard regressed - the roll-up ring overwrote severity?)`);
+    assert(Math.abs(toNumber(collision.opacity) - SEVERITY_OVERLAY.error.opacity) < 1e-6,
+      `own-sev-vs-roll-up collision (#268): '${BELOW_PIN}' overlay-opacity rendered ${collision.opacity} `
+      + `!= own-severity ${SEVERITY_OVERLAY.error.opacity} (must not fall back to the fainter roll-up `
+      + `${ROLLUP_OVERLAY.opacity})`);
+    assert(Math.abs(toNumber(collision.padding) - SEVERITY_OVERLAY.error.padding) < 1e-6,
+      `own-sev-vs-roll-up collision (#268): '${BELOW_PIN}' overlay-padding rendered ${collision.padding} `
+      + `!= own-severity ${SEVERITY_OVERLAY.error.padding} (must not fall back to the wider roll-up `
+      + `${ROLLUP_OVERLAY.padding})`);
+    // Restore: drop the injected 'sev' field so live-cy state matches the
+    // unmutated fixture again (BELOW_PIN reverts to below-only, no state leak).
+    // updateStyle() is REQUIRED here: cytoscape leaves overlay-* frozen at its
+    // last computed value when an element merely stops matching a selector (the
+    // same gotcha the 'busy'-off command works around in graph.js) - without it
+    // this node would stay stuck showing the error halo despite no longer
+    // matching node[sev='error'].
+    await page.evaluate((id) => {
+      const el = window.__cy.getElementById(id);
+      el.removeData('sev');
+      el.updateStyle();
+    }, BELOW_PIN);
+    const restored = await overlayOf(page, BELOW_PIN);
+    assert(toHex(restored.color) === SEVERITY[belowFx.belowSev].toUpperCase()
+      && Math.abs(toNumber(restored.opacity) - ROLLUP_OVERLAY.opacity) < 1e-6
+      && Math.abs(toNumber(restored.padding) - ROLLUP_OVERLAY.padding) < 1e-6,
+      `restore check: '${BELOW_PIN}' must return to the plain roll-up ring after removeData('sev'): ${JSON.stringify(restored)}`);
+    phase(`severity vs roll-up collision (#268): own sev='error' wins over belowSev='${belowFx.belowSev}' ('${BELOW_PIN}')`);
+
     // --- click roundtrip on a comma-containing DN (byte-identical id) --------
     const clickDn = samples.find((s) => s.id.includes(',')).id;
     await page.evaluate((id) => window.bridge.dispatch({ type: 'clickTest', id }), clickDn);
@@ -5050,7 +5108,7 @@ async function main() {
       + `${chunks.length} chunks, ${kindsPresent.size}/7 kinds, `
       + `WCAG node-lift ring (DL/UG/Computer) verified (#90), `
       + `${flaggedBySev.error.length}/${flaggedBySev.warning.length}/${flaggedBySev.info.length} err/warn/info halos, `
-      + `${belowNodes.length} roll-up rings, `
+      + `${belowNodes.length} roll-up rings (own-sev-wins-over-below collision verified, #268), `
       + `diff underlay/line + COEXIST verified, `
       + `F2 eased focus + F1 enter fade + reduced-motion verified, `
       + `light-theme live restyle + dark round-trip verified (ADR-026 D5), `
