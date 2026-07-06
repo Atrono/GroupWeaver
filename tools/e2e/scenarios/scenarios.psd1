@@ -42,31 +42,31 @@
         }
         @{
             Name            = 'audit-zero-drift'
-            Tags            = @('full')
+            Tags            = @('smoke', 'full')
             TimeoutSec      = 360
             RetrySignatures = @()
         }
         @{
             Name            = 'settings-rethread'
-            Tags            = @('full')
+            Tags            = @('smoke', 'full')
             TimeoutSec      = 300
             RetrySignatures = @()
         }
         @{
             Name            = 'lazy-expand-race'
-            Tags            = @('full')
+            Tags            = @('smoke', 'full')
             TimeoutSec      = 300
             RetrySignatures = @()
         }
         @{
             Name            = 'keyboard-sweep'
-            Tags            = @('full')
+            Tags            = @('smoke', 'full')
             TimeoutSec      = 300
             RetrySignatures = @()
         }
         @{
             Name            = 'golden-journey'
-            Tags            = @('full')
+            Tags            = @('smoke', 'full')
             TimeoutSec      = 600
             RetrySignatures = @()
         }
