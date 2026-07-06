@@ -99,8 +99,11 @@ renders every shipped shell state via real Skia (real DemoProvider, real views) 
 `workspace-detail-frontier`, `workspace-violations`, `workspace-scope-summary`,
 `workspace-rail-collapsed`, `workspace-focus`, `settings-naming`,
 `settings-rules`, `settings-matrix`, `settings-ignore`, `settings-exceptions`,
-`settings-file`, `settings-validation` — plus the single-size
-`workspace-ultrawide-2560x1080` (the large-monitor proof, ADR-022) — 39 PNGs per run.
+`settings-file`, `settings-advanced`, `settings-validation` — plus the single-size
+`workspace-ultrawide-2560x1080` (the large-monitor proof, ADR-022) — 41 PNGs per run.
+`tests/GroupWeaver.App.Tests/Views/KeyboardHelpWindowTests.cs` separately captures
+`keyboard-help-560x480.png` (default size) and `keyboard-help-440x360.png`
+(`MinWidth`/`MinHeight`) for the static keyboard/gesture cheat sheet.
 
 Evidence tags: **[S:name]** = judge from the `name-*.png` pair; **[I]** = interactive
 or transient — cannot be evidenced by a static frame; covered by headless tests
@@ -202,6 +205,19 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 - [ ] Dimmed/secondary text (DNs, hints, status bar) still legible at both sizes [S: every pair]
 - [ ] Centered layouts (Connect card, picker column, placeholders) stay centered, not stretched or stuck to a corner, at 1920×1080 [S: every -1920x1080]
 
+### Keyboard shortcuts help (discoverability, issue #271)
+
+`keyboard-help-560x480` (the window's own default `Width`/`Height`,
+`KeyboardHelpWindow.axaml`) and `keyboard-help-440x360` (its `MinWidth`/`MinHeight` —
+the smallest the sheet is ever allowed to shrink to) are captured by
+`KeyboardHelpWindowTests`. The sheet is content-only (no VM) and its own top-level
+`Window` — never layered over the workspace GraphHost (ADR-001 guardrail 5).
+
+- [ ] Reachable via the "?" affordance in the shell top command strip AND the `F1` key [S:keyboard-help-560x480] [T:KeyboardHelpWindowTests]
+- [ ] Both section eyebrows (ANYWHERE / ON THE GRAPH) and every shortcut row render without clipping at the default 560×480 size — key chip + description both legible [S:keyboard-help-560x480] [T:KeyboardHelpWindowTests]
+- [ ] At the MinWidth/MinHeight floor (440×360) the content still realizes (no section/row silently vanishes) — the ScrollViewer clips the tail rows and shows a scroll cue (a scrollbar) rather than overflowing past the window edge or overlapping the footer Close button; judge whether that cue is prominent enough to notice at a glance [S:keyboard-help-440x360] [T:KeyboardHelpWindowTests.Realizes_AtMinSize_NoClipping]
+- [ ] Footer "Close" button stays OUTSIDE the ScrollViewer (docked bottom) and reachable at both captured sizes — `Esc`/`Enter` also close it (IsCancel/IsDefault) [S:keyboard-help-560x480] [S:keyboard-help-440x360]
+
 ### Violations sidebar (AP 3.4)
 
 `workspace-violations` drives the demo default ruleset (the 19-finding baseline:
@@ -210,6 +226,7 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 - [ ] Sidebar tops the right column ABOVE the detail stack (vertical split, beside GraphHost, never over the graph — ADR-001 airspace); header "Findings (n)" [S:workspace-violations]
 - [ ] Severity-summary chip strip in the header evidences all three severities above the fold: E/W/i glyph squares in the palette (#D13438/#F7A30B/#4FA3E3) with per-hue ink (white E, dark W/i — WCAG 1.4.3, #90) + counts (demo: E 4 · W 3 · i 12); chips stay 18×18 [S:workspace-violations] [T:ShellScreenshotTests — chip brushes + counts pinned]
 - [ ] Report-export pair (AP 4.1, ADR-013 §6): "Export CSV" + "Export HTML" buttons right-aligned in the header row, legible, not crowding the title or the chip strip below; tooltips present; enabled once a load completes (CanExportReport → Snapshot is not null), greyed pre-load [S:workspace-violations]
+- [ ] Exported artifact quality: the WRITTEN CSV/HTML file's own contrast/table-semantics/field-correctness has never been inspected by any prior process — only that the in-app export buttons exist and are wired; open a real exported file and read it before trusting its shape [I — no prior fixture opens the written file]
 - [ ] Rows in canonical report order: severity glyph (color + per-hue ink + redundant letter E/W/i, 20×20), wrapping message, dimmed subject name; glyph colors match the graph halos [S:workspace-violations]
 - [ ] Findings scroll-clip reads as a SCROLL region (#92): the list fades softly at its bottom edge (render-only OpacityMask, opaque to ~0.92) so a finding clipped at the fold reads as scrollable, not a guillotined render bug — the topmost findings stay crisp, geometry unchanged (the 18×18 chip strip is outside the mask) [S:workspace-violations]
 - [ ] "Unexpanded areas are unchecked" hint is a DISTINCT affordance (chrome#10, #92): a tinted/bordered info block (the #91 card tokens) with a plain-text ⓘ glyph, not easy-to-miss dimmed body copy; visible whenever UncheckedDns is non-empty (demo: the two ignored builtin DNs), shown even in the all-clear state [S:workspace-violations]
@@ -220,10 +237,10 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 ### Settings / rule editor (AP 3.3)
 
 `settings-rules`, `settings-naming`, `settings-matrix`, `settings-ignore`,
-`settings-exceptions`, `settings-file`, `settings-validation` are captured by
-ShellScreenshotTests (the modal `SettingsWindow` shown standalone via `.Show()`,
-both 1280×720 and 1920×1080). The settings page is its own Window (ADR-011 /
-ADR-003 D5), opened from the shell top command strip.
+`settings-exceptions`, `settings-file`, `settings-advanced`, `settings-validation`
+are captured by ShellScreenshotTests (the modal `SettingsWindow` shown standalone
+via `.Show()`, both 1280×720 and 1920×1080). The settings page is its own Window
+(ADR-011 / ADR-003 D5), opened from the shell top command strip.
 
 - [ ] Settings affordance: a "⚙ Settings" button in the shell top command strip (below the WebView2 banner, above step content), never over GraphHost [S:workspace-demo]
 - [ ] Tabs present and reachable: Rules, Naming, Matrix, Ignore & Exceptions, File; validation band + Apply/Save/Cancel footer persist outside the TabControl, with Save the **accent primary** and Apply/Cancel **ghost secondary** (#93; Content strings + order unchanged) [S:settings-rules]
@@ -234,10 +251,26 @@ ADR-003 D5), opened from the shell top command strip.
 - [ ] Ignore + exceptions: dn/name mode toggle, glob field, note field rendered PLAIN TEXT (control chars never interpreted, #45), add/remove; nesting exceptions show the Any/Parent/Member endpoint control, naming/simple ones do not [S:settings-ignore] [S:settings-exceptions] [T:MatchEntryNotePlainTextTests]
 - [ ] Circular + empty-group: Enabled + Severity present [S:settings-rules]
 - [ ] File tab: Import / Export / Reset-to-default present; Save + Apply present and distinct (Apply = live no-write, Save = live + atomic persist); Reset to default reads as the red destructive outline (ADR-036) beside the two ghost file actions [S:settings-file]
+- [ ] Import/Export round-trip: exporting the current ruleset to a file then Importing that SAME file back reproduces byte-identical structured tabs (no field silently dropped or reordered by the file trip) [I — round-trip not independently re-provable from a single static frame]
 - [ ] Validation panel: on an invalid edit or a rejected user-file-on-open, errors list as "{path} — {message}", message STRICTLY plain text (#45); save/export blocked while invalid [S:settings-validation] [T:SettingsValidationTests]
 - [ ] Invalid-user-file banner: when the app runs on the default because the saved file was rejected, the window says so and offers Fix/Reset; the on-disk file is never auto-rewritten [S:settings-validation] [T:SettingsValidationTests — on-disk byte-unchanged]
 - [ ] Live re-thread: Apply/Save re-evaluates the open workspace (severity halos + sidebar update) with NO graph rebuild / viewport kept [I — SettingsShellIntegrationTests: Assert.Same(Graph), UpdateGraphAsync not ShowGraphAsync]
 - [ ] Airspace: settings is its own Window, never layered over the workspace GraphHost [I — design rule / ADR-003 D5]
+
+### Settings / Advanced (JSONC) tab (WP6a/WP6b, issue #271)
+
+`settings-advanced` (captured by `ShellScreenshotTests.Settings_Advanced`, both
+1280×720 and 1920×1080) is the raw-JSONC power-user editor added alongside the
+structured tabs (it does not replace them). The captured frame shows the tab
+mid-edit: the raw text has been changed to a ruleset that clears the global
+ignore list, so the live WP6b demo-preview card evidences a real, non-zero,
+signed `+2` total delta (never a default-vs-default all-zero frame).
+
+- [ ] Tab reachable: "Advanced (JSONC)" is the sixth tab, alongside Rules/Naming/Matrix/Ignore & Exceptions/File [S:settings-advanced]
+- [ ] Action strip: "Load current" (re-seeds the raw text from the structured mirror) and the accent-primary "Apply JSONC" (parses + gates + replaces the whole ruleset) both present and legible [S:settings-advanced]
+- [ ] Inline validation band renders the loader's Path + Message as SEPARATE plain-text targets (#45 — never interpolated into one string, never a markup surface); a clean edit shows the green "Valid JSONC" line instead of the error band [S:settings-advanced] [T:ShellScreenshotTests.Settings_Advanced]
+- [ ] Live demo-preview card (WP6b / #164): total findings + E/W/i severity-square counts in the pinned palette, plus the "vs default" per-severity and "by rule" per-rule-class SIGNED deltas (color is redundant — the `+n`/`-n`/`0` text always carries the meaning, WCAG 1.4.1); hidden behind a "Demo preview unavailable" fallback line if the embedded demo dataset fails to load [S:settings-advanced] [T:ShellScreenshotTests.Settings_Advanced — baseline 19/4/3/12 then edited 21/4/3/14 with a "+2" caution delta; SettingsViewModelPreviewTests — the unavailable-fallback path]
+- [ ] Raw editor + line-number gutter scroll in sync: the gutter (right-aligned mono numbers) and the monospace `TextBox` share one outer `ScrollViewer`, so scrolling the editor moves the gutter with it (no drift between row N's text and row N's number) [S:settings-advanced] [I — the live scroll-sync gesture itself is not independently re-provable from a static frame; the fixture pins the gutter renders the CORRECT line count for the captured text]
 
 ### Plan mode editor (AP 4.2.3)
 
@@ -261,6 +294,11 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
       [S:plan-editor]
 - [ ] Add-membership form: parent selector (GROUPS only) + child selector (any object) with
       kind badges, "Add member" button; a hint that only a group can have members [S:plan-editor]
+- [ ] Conditional field visibility LIVE: switching the Add-object kind selector to/from User
+      toggles the SAM field's visibility in place (a single captured frame only ever proves ONE
+      kind's shape); the Add-membership parent selector's item source is filtered to group kinds
+      ONLY — a User or Computer never appears as a selectable parent, in any scope [I — the
+      toggle/filter behavior itself is not provable from a static frame]
 - [ ] Objects list: each row a kind badge (AdObjectKindConverters palette — U #038387 /
       GG #107C10 / DL #A14000 / UG #744DA9, same kind = same color as graph/picker) + name;
       selecting a row reveals Rename (accent) and Remove (destructive red outline, ADR-036 —
@@ -277,6 +315,11 @@ to explore"; the editor is panel-based and the read-only graph is the live previ
 - [ ] No AD-write affordance anywhere in Plan Mode; "Export script" writes only the .ps1 the user
       picks (read-only — GroupWeaver never runs it) and "New plan" only clears the in-memory draft
       (keeps the base OU) [I — design rule / CLAUDE.md]
+- [ ] Exported artifact quality: the "Export script" .ps1's OWN content (contrast is N/A — it is a
+      text file, but table-semantics/field-correctness of the generated script) has never been
+      inspected by any prior process — only that the in-app export button exists and is wired; open
+      a real exported file and read it before trusting its shape [I — no prior fixture opens the
+      written file]
 
 ### Gap mode view (AP / ADR-015)
 
@@ -328,6 +371,7 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
       shell installs the export save-picker seam (UseExportFileDialogs), ARMED once installed; they
       export the LIVE post-suppression report (matching the health score + sidebar, not the would-be
       table) [S:audit-view] [T:AuditViewModel — CanExportReport gating / live report export]
+- [ ] Exported artifact quality: the WRITTEN CSV/HTML file's own contrast/table-semantics/field-correctness has never been inspected by any prior process — only that the in-app export buttons exist and are wired; open a real exported file and read it before trusting its shape [I — no prior fixture opens the written file]
 - [ ] Health ring: a band-coded conic ring filled to the score (green Excellent/Good · amber Fair
       · red Poor — reusing the severity hues) with the ALWAYS-PRESENT "{Score} / 100" + band text
       inside it carrying the meaning (WCAG 1.4.1 — colour is not the sole channel); the ring fill
@@ -380,6 +424,16 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
       area shows "No findings match the current filters." — DISTINCT from the all-clear "No findings
       to list." (shown only when the scope produced zero findings) [S:audit-view] [T:AuditViewModel —
       HasNoMatches vs IsAllClear]
+
+### Audit run-history & drift dashboard (ADR-032 / #190)
+
+The Audit screen's own "Run history · drift" section, pulled into its own titled
+subsection (issue #271 — this dashboard was previously folded into the tail of
+the general Audit-screen section above; it already had real screenshot coverage
+via `wp-audit-compare-{dark,light}`, so this is a pure reorg, not new coverage).
+`wp-audit-compare-{dark,light}` is captured by `AuditRunCompareScreenshotTests`
+(an `AuditViewModel` with a live `HasComparison`, both theme variants).
+
 - [ ] Run-history compare card (ADR-032 / #190): an eyebrow "Run history · drift" section at the
       bottom of the page carries "Save audit run" + "Compare to previous run" buttons (read-only —
       they only write run JSON under %APPDATA%\GroupWeaver\runs\) and, after a compare, a "vs. run
@@ -402,3 +456,7 @@ band + categories pane; the findings TABLE is WP5d and bulk triage + status filt
       this one ('{current}') — read this drift as a ruleset change, not pure remediation." so drift
       under a changed ruleset is labelled, not blended; hidden when the hashes match [S:wp-audit-
       compare — both variants] [T:AuditRunDiffTests — RulesetHashMismatch both ways]
+- [ ] Exported artifact quality: the WRITTEN run-history JSON's own field-correctness (schema, DN/rule
+      identity, timestamps) has never been inspected by any prior process — only that "Save audit run"
+      exists and is wired; open a real written run file and read it before trusting its shape [I — no
+      prior fixture opens the written file]

@@ -1529,6 +1529,179 @@ public sealed class ShellScreenshotTests
         Assert.True(HasButton("Cancel"), "the footer must realize a Cancel button");
     }
 
+    // --- Settings window: Advanced (JSONC) tab (WP6a/WP6b, issue #271) -----------------------------
+
+    /// <summary>
+    /// Issue #271 (crosscut-2): the modal <see cref="SettingsWindow"/>'s <b>Advanced (JSONC)</b>
+    /// tab rendered standalone — the same headless seam <see cref="Settings_Naming"/> pins
+    /// (<c>new SettingsWindow { DataContext = vm }</c>, <c>.Show()</c>, NOT <c>ShowDialog</c>;
+    /// open-risk #3), capturing <c>settings-advanced-{W}x{H}.png</c> at both checklist sizes for
+    /// the ui-verifier to judge: the action strip (Load current / Apply JSONC), the inline
+    /// validation band, the WP6b live demo-preview card, and the raw editor + line-number gutter.
+    /// This tab had ZERO checklist coverage and ZERO screenshot fixture before this test.
+    ///
+    /// <para>The VM is seeded from <see cref="RulesetLoader.LoadDefault"/> through the mirror
+    /// (<see cref="SettingsViewModel.LoadFrom(Ruleset)"/>) — the demo-mode-safe default, never a
+    /// lab file. <c>Seed</c> already calls <c>SeedRawEditor()</c> (the raw text starts in
+    /// lock-step with the structured tabs, exactly the production open path), which schedules the
+    /// WP6b demo-preview compute; <see cref="WaitForPreviewSettledAsync"/> awaits that GENUINE
+    /// off-thread <c>Task.Run</c> (parity with <c>SettingsViewModelPreviewTests</c>' own poll, never
+    /// a fixed sleep) before asserting the baseline 19/4/3/12 counts and all-zero deltas. The raw
+    /// text is then edited to the SAME ignore-cleared ruleset <c>SettingsViewModelPreviewTests</c>
+    /// pins (Info 12→14, Total +2 caution) so the captured frame evidences a NON-ZERO, signed
+    /// delta — the "+2"/caution styling a default-vs-default frame could never show — through the
+    /// real preview engine, never a hand-built <see cref="RulesetPreview"/>.</para>
+    ///
+    /// <para><see cref="AssertAdvancedTabSurface"/> pins fixture soundness the PNG can't: the raw
+    /// editor <see cref="Avalonia.Controls.TextBox"/> actually carries the edited JSONC, the
+    /// line-number gutter renders the CORRECT line count for that text (derived from the live
+    /// <see cref="LineNumberGutterConverter"/>, never a hardcoded row count), the "valid" band
+    /// shows (not the error band), and the demo-preview card renders the edited counts AND the
+    /// signed <c>+2</c> total delta.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task Settings_Advanced(int width, int height)
+    {
+        var vm = SettingsViewModel.LoadFrom(RulesetLoader.LoadDefault());
+
+        var window = new SettingsWindow { DataContext = vm, Width = width, Height = height };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Bring the Advanced tab to the front so its action strip / bands / editor (the captured
+        // surface) are realized.
+        SelectTab(window, "Advanced");
+        Dispatcher.UIThread.RunJobs();
+
+        // Soundness BEFORE the edit: Seed() already ran SeedRawEditor(), so the raw text starts as
+        // the canonical serialization of the default mirror and the WP6b preview settles to the AP
+        // 3.2 baseline (19 = 4 + 3 + 12) with all-zero deltas (default vs default).
+        await WaitForPreviewSettledAsync(vm);
+        Assert.True(vm.RawEditorValid);
+        Assert.True(vm.HasPreview);
+        var baseline = Assert.IsType<RulesetPreview>(vm.Preview);
+        Assert.Equal(19, baseline.Total);
+        Assert.Equal(0, baseline.TotalDelta.Value);
+
+        // Edit the raw text to the SAME ignore-cleared ruleset SettingsViewModelPreviewTests pins
+        // (AP 3.2 both-ways: dropping the global ignore list surfaces the two suppressed builtin
+        // edges as Info) so the captured frame evidences a real, non-zero, signed "+2" delta.
+        var edited = RulesetLoader.LoadDefault() with { Ignore = Array.Empty<MatchEntry>() };
+        vm.RawEditorText = RulesetSerializer.Serialize(edited);
+        Dispatcher.UIThread.RunJobs();
+
+        await WaitForPreviewSettledAsync(vm);
+
+        // Soundness AFTER the edit: the re-parsed ruleset recomputed the preview through the real
+        // engine — Info 12 -> 14, Total +2 caution (parity with SettingsViewModelPreviewTests).
+        Assert.True(vm.RawEditorValid);
+        Assert.True(vm.HasPreview);
+        var preview = Assert.IsType<RulesetPreview>(vm.Preview);
+        Assert.Equal(21, preview.Total);
+        Assert.Equal(14, preview.Info);
+        Assert.Equal(2, preview.TotalDelta.Value);
+        Assert.True(preview.TotalDelta.IsCaution);
+        Assert.Equal("+2", preview.TotalDelta.DisplayValue);
+
+        // The action strip, editor + gutter, valid band, and preview card all actually realized —
+        // the soundness pins the PNG can't make.
+        AssertAdvancedTabSurface(window, vm, preview);
+
+        CaptureWindowPng(window, "settings-advanced", width, height);
+        window.Close();
+    }
+
+    /// <summary>
+    /// Fixture-soundness pin for the Advanced (JSONC) tab (issue #271): (a) the action strip's
+    /// <c>Load current</c>/<c>Apply JSONC</c> buttons are realized and effectively-visible; (b) the
+    /// raw editor <see cref="Avalonia.Controls.TextBox"/> (<c>Name="RawEditor"</c>) is realized and
+    /// its <c>Text</c> equals <see cref="SettingsViewModel.RawEditorText"/> VERBATIM; (c) the
+    /// line-number gutter renders the exact string the live <see cref="LineNumberGutterConverter"/>
+    /// produces for that same text (DERIVED, never a hardcoded row count) — the scroll-sync itself
+    /// is a XAML structural fact (one shared outer <see cref="Avalonia.Controls.ScrollViewer"/> over
+    /// gutter + editor), not independently re-provable headless; (d) the "Valid JSONC" band renders
+    /// (the edit loads cleanly); and (e) the demo-preview card renders the total/severity counts AND
+    /// the signed <c>+2</c> total delta text — so a static frame can never look plausible while the
+    /// action strip, editor, gutter, validation band, or preview card silently regresses.
+    /// </summary>
+    private static void AssertAdvancedTabSurface(
+        SettingsWindow window, SettingsViewModel vm, RulesetPreview preview)
+    {
+        var buttons = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.Button>()
+            .Where(b => b.IsEffectivelyVisible)
+            .ToList();
+        bool HasButton(string content) => buttons.Any(b =>
+            string.Equals(b.Content?.ToString(), content, StringComparison.Ordinal));
+        Assert.True(HasButton("Load current"), "the Advanced tab must realize a Load current button");
+        Assert.True(HasButton("Apply JSONC"), "the Advanced tab must realize an Apply JSONC button");
+
+        // The raw editor TextBox is realized, visible, and carries the edited text verbatim.
+        var editor = Assert.Single(
+            window.GetVisualDescendants().OfType<Avalonia.Controls.TextBox>(),
+            t => t.Name == "RawEditor");
+        Assert.True(editor.IsEffectivelyVisible, "the raw JSONC editor must be realized and visible");
+        Assert.Equal(vm.RawEditorText, editor.Text);
+
+        // The line-number gutter renders the CORRECT line count for the edited text — derived from
+        // the live converter, never guessed.
+        var expectedGutter = Assert.IsType<string>(LineNumberGutterConverter.ToLineNumbers.Convert(
+            vm.RawEditorText, typeof(string), null, CultureInfo.InvariantCulture));
+        var gutterRendered = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Any(t => t.IsEffectivelyVisible && t.Text == expectedGutter);
+        Assert.True(gutterRendered, "the line-number gutter must render the correct row count for the edited text");
+
+        // The "valid" band shows (the edited text loads cleanly) — never the red error band.
+        Assert.True(vm.RawEditorValid);
+        var validBandRendered = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Any(t => t.IsEffectivelyVisible
+                && t.Text == "Valid JSONC — Apply JSONC to make it the effective ruleset.");
+        Assert.True(validBandRendered, "the valid-JSONC band must render when the edited text loads cleanly");
+
+        // The demo-preview card: total + per-severity counts, and the signed "+2" total delta.
+        Assert.True(vm.HasPreview);
+        var renderedTexts = window.GetVisualDescendants()
+            .OfType<Avalonia.Controls.TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text))
+            .Select(t => t.Text!)
+            .ToList();
+        Assert.Contains($"{preview.Total} findings", renderedTexts);
+        Assert.Contains(preview.Critical.ToString(CultureInfo.InvariantCulture), renderedTexts);
+        Assert.Contains(preview.Warning.ToString(CultureInfo.InvariantCulture), renderedTexts);
+        Assert.Contains(preview.Info.ToString(CultureInfo.InvariantCulture), renderedTexts);
+        Assert.Contains(preview.TotalDelta.DisplayValue, renderedTexts); // "+2"
+    }
+
+    /// <summary>Awaits the Advanced tab's WP6b live demo-preview settling: polls
+    /// <see cref="SettingsViewModel.PreviewComputing"/>/<see cref="SettingsViewModel.HasPreview"/>/
+    /// <see cref="SettingsViewModel.PreviewUnavailable"/> (never a fixed sleep — parity with
+    /// <c>SettingsViewModelPreviewTests.WaitForPreviewSettledAsync</c>), since the eval is a
+    /// genuine off-thread <c>Task.Run</c> behind a monotonic generation token
+    /// (<c>SettingsViewModel.RefreshPreview</c>). The enclosing test's xUnit timeout is the hard
+    /// ceiling; this spins shorter so a genuine hang fails as an assertion, not a false pass.</summary>
+    private static async Task WaitForPreviewSettledAsync(SettingsViewModel vm)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.Elapsed < TimeSpan.FromSeconds(30))
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (!vm.PreviewComputing && (vm.HasPreview || vm.PreviewUnavailable))
+            {
+                return;
+            }
+
+            await Task.Delay(5);
+        }
+
+        Assert.Fail(
+            $"the Advanced-tab demo preview did not settle within 30s (computing={vm.PreviewComputing}, "
+            + $"hasPreview={vm.HasPreview}, unavailable={vm.PreviewUnavailable})");
+    }
+
     // --- Settings window: Validation banner + error panel (AP 3.3 / S7) ---------------------------
 
     /// <summary>The error path the validation fixture seeds — the loader's own path shape for a
