@@ -4976,6 +4976,27 @@ async function main() {
       `WP3d minimap: click-to-pan must be bridge-silent (coarse navigation, not a tap/focus) - zero nodeClick/focused/select. got ${JSON.stringify(chattyMsgs)}`);
     phase('WP3d minimap: click-to-pan moves the camera AND emits no nodeClick/focused/select');
 
+    // (4b) #269 graph-5 (WCAG 2.1.1): keyboard equivalent of the click/drag pan.
+    // #minimap ships tabindex="0" so it can take focus; ArrowRight/ArrowLeft/ArrowUp/
+    // ArrowDown must pan the main view (minimapPanByKey -> cy.panBy) while staying
+    // bridge-silent, same contract as (4).
+    const beforeKeyMsgCount = allMessages.length;
+    const panBeforeKey = await page.evaluate(() => {
+      document.getElementById('minimap').focus();
+      return { x: window.__cy.pan().x, y: window.__cy.pan().y };
+    });
+    await page.keyboard.press('ArrowRight');
+    const panAfterKey = await page.evaluate(() => ({ x: window.__cy.pan().x, y: window.__cy.pan().y }));
+    const panMovedByKey = Math.abs(panAfterKey.x - panBeforeKey.x) > 1e-6
+      || Math.abs(panAfterKey.y - panBeforeKey.y) > 1e-6;
+    assert(panMovedByKey,
+      `#269 graph-5: ArrowRight on a focused #minimap must pan the main view (minimapPanByKey -> cy.panBy). pan before ${JSON.stringify(panBeforeKey)} after ${JSON.stringify(panAfterKey)}`);
+    const newKeyMsgs = allMessages.slice(beforeKeyMsgCount);
+    const chattyKeyMsgs = newKeyMsgs.filter((m) => m.type === 'nodeClick' || m.type === 'focused' || m.type === 'select');
+    assert(chattyKeyMsgs.length === 0,
+      `#269 graph-5: minimap keyboard pan must be bridge-silent (coarse navigation, not a tap/focus) - zero nodeClick/focused/select. got ${JSON.stringify(chattyKeyMsgs)}`);
+    phase('#269 graph-5: minimap ArrowRight (focused) pans the camera AND emits no nodeClick/focused/select');
+
     // (5) theme re-png: the thumbnail is re-rasterized to the recolored canvas on a
     // {theme} command (the handler calls refreshMinimap after cy.style). Capture the
     // current DARK thumbnail data-URI, flip to light (with the ping/pong restyle

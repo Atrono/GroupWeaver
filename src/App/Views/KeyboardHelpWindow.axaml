@@ -109,6 +109,10 @@
             <Border Classes="kbd"><TextBlock Text="Scroll" /></Border>
             <TextBlock VerticalAlignment="Center" Text="Zoom" />
           </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Arrow keys (minimap focused)" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Pan the view" />
+          </StackPanel>
         </StackPanel>
 
       </StackPanel>

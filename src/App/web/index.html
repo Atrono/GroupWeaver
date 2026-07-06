@@ -170,6 +170,9 @@
     #controls input[type="text"]:focus-visible {
       outline: 2px solid var(--gw-focus-ring); outline-offset: 1px;
     }
+    #minimap:focus-visible {
+      outline: 2px solid var(--gw-focus-ring); outline-offset: 1px;
+    }
     #controls .zoom-btn { font-family: "Cascadia Mono", "Consolas", monospace; min-width: 26px; }
     #controls .no-match {
       font-size: 11px; color: var(--gw-no-match); padding: 0 1px;
@@ -369,7 +372,8 @@
   <!-- WP3d (#146): the graph minimap. Thumbnail bg + live viewport rect are set by the
        bundle script (one cy.png on graph/theme change; the rect is the only per-frame
        update). Hidden until a non-empty graph renders. Click/drag pans the main view. -->
-  <div id="minimap" hidden>
+  <div id="minimap" hidden tabindex="0" role="application"
+       aria-label="Graph minimap. Arrow keys pan the view.">
     <div id="minimap-viewport"></div>
   </div>
   <!-- ADR-023: interactive control cluster (find + camera + label gate override). -->
