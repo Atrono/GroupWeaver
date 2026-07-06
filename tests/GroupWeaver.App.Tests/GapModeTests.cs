@@ -362,6 +362,46 @@ public sealed class GapModeTests
     }
 
     /// <summary>
+    /// #270 regression: a <see cref="IGraphRenderer.NodeExpandRequested"/> arriving over the Gap
+    /// step's OWN renderer seam (a double-tap on an expandable/frontier node — the shared graph
+    /// bundle always offers it, live-expand or not) sets <see cref="GapViewModel.ExpandHint"/> to an
+    /// honest message naming the real Workspace mode — Gap has no <c>IDirectoryProvider</c> and
+    /// cannot expand a read-only snapshot; the pre-fix bug was a silent dead end. Re-asserts
+    /// (mirroring <see cref="RefreshAsync_ThenDispose_LeavesBorrowedIstUntouched"/>) that the
+    /// borrowed <c>ist</c> snapshot's Objects/IsLoaded/GetMembers are unchanged afterward — this fix
+    /// introduces no snapshot mutation and no provider call.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task NodeExpandRequested_SetsExpandHint_AndNeverMutatesIst()
+    {
+        var ist = BuildDeltaIst();
+        var objectsBefore = ist.Objects.Select(o => o.Dn).OrderBy(d => d, Dn.Comparer).ToList();
+        var commonMembersBefore = ist.GetMembers(CommonDn)?.ToList(); // a loaded parent
+
+        var fake = new FakeGraphRenderer();
+        var gap = new GapViewModel(ist, BuildDeltaPlan(), RootDn, graphRendererFactory: () => fake);
+        await gap.RefreshAsync();
+
+        Assert.Null(gap.ExpandHint); // no expand request yet
+
+        fake.RaiseNodeExpandRequested(AddedDn, "GlobalGroup");
+
+        Assert.NotNull(gap.ExpandHint);
+        Assert.Contains("Workspace", gap.ExpandHint); // the verified real mode name
+        Assert.Contains(NameOf(AddedDn), gap.ExpandHint); // resolved via ResolveSubjectName
+
+        // #270 proof: the fix never mutates the borrowed Ist (no provider, read-only snapshot).
+        Assert.Equal(
+            objectsBefore,
+            ist.Objects.Select(o => o.Dn).OrderBy(d => d, Dn.Comparer).ToList());
+        Assert.False(ist.IsLoaded(UnloadedParentDn));
+        Assert.Null(ist.GetMembers(UnloadedParentDn));
+        Assert.Equal(commonMembersBefore, ist.GetMembers(CommonDn)?.ToList());
+
+        gap.Dispose();
+    }
+
+    /// <summary>
     /// <see cref="GapViewModel.JumpToCommand"/> over a row sets <see cref="GapViewModel.SelectedDn"/>
     /// to the row's <c>PrimaryDn</c> (driving the highlight) AND frames the anchor on the graph via
     /// <see cref="IGraphRenderer.FocusAsync"/> with exactly <c>[row.PrimaryDn]</c> (recorded by the

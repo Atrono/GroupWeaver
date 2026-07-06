@@ -143,6 +143,16 @@
                      VerticalAlignment="Top" />
         </Grid>
 
+        <!-- 5. The "honest no-op" hint (#270): a double-tap on an expandable/frontier node fires
+             NodeExpandRequested (the shared graph bundle offers it unconditionally), but Gap has no
+             provider and never mutates the borrowed Ist (ADR-015 D7) - so instead of silently doing
+             nothing, ExpandHint tells the user where expand actually works. Collapsed (no space
+             taken) until the first such request. -->
+        <TextBlock Grid.Row="4" Margin="0,8,0,0"
+                   Text="{Binding ExpandHint}"
+                   IsVisible="{Binding ExpandHint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   Classes="secondary" TextWrapping="Wrap" />
+
       </Grid>
     </Border>
 

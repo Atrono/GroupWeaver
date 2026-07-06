@@ -66,6 +66,15 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _selectedDn;
 
+    /// <summary>The "honest no-op" hint (#270): Gap has no <c>IDirectoryProvider</c> and never
+    /// mutates the borrowed <see cref="_ist"/> (ADR-015 D7), so a double-tap on an expandable/frontier
+    /// node — which the shared graph bundle always offers, live-expand or not — cannot really expand
+    /// anything here. Set by the <see cref="IGraphRenderer.NodeExpandRequested"/> handler instead of
+    /// silently swallowing the request (the pre-fix bug); the view surfaces it as a transient banner.
+    /// <c>null</c> until the first such request.</summary>
+    [ObservableProperty]
+    private string? _expandHint;
+
     public GapViewModel(
         DirectorySnapshot ist,
         PlanModel plan,
@@ -90,6 +99,11 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
         {
             GraphRenderer = graphRendererFactory();
             GraphRenderer.NodeClicked += (_, e) => SelectedDn = e.Dn;
+            // #270: the shared graph bundle sends nodeExpand unconditionally on double-tap of any
+            // expandable/frontier node — Gap has nowhere to route it (no provider, borrowed
+            // read-only Ist), so surface an honest hint instead of a silent no-op.
+            GraphRenderer.NodeExpandRequested += (_, e) => ExpandHint =
+                $"\"{ResolveSubjectName(e.Dn)}\" can't be expanded here — switch to the Workspace view to expand the live structure; Gap only compares a read-only snapshot.";
         }
     }
 
