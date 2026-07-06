@@ -177,7 +177,7 @@
                    the headline discloses that the clean number excludes N acknowledged/suppressed
                    findings. The band word stays the headline above; this qualifier travels with it. -->
               <Border Margin="0,8,0,0" MaxWidth="240"
-                      Background="{DynamicResource CardBackgroundBrush}"
+                      Background="{DynamicResource PageBackgroundBrush}"
                       BorderBrush="{DynamicResource CardBorderBrush}"
                       BorderThickness="1" CornerRadius="6" Padding="8,6"
                       IsVisible="{Binding HasTriaged}">
@@ -328,7 +328,7 @@
                a tinted info block with a plain-text info glyph — so the score never implies a clean
                bill over unexpanded subtrees. -->
           <Border Grid.Row="2" Margin="0,12,0,0"
-                  Background="{DynamicResource CardBackgroundBrush}"
+                  Background="{DynamicResource PageBackgroundBrush}"
                   BorderBrush="{DynamicResource CardBorderBrush}"
                   BorderThickness="1" CornerRadius="6" Padding="8,6"
                   IsVisible="{Binding UncheckedPresent}">
@@ -656,7 +656,7 @@
                   <Panel Grid.Column="5" Margin="12,0,0,0" MinWidth="72" VerticalAlignment="Center">
                     <!-- Open. -->
                     <Border Padding="8,2" CornerRadius="10" IsVisible="{Binding !IsTriaged}"
-                            Background="{DynamicResource CardBackgroundBrush}"
+                            Background="{DynamicResource PageBackgroundBrush}"
                             BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
                       <TextBlock Text="{Binding StatusLabel}" FontSize="11"
                                  HorizontalAlignment="Center"
@@ -941,7 +941,7 @@
 
             <!-- Honesty banner (gated on UncheckedPresent): the SAME tinted info block + glyph as the
                  score's Unchecked caveat — the comparison is partial because an area was not expanded. -->
-            <Border Background="{DynamicResource CardBackgroundBrush}"
+            <Border Background="{DynamicResource PageBackgroundBrush}"
                     BorderBrush="{DynamicResource CardBorderBrush}"
                     BorderThickness="1" CornerRadius="6" Padding="8,6"
                     IsVisible="{Binding UncheckedPresent}">

@@ -149,6 +149,25 @@ $textPairs = @(
     @{ Name = 'Light destructive on page'; Fg = '#A4262C'; Bg = '#ECEEF1' }
     @{ Name = 'Light destructive on card'; Fg = '#A4262C'; Bg = '#E3E5E8' }
     @{ Name = 'Light destructive on wash'; Fg = '#A4262C'; Bg = '#E1CFD3' }
+    # #268 findings audit-1/audit-2: AuditView.axaml nested a translucent CardBackgroundBrush Border
+    # (the "Open" status pill, the triage/unchecked caveats, the run-history honesty banner) INSIDE an
+    # already-CardBackgroundBrush parent card - a DOUBLE composite. src/App/Styles/Tokens.axaml pins the
+    # card tint as translucent white-over-page in dark (#14FFFFFF over #1b1f27) and translucent
+    # black-over-page in light (#0A000000 over #ECEEF1); compositing that SAME tint a second time over
+    # the once-composited card surface (SecondaryForegroundBrush's own background) darkens light's
+    # surface further -> #DADCDF, where the SecondaryForegroundBrush ink (#5A636E) reads only 4.44:1 -
+    # the exact FAIL the fit-audit's evidence cites (~4.43:1, rounding). Dark's double composite (white
+    # over dark -> #3D4148) still clears 4.5:1 at 4.98:1, but with near-zero headroom - both rows below
+    # are the REGRESSION PROOF: the fix (opaque PageBackgroundBrush, a SINGLE composite - see the
+    # already-fixed run-history drift-tile comment a few lines up, and AuditView.axaml itself) restores
+    # comfortable headroom in BOTH themes. A revert to CardBackgroundBrush on any of the four Borders
+    # reproduces the FAIL row exactly; tests/GroupWeaver.App.Tests/Views/AuditOpaqueCaveatSurfaceViewTests.cs
+    # is the load-bearing regression guard (it reads the actual bound resource per-Border), these rows
+    # are the WCAG-math documentation the view test's threshold is drawn from.
+    @{ Name = 'Dark ink on double-card composite (bug)'; Fg = '#B0B5BD'; Bg = '#3D4148' }
+    @{ Name = 'Dark ink on page (fix)'; Fg = '#B0B5BD'; Bg = $pageBg }
+    @{ Name = 'Light ink on double-card composite (bug, FAILS)'; Fg = '#5A636E'; Bg = '#DADCDF' }
+    @{ Name = 'Light ink on page (fix)'; Fg = '#5A636E'; Bg = '#ECEEF1' }
 )
 
 function Format-Pass([double]$ratio, [double]$threshold) {
