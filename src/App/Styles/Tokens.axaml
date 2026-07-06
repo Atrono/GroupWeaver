@@ -81,6 +81,17 @@
            #F7A30B reads ~6.5:1 there; kept as the dark caution ink (color is a redundant cue — the
            signed text always carries the meaning). -->
       <SolidColorBrush x:Key="PreviewCautionTextBrush" Color="#F7A30B" />
+
+      <!-- #268 crosscut-1: the WebView2-missing banner (MainWindow.axaml). The old literal
+           #2EFFB900/#66FFB900 (raw amber @18%/40% alpha over the page) computed to only
+           1.49:1 / 2.62:1 against PageBackgroundBrush — both FAIL the WCAG 1.4.11 3:1
+           non-text floor (docs/adr/026-theme-light-dark.md's "reads on either background"
+           claim for this pair was never actually computed). Border reuses the already-vetted
+           severity amber ink above (#F7A30B), opaque ⇒ 8.02:1. Background stays a translucent
+           amber wash (banner fill, not itself a required contrast boundary) but is bumped to
+           50% alpha ⇒ 3.39:1, so both halves individually clear the floor. -->
+      <SolidColorBrush x:Key="WebView2MissingBackgroundBrush" Color="#80FFB900" />
+      <SolidColorBrush x:Key="WebView2MissingBorderBrush" Color="#F7A30B" />
     </ResourceDictionary>
 
     <!-- Light (ADR-026 D3, Frame 4: re-derived, translucent BLACK over the light page) -->
@@ -134,6 +145,14 @@
            (a pass, but at the floor); deepened to #7A4F00 ⇒ ~5.4:1 for headroom — still unmistakably
            a caution amber, color redundant to the always-shown signed delta text. -->
       <SolidColorBrush x:Key="PreviewCautionTextBrush" Color="#7A4F00" />
+
+      <!-- #268 crosscut-1: the WebView2-missing banner (light theme; see the dark note). On the
+           light page the raw amber wash barely darkens the near-white bg at all — even OPAQUE
+           #FFB900 only reads 1.59:1 there, so no alpha of that hue clears 3:1. Reuses the
+           already-deepened caution amber above (#7A4F00): opaque border ⇒ 6.13:1; a 70%-alpha
+           wash of the same hue for the fill ⇒ 3.28:1. -->
+      <SolidColorBrush x:Key="WebView2MissingBackgroundBrush" Color="#B37A4F00" />
+      <SolidColorBrush x:Key="WebView2MissingBorderBrush" Color="#7A4F00" />
     </ResourceDictionary>
 
   </ResourceDictionary.ThemeDictionaries>

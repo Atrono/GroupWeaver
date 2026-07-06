@@ -148,6 +148,31 @@ public sealed class ShellScreenshotTests
         window.Close();
     }
 
+    /// <summary>
+    /// Issue #268 (crosscut-1): the WebView2-missing banner's LIGHT-theme rendering — never
+    /// screenshotted before this test, since <see cref="WorkspaceWebView2Missing"/> only ever
+    /// rendered the app-default Dark theme. The banner's background/border moved off a hardcoded
+    /// hex onto the theme-scoped <c>WebView2MissingBackgroundBrush</c>/<c>WebView2MissingBorderBrush</c>
+    /// resources (<c>src/App/Styles/Tokens.axaml</c>), each with its own Light variant tuned to clear
+    /// WCAG 1.4.11 (>=3:1) against <c>PageBackgroundBrush</c> — this is the fixture that lets the
+    /// ui-verifier actually judge that Light variant instead of taking the contrast numbers on faith.
+    /// Uses the WINDOW-SCOPED theme seam (parity with <c>ViolationsSidebarViewTests</c>'
+    /// <c>ActiveRowBand_ReTonesLive_WhenTheThemeFlipsToLight</c>), not the shared
+    /// <c>Application.Current.RequestedThemeVariant</c> flip <c>ThemeVariantScreenshotTests</c> warns
+    /// is flaky — no restore step, no leak into sibling fixtures.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    public async Task WorkspaceWebView2Missing_LightTheme(int width, int height)
+    {
+        var (window, shell) = ShowShell(Missing, width, height, theme: Avalonia.Styling.ThemeVariant.Light);
+        await DriveToWorkspaceAsync(shell);
+
+        CapturePng(window, "workspace-webview2-missing-light", width, height);
+        window.Close();
+    }
+
     // --- ADR-022: adaptive rail + focus mode ------------------------------------------------
 
     /// <summary>
@@ -1739,7 +1764,8 @@ public sealed class ShellScreenshotTests
     /// "graph gets the whole screen" intent.</summary>
     private static (MainWindow Window, ShellViewModel Shell) ShowShell(
         WebView2RuntimeStatus status, int width, int height,
-        Func<IGraphRenderer>? rendererFactory = null)
+        Func<IGraphRenderer>? rendererFactory = null,
+        Avalonia.Styling.ThemeVariant? theme = null)
     {
         var uiStateBase = Directory.CreateTempSubdirectory("groupweaver-shellshot-uistate-").FullName;
         var shell = new ShellViewModel(
@@ -1750,6 +1776,20 @@ public sealed class ShellScreenshotTests
         // Size BEFORE Show so every layout pass — including ListBox virtualization —
         // happens against the final viewport.
         var window = new MainWindow { DataContext = shell, Width = width, Height = height };
+
+        // Optional WINDOW-SCOPED theme override (parity with ViolationsSidebarViewTests'
+        // ActiveRowBand_ReTonesLive_WhenTheThemeFlipsToLight): unlike
+        // ThemeVariantScreenshotTests' Application.Current.RequestedThemeVariant flip (flagged
+        // there as shared global state that must be restored on every exit path), setting
+        // TopLevel.RequestedThemeVariant on THIS window before Show() re-resolves the
+        // DynamicResource style setters for this window alone — no global leak, no restore
+        // step to forget. Null (the default) preserves every existing call site's behavior
+        // byte-for-byte.
+        if (theme is not null)
+        {
+            window.RequestedThemeVariant = theme;
+        }
+
         window.Show();
         Dispatcher.UIThread.RunJobs();
         return (window, shell);

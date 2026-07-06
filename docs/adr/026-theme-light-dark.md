@@ -70,8 +70,19 @@ state and on toggle.
 `FluentTheme` supplies the primary `Foreground`/control backgrounds per variant, so the
 opacity-driven Typography hierarchy (white-at-opacity on dark) flips automatically to
 dark-ink-at-opacity on light — the type scale needs **no** per-variant change. The
-`Button.hyperlink` blue `#0F6CBD` and the WebView2 banner amber both read on either
-background and stay as-is.
+`Button.hyperlink` blue `#0F6CBD` reads on either background and stays as-is.
+
+**Correction (#268 crosscut-1, WP4b):** the WebView2-missing banner amber was NOT
+actually computed at WP1a time and turned out to fail WCAG 1.4.11 in both variants —
+the original literal `#2EFFB900`/`#66FFB900` (raw amber at 18%/40% alpha over the page)
+measured only 1.49:1 / 2.62:1 against `PageBackgroundBrush`, both under the 3:1 non-text
+floor. Fixed by two new theme-scoped tokens (`WebView2MissingBackgroundBrush`/
+`WebView2MissingBorderBrush`, `Tokens.axaml`): dark reuses the existing severity-amber
+ink `#F7A30B` opaque for the border (8.02:1) with a 50%-alpha wash of the raw amber for
+the fill (3.39:1); light needed a deepened hue entirely (even opaque raw amber only
+reads 1.59:1 on the near-white light page) — it reuses the existing deepened caution
+amber `#7A4F00` opaque for the border (6.13:1) with a 70%-alpha wash of that same hue
+for the fill (3.28:1).
 
 ### D4 — Persistence: `UiState.Theme` (ADR-022 convention).
 

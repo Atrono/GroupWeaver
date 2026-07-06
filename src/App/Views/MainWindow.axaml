@@ -62,7 +62,8 @@
          airspace guardrail 5: nothing floats over the native HWND). -->
     <Border DockPanel.Dock="Top"
             IsVisible="{Binding WebView2Missing}"
-            Background="#2EFFB900" BorderBrush="#66FFB900" BorderThickness="0,0,0,1"
+            Background="{DynamicResource WebView2MissingBackgroundBrush}"
+            BorderBrush="{DynamicResource WebView2MissingBorderBrush}" BorderThickness="0,0,0,1"
             Padding="12,8">
       <Grid ColumnDefinitions="*,Auto">
         <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap"
