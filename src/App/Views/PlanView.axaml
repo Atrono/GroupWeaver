@@ -37,241 +37,261 @@
       </Panel>
     </ContentControl>
 
-    <!-- The editor panel (beside GraphHost, never over it - ADR-001 guardrail 5): a scrolling
-         stack of form cards + lists. All editing is through these side-panel forms; the graph
-         is read-only (there is no canvas edit gesture - ADR-014). -->
+    <!-- The editor panel (beside GraphHost, never over it - ADR-001 guardrail 5). #270 plan-1/
+         plan-2: this used to be ONE page-level ScrollViewer wrapping ONE flat StackPanel, which
+         clipped the Rename/Remove row and hid Findings with no scroll affordance at 1280x720
+         (the Findings ListBox's OpacityMask fade had nothing to fade against - it never itself
+         overflowed). Fixed with a two-row Grid split so Findings gets a genuinely bounded, fading
+         internal scroll region of its own - Row 0 MUST be Star-sized, NOT Auto: an Auto row is
+         measured with unconstrained height, so a ScrollViewer placed in it just grows to its full
+         content size and the overflow gets clipped by the window exactly like the original bug
+         (verified empirically - an earlier Auto/* attempt reproduced the identical clipped-sliver
+         screenshot). A Star row, by contrast, is measured with a genuine bounded constraint, so
+         its ScrollViewer can actually scroll: Row 0 (*) scrolls the upper chrome (header, both
+         forms, inline error, Objects list, Rename/Remove, Memberships) internally whenever it
+         doesn't fit; Row 1 (fixed 220px, matching the Objects list's own MaxHeight="220" inside
+         Row 0) always gives Findings a real, non-zero, faded region at the bottom. -->
     <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="{DynamicResource CardBorderBrush}">
-      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="12" Margin="12">
+      <Grid RowDefinitions="*,220" Margin="12,12,12,8">
 
-          <!-- 1. Header + Export script + Back -->
-          <!-- Title on its own row; the four actions reflow in a WrapPanel so they never
-               squeeze out the title or clip at the 380px editor column (the workspace
-               action-reflow pattern). All actions live in the editor column - never over
-               GraphHost (ADR-001 airspace guardrail 5). -->
-          <StackPanel Spacing="8">
-            <TextBlock Text="Plan" Classes="heading" />
-            <WrapPanel>
-              <!-- New plan (#122 keep-alive): the plan survives Back, so this is the deliberate
-                   way to empty it and start over (keeps the base OU). ADR-036 D3: one click
-                   discards the WHOLE durable draft — the red destructive outline, not a benign
-                   ghost like its toolbar siblings (inline Padding/FontSize keep the compact
-                   toolbar geometry; inline beats class). -->
-              <Button Name="NewPlanButton" Classes="destructive" Content="New plan"
-                      Margin="0,0,6,6" Padding="8,4" FontSize="12"
-                      ToolTip.Tip="Clear the plan and start over (keeps the base OU)"
-                      Command="{Binding NewPlanCommand}" />
-              <!-- Gap analysis (ADR-015 / #66): compare this plan against the currently loaded
-                   Ist structure. Disarmed until the shell installs the callback in OnDesignPlan. -->
-              <Button Name="GapAnalysisButton" Classes="ghost" Content="Gap analysis"
-                      Margin="0,0,6,6" Padding="8,4" FontSize="12"
-                      ToolTip.Tip="Compare this plan against the currently loaded structure"
-                      Command="{Binding GapAnalysisCommand}" />
-              <Button Name="ExportScriptButton" Classes="ghost" Content="Export script"
-                      Margin="0,0,6,6" Padding="8,4" FontSize="12"
-                      ToolTip.Tip="Export the plan as a PowerShell script you run yourself (GroupWeaver never runs it)"
-                      Command="{Binding ExportPlanScriptCommand}" />
-              <Button Name="BackButton" Classes="ghost" Content="← Back to explore"
-                      Margin="0,0,0,6" Padding="8,4" FontSize="12"
-                      ToolTip.Tip="Return to the graph view"
-                      Command="{Binding BackCommand}" />
-            </WrapPanel>
-          </StackPanel>
+        <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="12">
 
-          <!-- 2. Add object -->
-          <StackPanel Spacing="6">
-            <TextBlock Text="Add object" Classes="subheading" />
-            <!-- Items are bare PlanCreatableKind values; the template renders the friendly,
-                 spaced scope label ("Domain-local group", not the raw "DomainLocalGroup"). -->
-            <ComboBox HorizontalAlignment="Stretch"
-                      ItemsSource="{Binding CreatableKinds}"
-                      SelectedItem="{Binding NewObjectKind}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="plan:PlanCreatableKind">
-                  <TextBlock Text="{Binding Converter={x:Static views:PlanCreatableKindConverters.ToFriendlyLabel}}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBox Watermark="Name" Text="{Binding NewObjectName}" />
-            <TextBox Watermark="SAM account name" Text="{Binding NewObjectSam}"
-                     IsVisible="{Binding NewObjectIsUser}" />
-            <Button Name="AddObjectButton" Classes="accent" Content="Add" HorizontalAlignment="Right"
-                    Command="{Binding AddObjectCommand}" />
-          </StackPanel>
-
-          <!-- 3. Add membership -->
-          <StackPanel Spacing="6">
-            <TextBlock Text="Add membership" Classes="subheading" />
-            <ComboBox HorizontalAlignment="Stretch"
-                      PlaceholderText="Parent group"
-                      ItemsSource="{Binding GroupNodes}"
-                      SelectedItem="{Binding MemberParentRow}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:PlanNodeRowModel">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Border Width="20" Height="20" CornerRadius="3"
-                            VerticalAlignment="Center"
-                            Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
-                      <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
-                                 Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-            <ComboBox HorizontalAlignment="Stretch"
-                      PlaceholderText="Member"
-                      ItemsSource="{Binding Nodes}"
-                      SelectedItem="{Binding MemberChildRow}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:PlanNodeRowModel">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Border Width="20" Height="20" CornerRadius="3"
-                            VerticalAlignment="Center"
-                            Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
-                      <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
-                                 Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBlock Text="The parent must be a group (the child becomes a member of it)."
-                       Classes="caption" TextWrapping="Wrap" />
-            <Button Name="AddMemberButton" Classes="accent" Content="Add member" HorizontalAlignment="Right"
-                    Command="{Binding AddMemberCommand}" />
-          </StackPanel>
-
-          <!-- 4. Inline edit error (same red as the workspace LoadError) -->
-          <TextBlock Foreground="{DynamicResource ValidationErrorTextBrush}" TextWrapping="Wrap"
-                     Text="{Binding EditError}"
-                     IsVisible="{Binding EditError, Converter={x:Static ObjectConverters.IsNotNull}}" />
-
-          <!-- 5. Objects list + selected-node actions -->
-          <StackPanel Spacing="6">
-            <TextBlock Text="{Binding Nodes.Count, StringFormat='Objects ({0})'}"
-                       Classes="subheading" />
-            <ListBox Background="Transparent" MaxHeight="220"
-                     ItemsSource="{Binding Nodes}"
-                     SelectedItem="{Binding SelectedNodeRow}">
-              <ListBox.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <StackPanel />
-                </ItemsPanelTemplate>
-              </ListBox.ItemsPanel>
-              <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:PlanNodeRowModel">
-                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="2"
-                              ToolTip.Tip="{Binding KindLabel}">
-                    <Border Width="22" Height="22" CornerRadius="3"
-                            VerticalAlignment="Center"
-                            Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
-                      <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
-                                 Foreground="White" FontSize="12" FontWeight="SemiBold"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextWrapping="NoWrap" />
-                  </StackPanel>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-
-            <TextBlock Text="No objects yet — add a group or user above."
-                       IsVisible="{Binding !Nodes.Count}"
-                       Classes="secondary" TextWrapping="Wrap" />
-
-            <!-- Selected-node actions: rename (accent) + remove. ADR-036 D3: Remove drops the
-                 object AND cascades every incident membership (PlanModel.RemoveNode) — a compound
-                 deletion beyond a single row, so it carries the red destructive outline (the
-                 per-membership-row Remove below deliberately stays ghost). -->
-            <StackPanel Spacing="6" IsVisible="{Binding HasSelectedNode}">
-              <TextBox Watermark="New name" Text="{Binding RenameText}" />
-              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                <Button Name="RenameButton" Classes="accent" Content="Rename"
-                        Command="{Binding RenameSelectedCommand}" />
-                <Button Name="RemoveButton" Classes="destructive" Content="Remove"
-                        Command="{Binding RemoveSelectedCommand}" />
-              </StackPanel>
+            <!-- 1. Header + Export script + Back -->
+            <!-- Title on its own row; the four actions reflow in a WrapPanel so they never
+                 squeeze out the title or clip at the 380px editor column (the workspace
+                 action-reflow pattern). All actions live in the editor column - never over
+                 GraphHost (ADR-001 airspace guardrail 5). -->
+            <StackPanel Spacing="8">
+              <TextBlock Text="Plan" Classes="heading" />
+              <WrapPanel>
+                <!-- New plan (#122 keep-alive): the plan survives Back, so this is the deliberate
+                     way to empty it and start over (keeps the base OU). ADR-036 D3: one click
+                     discards the WHOLE durable draft — the red destructive outline, not a benign
+                     ghost like its toolbar siblings (inline Padding/FontSize keep the compact
+                     toolbar geometry; inline beats class). -->
+                <Button Name="NewPlanButton" Classes="destructive" Content="New plan"
+                        Margin="0,0,6,6" Padding="8,4" FontSize="12"
+                        ToolTip.Tip="Clear the plan and start over (keeps the base OU)"
+                        Command="{Binding NewPlanCommand}" />
+                <!-- Gap analysis (ADR-015 / #66): compare this plan against the currently loaded
+                     Ist structure. Disarmed until the shell installs the callback in OnDesignPlan. -->
+                <Button Name="GapAnalysisButton" Classes="ghost" Content="Gap analysis"
+                        Margin="0,0,6,6" Padding="8,4" FontSize="12"
+                        ToolTip.Tip="Compare this plan against the currently loaded structure"
+                        Command="{Binding GapAnalysisCommand}" />
+                <Button Name="ExportScriptButton" Classes="ghost" Content="Export script"
+                        Margin="0,0,6,6" Padding="8,4" FontSize="12"
+                        ToolTip.Tip="Export the plan as a PowerShell script you run yourself (GroupWeaver never runs it)"
+                        Command="{Binding ExportPlanScriptCommand}" />
+                <Button Name="BackButton" Classes="ghost" Content="← Back to explore"
+                        Margin="0,0,0,6" Padding="8,4" FontSize="12"
+                        ToolTip.Tip="Return to the graph view"
+                        Command="{Binding BackCommand}" />
+              </WrapPanel>
             </StackPanel>
-          </StackPanel>
 
-          <!-- 6. Memberships list (per-row Remove binds the ancestor's command) -->
-          <StackPanel Spacing="6">
-            <TextBlock Text="{Binding Memberships.Count, StringFormat='Memberships ({0})'}"
-                       Classes="subheading" />
-            <ItemsControl ItemsSource="{Binding Memberships}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:PlanEdgeRowModel">
-                  <Grid ColumnDefinitions="*,Auto" Margin="2">
-                    <TextBlock Grid.Column="0" Text="{Binding Display}"
-                               VerticalAlignment="Center" TextWrapping="Wrap" />
-                    <Button Grid.Column="1" Classes="ghost" Content="Remove" Padding="8,2" FontSize="11"
-                            Command="{Binding $parent[ItemsControl].DataContext.RemoveMemberCommand}"
-                            CommandParameter="{Binding}" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock Text="No memberships yet — pick a parent group and a member above."
-                       IsVisible="{Binding !Memberships.Count}"
-                       Classes="secondary" TextWrapping="Wrap" />
-          </StackPanel>
+            <!-- 2. Add object -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="Add object" Classes="subheading" />
+              <!-- Items are bare PlanCreatableKind values; the template renders the friendly,
+                   spaced scope label ("Domain-local group", not the raw "DomainLocalGroup"). -->
+              <ComboBox HorizontalAlignment="Stretch"
+                        ItemsSource="{Binding CreatableKinds}"
+                        SelectedItem="{Binding NewObjectKind}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="plan:PlanCreatableKind">
+                    <TextBlock Text="{Binding Converter={x:Static views:PlanCreatableKindConverters.ToFriendlyLabel}}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBox Watermark="Name" Text="{Binding NewObjectName}" />
+              <TextBox Watermark="SAM account name" Text="{Binding NewObjectSam}"
+                       IsVisible="{Binding NewObjectIsUser}" />
+              <Button Name="AddObjectButton" Classes="accent" Content="Add" HorizontalAlignment="Right"
+                      Command="{Binding AddObjectCommand}" />
+            </StackPanel>
 
-          <!-- 7. Findings list (canonical report order, unshuffled - ADR-009): severity glyph
-               (colored square + redundant letter from THE one palette) + wrapping message +
-               dimmed subject name. -->
-          <StackPanel Spacing="6">
-            <TextBlock Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
-                       Classes="subheading" />
-            <ListBox Background="Transparent"
-                     OpacityMask="{StaticResource ListBottomFadeMask}"
-                     ItemsSource="{Binding Violations}">
-              <ListBox.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <StackPanel />
-                </ItemsPanelTemplate>
-              </ListBox.ItemsPanel>
-              <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:ViolationRowModel">
-                  <!-- The whole row is a flat command button jumping to (focusing + selecting)
-                       the finding's anchor DN - the rail/Gap jump affordance, unified here. -->
-                  <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                          Padding="4" BorderThickness="0"
-                          Classes="active-band-host" Classes.active-band="{Binding IsActive}"
-                          ToolTip.Tip="{Binding PrimaryDn}"
-                          Command="{Binding $parent[ListBox].((vm:PlanViewModel)DataContext).JumpToFindingCommand}"
-                          CommandParameter="{Binding}">
-                    <Grid ColumnDefinitions="Auto,*">
-                      <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
-                              VerticalAlignment="Top"
-                              Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
-                        <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
-                                   Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
-                                   FontSize="12" FontWeight="SemiBold"
+            <!-- 3. Add membership -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="Add membership" Classes="subheading" />
+              <ComboBox HorizontalAlignment="Stretch"
+                        PlaceholderText="Parent group"
+                        ItemsSource="{Binding GroupNodes}"
+                        SelectedItem="{Binding MemberParentRow}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:PlanNodeRowModel">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Border Width="20" Height="20" CornerRadius="3"
+                              VerticalAlignment="Center"
+                              Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                        <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                   Foreground="White" FontSize="11" FontWeight="SemiBold"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
-                      <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
-                                   TextWrapping="Wrap" />
-                      </StackPanel>
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox HorizontalAlignment="Stretch"
+                        PlaceholderText="Member"
+                        ItemsSource="{Binding Nodes}"
+                        SelectedItem="{Binding MemberChildRow}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:PlanNodeRowModel">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Border Width="20" Height="20" CornerRadius="3"
+                              VerticalAlignment="Center"
+                              Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                        <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                   Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Text="The parent must be a group (the child becomes a member of it)."
+                         Classes="caption" TextWrapping="Wrap" />
+              <Button Name="AddMemberButton" Classes="accent" Content="Add member" HorizontalAlignment="Right"
+                      Command="{Binding AddMemberCommand}" />
+            </StackPanel>
+
+            <!-- 4. Inline edit error (same red as the workspace LoadError) -->
+            <TextBlock Foreground="{DynamicResource ValidationErrorTextBrush}" TextWrapping="Wrap"
+                       Text="{Binding EditError}"
+                       IsVisible="{Binding EditError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+            <!-- 5. Objects list + selected-node actions -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding Nodes.Count, StringFormat='Objects ({0})'}"
+                         Classes="subheading" />
+              <ListBox Background="Transparent" MaxHeight="220"
+                       ItemsSource="{Binding Nodes}"
+                       SelectedItem="{Binding SelectedNodeRow}">
+                <ListBox.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel />
+                  </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:PlanNodeRowModel">
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="2"
+                                ToolTip.Tip="{Binding KindLabel}">
+                      <Border Width="22" Height="22" CornerRadius="3"
+                              VerticalAlignment="Center"
+                              Background="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeBrush}}">
+                        <TextBlock Text="{Binding EngineKind, Converter={x:Static views:AdObjectKindConverters.ToBadgeLabel}}"
+                                   Foreground="White" FontSize="12" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextWrapping="NoWrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+
+              <TextBlock Text="No objects yet — add a group or user above."
+                         IsVisible="{Binding !Nodes.Count}"
+                         Classes="secondary" TextWrapping="Wrap" />
+
+              <!-- Selected-node actions: rename (accent) + remove. ADR-036 D3: Remove drops the
+                   object AND cascades every incident membership (PlanModel.RemoveNode) — a compound
+                   deletion beyond a single row, so it carries the red destructive outline (the
+                   per-membership-row Remove below deliberately stays ghost). -->
+              <StackPanel Spacing="6" IsVisible="{Binding HasSelectedNode}">
+                <TextBox Watermark="New name" Text="{Binding RenameText}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                  <Button Name="RenameButton" Classes="accent" Content="Rename"
+                          Command="{Binding RenameSelectedCommand}" />
+                  <Button Name="RemoveButton" Classes="destructive" Content="Remove"
+                          Command="{Binding RemoveSelectedCommand}" />
+                </StackPanel>
+              </StackPanel>
+            </StackPanel>
+
+            <!-- 6. Memberships list (per-row Remove binds the ancestor's command) -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding Memberships.Count, StringFormat='Memberships ({0})'}"
+                         Classes="subheading" />
+              <ItemsControl ItemsSource="{Binding Memberships}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:PlanEdgeRowModel">
+                    <Grid ColumnDefinitions="*,Auto" Margin="2">
+                      <TextBlock Grid.Column="0" Text="{Binding Display}"
+                                 VerticalAlignment="Center" TextWrapping="Wrap" />
+                      <Button Grid.Column="1" Classes="ghost" Content="Remove" Padding="8,2" FontSize="11"
+                              Command="{Binding $parent[ItemsControl].DataContext.RemoveMemberCommand}"
+                              CommandParameter="{Binding}" />
                     </Grid>
-                  </Button>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="No memberships yet — pick a parent group and a member above."
+                         IsVisible="{Binding !Memberships.Count}"
+                         Classes="secondary" TextWrapping="Wrap" />
+            </StackPanel>
 
-            <TextBlock Text="No findings in the plan."
-                       IsVisible="{Binding !HasViolations}"
-                       Classes="secondary" TextWrapping="Wrap" />
           </StackPanel>
+        </ScrollViewer>
 
-        </StackPanel>
-      </ScrollViewer>
+        <!-- 7. Findings list (canonical report order, unshuffled - ADR-009): severity glyph
+             (colored square + redundant letter from THE one palette) + wrapping message +
+             dimmed subject name. Sits directly in the outer Grid's *-sized Row 1 (mirrors
+             ViolationsSidebarView), so the ListBox's own OpacityMask fade has a genuinely
+             bounded region to fade against instead of the page-level scroll above (#270 plan-2). -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="0,12,0,0">
+          <TextBlock Grid.Row="0"
+                     Text="{Binding Violations.Count, StringFormat='Findings ({0})'}"
+                     Classes="subheading" />
+          <ListBox Grid.Row="1" Margin="0,6,0,0"
+                   Background="Transparent"
+                   OpacityMask="{StaticResource ListBottomFadeMask}"
+                   ItemsSource="{Binding Violations}">
+            <ListBox.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel />
+              </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ViolationRowModel">
+                <!-- The whole row is a flat command button jumping to (focusing + selecting)
+                     the finding's anchor DN - the rail/Gap jump affordance, unified here. -->
+                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Padding="4" BorderThickness="0"
+                        Classes="active-band-host" Classes.active-band="{Binding IsActive}"
+                        ToolTip.Tip="{Binding PrimaryDn}"
+                        Command="{Binding $parent[ListBox].((vm:PlanViewModel)DataContext).JumpToFindingCommand}"
+                        CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="Auto,*">
+                    <Border Grid.Column="0" Width="20" Height="20" CornerRadius="3"
+                            VerticalAlignment="Top"
+                            Background="{Binding Severity, Converter={x:Static views:SeverityConverters.ToBrush}}">
+                      <TextBlock Text="{Binding Severity, Converter={x:Static views:SeverityConverters.ToGlyph}}"
+                                 Foreground="{Binding Severity, Converter={x:Static views:SeverityConverters.ToTextBrush}}"
+                                 FontSize="12" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                      <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding SubjectName}" FontSize="11" Opacity="0.6"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <TextBlock Grid.Row="1" Margin="0,6,0,0"
+                     Text="No findings in the plan."
+                     IsVisible="{Binding !HasViolations}"
+                     Classes="secondary" TextWrapping="Wrap" VerticalAlignment="Top" />
+        </Grid>
+
+      </Grid>
     </Border>
 
   </Grid>
