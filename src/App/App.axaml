@@ -241,6 +241,22 @@
     <Style Selector="ComboBox:focus-visible /template/ Border#HighlightBackground">
       <Setter Property="Background" Value="Transparent" />
     </Style>
+
+    <!-- ADR-033 coverage extension (#269 rootpicker-3): TextBox was the one native-chrome control the
+         original ADR-033 sweep left uncovered (App.axaml comment above lists the covered set). Same
+         mechanism, same ink/thickness; CornerRadius=3 matches TextBox's OWN Fluent default corner radius
+         (verified empirically — a bare headless TextBox resolves to CornerRadius 3, not the 4 the other
+         :focus-visible rules use for their controls) so the ring hugs the RootPicker filter box's real
+         shape with no visible gap. A type selector, so it applies to every TextBox app-wide, including the
+         RootPickerView filter (previously zero focus-visible styling). -->
+    <Style Selector="TextBox:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="3" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
   </Application.Styles>
 
 </Application>

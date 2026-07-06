@@ -71,6 +71,10 @@
             <Border Classes="kbd"><TextBlock Text="Ctrl + B" /></Border>
             <TextBlock VerticalAlignment="Center" Text="Collapse or expand the rail (on the workspace)" />
           </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="F1" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Open this keyboard-shortcuts sheet" />
+          </StackPanel>
         </StackPanel>
 
         <!-- On the graph: the web bundle's own keydown + mouse gestures (ADR-023 D5). -->
@@ -84,6 +88,18 @@
           <StackPanel Classes="shortcutRow">
             <Border Classes="kbd"><TextBlock Text="Ctrl + F" /></Border>
             <TextBlock VerticalAlignment="Center" Text="Open the search &amp; command palette" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="&#8593; / &#8595;" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Move the highlight in the palette (when open)" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Enter" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Invoke the highlighted palette result" />
+          </StackPanel>
+          <StackPanel Classes="shortcutRow">
+            <Border Classes="kbd"><TextBlock Text="Esc" /></Border>
+            <TextBlock VerticalAlignment="Center" Text="Clear and close the palette (when open)" />
           </StackPanel>
           <StackPanel Classes="shortcutRow">
             <Border Classes="kbd"><TextBlock Text="Ctrl + 0" /></Border>
