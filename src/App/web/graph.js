@@ -402,6 +402,22 @@
     cy.center({ position: { x: mx, y: my } });
   }
 
+  // WCAG 2.1.1 (#269 graph-5): keyboard equivalent of the click/drag pan above, bound
+  // to the arrow keys once #minimap is focusable (tabindex="0" in index.html). NOTE:
+  // minimapPanTo above calls cy.center({ position }) - per the vendored cytoscape API
+  // (getCenterPan) a plain, non-collection argument there is NOT treated as a model
+  // point; it silently falls back to centering on mutableElements() (the WHOLE graph).
+  // That call is therefore idempotent after the first invocation and cannot express an
+  // incremental per-key nudge, so a keyboard equivalent needs the real pan primitive -
+  // cy.panBy(), in rendered-pixel space - rather than mimicking the same call bug-for-
+  // bug (that would silently no-op every press after the first). Step is a fixed
+  // fraction of the current rendered viewport per key press.
+  var MINIMAP_KEY_PAN_FRACTION = 0.2;
+  function minimapPanByKey(dx, dy) {
+    if (cy === null) { return; }
+    cy.panBy({ x: -dx * cy.width() * MINIMAP_KEY_PAN_FRACTION, y: -dy * cy.height() * MINIMAP_KEY_PAN_FRACTION });
+  }
+
   // Bind the minimap pointer interactions ONCE (the element is static; cy is what gets
   // recreated). Click + drag pan; pointer capture keeps the drag alive past the box edge.
   function wireMinimap() {
@@ -427,6 +443,13 @@
       pan(e);
     });
     document.addEventListener('mouseup', function () { dragging = false; });
+    el.addEventListener('keydown', function (e) {
+      if (cy === null) { return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); minimapPanByKey(0, -1); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); minimapPanByKey(0, 1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); minimapPanByKey(-1, 0); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); minimapPanByKey(1, 0); }
+    });
   }
 
   // ADR-018 (#89): selection + neighborhood dim. INSTANT class toggles only -
