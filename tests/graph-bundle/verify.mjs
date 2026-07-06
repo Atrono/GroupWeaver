@@ -4969,12 +4969,86 @@ async function main() {
     const panAfter = await page.evaluate(() => ({ x: window.__cy.pan().x, y: window.__cy.pan().y }));
     const panMoved = Math.abs(panAfter.x - panBefore.x) > 1e-6 || Math.abs(panAfter.y - panBefore.y) > 1e-6;
     assert(panMoved,
-      `WP3d minimap: a mousedown at an off-center #minimap pixel must pan the main view (minimapPanTo -> cy.center). pan before ${JSON.stringify(panBefore)} after ${JSON.stringify(panAfter)}`);
+      `WP3d minimap: a mousedown at an off-center #minimap pixel must pan the main view (minimapPanTo). pan before ${JSON.stringify(panBefore)} after ${JSON.stringify(panAfter)}`);
     const newMsgs = allMessages.slice(beforeMsgCount);
     const chattyMsgs = newMsgs.filter((m) => m.type === 'nodeClick' || m.type === 'focused' || m.type === 'select');
     assert(chattyMsgs.length === 0,
       `WP3d minimap: click-to-pan must be bridge-silent (coarse navigation, not a tap/focus) - zero nodeClick/focused/select. got ${JSON.stringify(chattyMsgs)}`);
     phase('WP3d minimap: click-to-pan moves the camera AND emits no nodeClick/focused/select');
+
+    // (4a) #280: minimapPanTo must center on the SPECIFIC clicked model point, not
+    // just move the camera at all (which the (4) check above tolerates, and which
+    // the pre-#280 cy.center({position}) bug ALSO satisfied on a first click - it
+    // silently re-centered on the WHOLE graph's bounding box instead of the click's
+    // point, then went inert on every later click). Reproduce graph.js's own
+    // minimap-pixel -> model-point mapping (bb = cy.elements().boundingBox(), the
+    // "contain" fit into MINIMAP_W x MINIMAP_H, the offX/offY letterbox centering)
+    // independently in-page from the SAME rect used to build each dispatched
+    // MouseEvent's clientX/clientY, so the expected target is derived the same way
+    // production code derives it, then click two well-separated minimap points in
+    // sequence and assert the resulting viewport center - (width/2-pan.x)/zoom,
+    // (height/2-pan.y)/zoom, i.e. the model point currently at the render center -
+    // lands on EACH point's own expected target (not the graph center, not each
+    // other's target). This is the non-idempotence proof: a buggy cy.center() call
+    // would land both clicks on the identical whole-graph center.
+    const minimapTargets = await page.evaluate((ratios) => {
+      const el = document.getElementById('minimap');
+      const r = el.getBoundingClientRect();
+      const bb = window.__cy.elements().boundingBox();
+      const MW = 200;   // mirror of graph.js MINIMAP_W (see the (1) pin above)
+      const MH = 140;   // mirror of graph.js MINIMAP_H
+      const fit = Math.min(MW / bb.w, MH / bb.h);
+      const imgW = bb.w * fit;
+      const imgH = bb.h * fit;
+      const offX = (MW - imgW) / 2;
+      const offY = (MH - imgH) / 2;
+      return ratios.map(([fx, fy]) => {
+        // MouseEvent.clientX/clientY are IDL `long` (integer) - a fractional value
+        // handed to the constructor gets silently truncated by the browser before
+        // graph.js's localPoint ever reads it back via e.clientX. Round HERE (not
+        // just compute float px/py) so the expected ix/iy is derived from the exact
+        // integer coordinate the dispatched event will actually carry, matching
+        // production bit-for-bit instead of leaving a few tenths of a pixel of
+        // client-side float/browser-coercion slop (which the large bb/imgW scale
+        // factor here inflates to several model units).
+        const clientX = Math.round(r.left + r.width * fx);
+        const clientY = Math.round(r.top + r.height * fy);
+        const ix = (clientX - r.left) - offX;
+        const iy = (clientY - r.top) - offY;
+        return {
+          clientX,
+          clientY,
+          mx: bb.x1 + (ix / imgW) * bb.w,
+          my: bb.y1 + (iy / imgH) * bb.h,
+        };
+      });
+    }, [[0.15, 0.2], [0.8, 0.65]]);
+    assert(Math.abs(minimapTargets[0].mx - minimapTargets[1].mx) > 1
+      || Math.abs(minimapTargets[0].my - minimapTargets[1].my) > 1,
+      `WP3d/#280 minimap: the two chosen click ratios must land on genuinely DIFFERENT model points to prove non-idempotence, got ${JSON.stringify(minimapTargets)}`);
+    const MODEL_TOL = 2; // model-space slop: sub-pixel float rounding only, NOT graph-scale drift
+    for (let i = 0; i < minimapTargets.length; i += 1) {
+      const target = minimapTargets[i];
+      await page.evaluate((t) => {
+        const el = document.getElementById('minimap');
+        el.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true, cancelable: true, view: window,
+          clientX: t.clientX, clientY: t.clientY, button: 0,
+        }));
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+      }, target);
+      const camera = await page.evaluate(() => {
+        const c = window.__cy;
+        const pan = c.pan();
+        const zoom = c.zoom();
+        return { x: (c.width() / 2 - pan.x) / zoom, y: (c.height() / 2 - pan.y) / zoom };
+      });
+      assert(Math.abs(camera.x - target.mx) <= MODEL_TOL && Math.abs(camera.y - target.my) <= MODEL_TOL,
+        `#280 minimap: click #${i + 1} at minimap ratio must center the main view on its OWN target model point `
+        + `(mx=${target.mx}, my=${target.my}), got viewport center (${camera.x}, ${camera.y}) - `
+        + 'minimapPanTo must not fall back to cy.center()/whole-graph-bbox centering');
+    }
+    phase('#280 minimap: two well-separated clicks each center the main view on their OWN target point (not idempotent, not the whole-graph bbox)');
 
     // (4b) #269 graph-5 (WCAG 2.1.1): keyboard equivalent of the click/drag pan.
     // #minimap ships tabindex="0" so it can take focus; ArrowRight/ArrowLeft/ArrowUp/

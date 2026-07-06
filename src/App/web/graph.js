@@ -399,19 +399,24 @@
     if (ix < 0 || iy < 0 || ix > minimapImgW || iy > minimapImgH) { return; }
     var mx = bb.x1 + (ix / minimapImgW) * bb.w;
     var my = bb.y1 + (iy / minimapImgH) * bb.h;
-    cy.center({ position: { x: mx, y: my } });
+    // cy.center({ position }) does NOT accept a raw model point (see the #280 note
+    // below) - compute the absolute pan that puts (mx, my) at the rendered viewport's
+    // center directly, the same rendered-pixel-space primitive minimapPanByKey uses.
+    var zoom = cy.zoom();
+    cy.pan({ x: cy.width() / 2 - mx * zoom, y: cy.height() / 2 - my * zoom });
   }
 
   // WCAG 2.1.1 (#269 graph-5): keyboard equivalent of the click/drag pan above, bound
-  // to the arrow keys once #minimap is focusable (tabindex="0" in index.html). NOTE:
-  // minimapPanTo above calls cy.center({ position }) - per the vendored cytoscape API
-  // (getCenterPan) a plain, non-collection argument there is NOT treated as a model
-  // point; it silently falls back to centering on mutableElements() (the WHOLE graph).
-  // That call is therefore idempotent after the first invocation and cannot express an
-  // incremental per-key nudge, so a keyboard equivalent needs the real pan primitive -
-  // cy.panBy(), in rendered-pixel space - rather than mimicking the same call bug-for-
-  // bug (that would silently no-op every press after the first). Step is a fixed
-  // fraction of the current rendered viewport per key press.
+  // to the arrow keys once #minimap is focusable (tabindex="0" in index.html). NOTE
+  // (#280): cy.center({ position }) - what minimapPanTo used to call - per the
+  // vendored cytoscape API (getCenterPan) does NOT treat a plain, non-collection
+  // argument as a model point; it silently falls back to centering on
+  // mutableElements() (the WHOLE graph), making the call idempotent after the first
+  // invocation. minimapPanTo now uses cy.pan() directly (see above); the keyboard
+  // equivalent below always needed the real pan primitive - cy.panBy(), in
+  // rendered-pixel space - since it expresses an incremental per-key nudge rather
+  // than an absolute target. Step is a fixed fraction of the current rendered
+  // viewport per key press.
   var MINIMAP_KEY_PAN_FRACTION = 0.2;
   function minimapPanByKey(dx, dy) {
     if (cy === null) { return; }
