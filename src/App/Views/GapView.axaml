@@ -107,7 +107,7 @@
                 <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                         Padding="4" BorderThickness="0"
                         Classes="active-band-host" Classes.active-band="{Binding IsActive}"
-                        ToolTip.Tip="{Binding Kind, Converter={x:Static views:GapKindConverters.ToLabel}}"
+                        ToolTip.Tip="{Binding PrimaryDn}"
                         Command="{Binding $parent[ListBox].((vm:GapViewModel)DataContext).JumpToCommand}"
                         CommandParameter="{Binding}">
                   <Grid ColumnDefinitions="Auto,*">
