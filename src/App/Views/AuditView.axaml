@@ -71,6 +71,20 @@
         </FocusAdornerTemplate>
       </Setter>
     </Style>
+    <!-- #269 audit-4: the Categories-pane rule-class row is a FLATTER chip (CornerRadius=6, a full-width
+         list row, not a pill) — the shared Button.chip:focus-visible ring above hard-codes radius 12 for
+         the pill-shaped chips elsewhere, so this row needs its OWN radius-6 override (same corner-radius
+         parity idiom as Button.segment:focus-visible above). The chip-row class rides ALONGSIDE chip (never
+         replacing it), so the row keeps every other chip/chip-active visual and only the ring radius
+         differs. -->
+    <Style Selector="Button.chip-row:focus-visible">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Border BorderBrush="{DynamicResource AccentTextBrush}" BorderThickness="2"
+                  CornerRadius="6" Margin="0" />
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
     <!-- WP1 chip count: tabular numerals at FULL opacity (NOT Classes="dn", whose 0.8 opacity drops
          the meaningful count below 4.5:1 in light; WCAG 1.4.3). Inherits the chip's foreground (the
          same full-opacity ink the chip label uses) so the digit contrast matches the label. -->
@@ -298,7 +312,7 @@
                         IsVisible="{Binding HasCategories}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:AuditCategoryRow">
-                <Button Classes="chip" CornerRadius="6" Padding="8,4" Margin="0,0,0,2"
+                <Button Classes="chip chip-row" CornerRadius="6" Padding="8,4" Margin="0,0,0,2"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                         Classes.chip-active="{Binding IsActive}"
                         Command="{Binding $parent[UserControl].((vm:AuditViewModel)DataContext).ToggleCategoryCommand}"
