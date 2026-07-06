@@ -15,7 +15,7 @@
     <TextBlock Grid.Row="0" Classes="title" Text="Choose a root — OU or group" />
 
     <TextBox Grid.Row="1" Margin="0,12,0,0"
-             Watermark="Filter by name or DN"
+             Watermark="Filter by name, SAM, or DN"
              Text="{Binding Filter}" />
 
     <ProgressBar Grid.Row="2" IsIndeterminate="True" Margin="0,8,0,0"

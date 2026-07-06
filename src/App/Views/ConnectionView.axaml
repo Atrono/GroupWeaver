@@ -62,15 +62,17 @@
         <!-- ADR-031 D1: collapsed-by-default "Advanced" disclosure to target a specific domain/DC.
              Blank fields keep the zero-config serverless default (the card above is unchanged when
              this stays untouched). Still integrated auth — no credential fields ever. -->
-        <Button Classes="ghost" Padding="0"
+        <Button Classes="hyperlink" Padding="0"
                 Command="{Binding ToggleAdvancedCommand}"
-                HorizontalAlignment="Center" Background="Transparent" BorderThickness="0">
+                HorizontalAlignment="Center">
           <TextBlock Classes="secondary"
                      Text="Advanced — target a specific domain or DC" />
         </Button>
         <StackPanel Spacing="8" IsVisible="{Binding IsAdvancedExpanded}">
+          <TextBlock Classes="caption" Text="Server / DC host" />
           <TextBox Watermark="Server / DC host (optional, e.g. dc1.corp.example)"
                    Text="{Binding TargetServer}" />
+          <TextBlock Classes="caption" Text="Base DN" />
           <TextBox Watermark="Base DN (optional, e.g. OU=Groups,DC=corp,DC=example)"
                    Text="{Binding TargetBaseDn}" />
           <!-- ADR-031 D2: alternate credentials are an OS concern, never an in-app field. -->
