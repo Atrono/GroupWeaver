@@ -258,23 +258,11 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     private readonly Action _onBack;
     private Ruleset _ruleset;
 
-    /// <summary>The FULL findings projection (WP1) — the master source of truth. <see cref="Findings"/>
-    /// is the filtered + sorted VISIBLE view derived from it in <see cref="ApplyView"/>. Each row's
-    /// checkbox <c>PropertyChanged</c> subscription lives on THESE rows (so the selection tally stays
-    /// live even for rows the current filter hides); rebuilt in <see cref="RebuildFindings"/>.</summary>
-    private readonly List<AuditFindingRowModel> _allRows = [];
-
-    /// <summary>Active severity-axis filter (WP1). EMPTY = no constraint (fail-open); non-empty keeps
-    /// only rows whose <see cref="AuditFindingRowModel.Severity"/> is contained. Preserved across a
-    /// <see cref="RebuildFindings"/> (severities are a fixed domain).</summary>
-    private readonly HashSet<RuleSeverity> _severityFilter = [];
-
-    /// <summary>Active triage-status-axis filter (WP1). EMPTY = no constraint; preserved across a rebuild.</summary>
-    private readonly HashSet<TriageStatus> _statusFilter = [];
-
-    /// <summary>Active rule-class-axis filter (WP1), keyed by rule id (OrdinalIgnoreCase). EMPTY = no
-    /// constraint; PRUNED on rebuild to the rule ids still present in <see cref="_allRows"/>.</summary>
-    private readonly HashSet<string> _ruleClassFilter = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The findings-table + categories-pane + filter-chips collaborator (#297): owns the WP1/
+    /// WP5c/WP5d master list, filter axes, sort/filter projection and per-row selection bookkeeping.
+    /// Sort state, <see cref="Summary"/> and the reports/snapshot stay VM-owned and are passed in per
+    /// call. See <see cref="AuditFindingsView"/>.</summary>
+    private readonly AuditFindingsView _findingsView = new();
 
     /// <summary>The current LIVE rule report (post-suppression) — borrowed at construction, replaced
     /// in place by <see cref="ApplyRuleset"/> (a settings Apply/Save re-thread). Drives
@@ -362,6 +350,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         // injects a fixed instant. Core stays clock-free — the App supplies the instant.
         _clock = clock ?? (() => DateTimeOffset.Now);
 
+        _findingsView.ViewChanged += OnFindingsViewChanged;
+        _findingsView.CategoriesChanged += () => OnPropertyChanged(nameof(HasCategories));
+        _findingsView.SelectionChanged += () => SelectedCount = _findingsView.SelectedCount;
+
         _summary = AuditSummary.Compute(report, snapshot, ruleset);
         RebuildCategories();
         RebuildFindings();
@@ -427,29 +419,10 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         _restoring = true;
         try
         {
-            _severityFilter.Clear();
-            foreach (var name in state.AuditSeverityFilter)
-            {
-                if (Enum.TryParse<RuleSeverity>(name, ignoreCase: true, out var severity))
-                {
-                    _severityFilter.Add(severity);
-                }
-            }
-
-            _statusFilter.Clear();
-            foreach (var name in state.AuditStatusFilter)
-            {
-                if (Enum.TryParse<TriageStatus>(name, ignoreCase: true, out var status))
-                {
-                    _statusFilter.Add(status);
-                }
-            }
-
-            _ruleClassFilter.Clear();
-            foreach (var ruleId in state.AuditRuleClassFilter)
-            {
-                _ruleClassFilter.Add(ruleId);
-            }
+            _findingsView.RestoreFilters(
+                ParseAll<RuleSeverity>(state.AuditSeverityFilter),
+                ParseAll<TriageStatus>(state.AuditStatusFilter),
+                state.AuditRuleClassFilter);
 
             SortColumn = Enum.TryParse<AuditSortColumn>(state.AuditSortColumn, ignoreCase: true, out var column)
                 ? column
@@ -463,9 +436,27 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
 
         // Re-project so the chips/categories active state + the table order reflect the restored values.
         // RebuildFilterChips also prunes a stale rule-class id to the surviving ids (self-healing).
-        RebuildFilterChips();
+        _findingsView.RebuildFilterChips();
         RebuildCategories();
         ApplyView();
+    }
+
+    /// <summary>Parses every name in <paramref name="names"/> as a <typeparamref name="T"/>, skipping
+    /// anything that doesn't parse (never throws — a renamed enum / removed value is silently dropped,
+    /// the same never-throw load contract as the rest of <see cref="RestoreView"/>).</summary>
+    private static List<T> ParseAll<T>(IEnumerable<string> names)
+        where T : struct, Enum
+    {
+        var results = new List<T>();
+        foreach (var name in names)
+        {
+            if (Enum.TryParse<T>(name, ignoreCase: true, out var value))
+            {
+                results.Add(value);
+            }
+        }
+
+        return results;
     }
 
     /// <summary>Writes the current Audit filters + sort to the shared UI-state store (read-modify-write,
@@ -482,9 +473,9 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
 
         _uiStateStore.Save(_uiStateStore.Load() with
         {
-            AuditSeverityFilter = _severityFilter.Select(s => s.ToString()).ToList(),
-            AuditStatusFilter = _statusFilter.Select(s => s.ToString()).ToList(),
-            AuditRuleClassFilter = _ruleClassFilter.ToList(),
+            AuditSeverityFilter = _findingsView.SeverityFilter.Select(s => s.ToString()).ToList(),
+            AuditStatusFilter = _findingsView.StatusFilter.Select(s => s.ToString()).ToList(),
+            AuditRuleClassFilter = _findingsView.RuleClassFilter.ToList(),
             AuditSortColumn = SortColumn.ToString(),
             AuditSortDescending = SortDescending,
         });
@@ -513,54 +504,52 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// rule-class filter facet (WP-C/#180) — clicking it runs <see cref="ToggleCategory"/>; its
     /// <see cref="AuditCategoryRow.IsActive"/> mirrors the <c>_ruleClassFilter</c> set. Rebuilt in
     /// place on every <see cref="ApplyRuleset"/>.</summary>
-    public ObservableCollection<AuditCategoryRow> Categories { get; } = [];
+    public ObservableCollection<AuditCategoryRow> Categories => _findingsView.Categories;
 
     /// <summary>True when at least one rule class produced a finding — gates the categories pane
     /// against an empty list (an all-clear scope shows no category rows).</summary>
-    public bool HasCategories => Categories.Count > 0;
+    public bool HasCategories => _findingsView.HasCategories;
 
     /// <summary>The findings table (WP5d): one <see cref="AuditFindingRowModel"/> per
     /// <see cref="RuleReport.Violations"/> entry, projected with snapshot-resolved names. Ordered
     /// by <see cref="SortColumn"/>/<see cref="SortDescending"/> (default = canonical report order).
     /// Rebuilt in place on every <see cref="ApplyRuleset"/> and re-ordered on every header sort.</summary>
-    public ObservableCollection<AuditFindingRowModel> Findings { get; } = [];
+    public ObservableCollection<AuditFindingRowModel> Findings => _findingsView.Findings;
 
     /// <summary>True when there is at least one finding — gates the table against the all-clear
     /// empty state (mirrors <see cref="HasCategories"/>).</summary>
-    public bool HasFindings => Findings.Count > 0;
+    public bool HasFindings => _findingsView.HasFindings;
 
     /// <summary>The severity filter chips (WP1) — fixed Error/Warning/Info, in descending severity
-    /// order. Each chip's <see cref="AuditFilterChip.Count"/> is computed over <see cref="_allRows"/>;
-    /// the <see cref="AuditFilterChip.Severity"/> drives the colored glyph. Rebuilt in place by
-    /// <see cref="RebuildFilterChips"/> after <see cref="_allRows"/> is built.</summary>
-    public ObservableCollection<AuditFilterChip> SeverityChips { get; } = [];
+    /// order. Each chip's <see cref="AuditFilterChip.Count"/> is computed over the master list; the
+    /// <see cref="AuditFilterChip.Severity"/> drives the colored glyph. Rebuilt in place after the
+    /// master list is built.</summary>
+    public ObservableCollection<AuditFilterChip> SeverityChips => _findingsView.SeverityChips;
 
     /// <summary>The triage-status filter chips (WP1) — fixed Open/Acknowledged/Suppressed.</summary>
-    public ObservableCollection<AuditFilterChip> StatusChips { get; } = [];
+    public ObservableCollection<AuditFilterChip> StatusChips => _findingsView.StatusChips;
 
     /// <summary>The count of currently-visible (filtered) findings (= <see cref="Findings"/>.Count).</summary>
-    public int VisibleCount => Findings.Count;
+    public int VisibleCount => _findingsView.VisibleCount;
 
-    /// <summary>The total count of findings before filtering (= <see cref="_allRows"/>.Count).</summary>
-    public int TotalCount => _allRows.Count;
+    /// <summary>The total count of findings before filtering.</summary>
+    public int TotalCount => _findingsView.TotalCount;
 
     /// <summary>True when any axis has an active constraint — gates the "Clear filters" button + the
     /// "Showing N of M" wording.</summary>
-    public bool IsFiltered => _severityFilter.Count > 0 || _statusFilter.Count > 0 || _ruleClassFilter.Count > 0;
+    public bool IsFiltered => _findingsView.IsFiltered;
 
     /// <summary>The filter-strip summary line: "Showing {VisibleCount} of {TotalCount}" while filtered,
     /// else "{TotalCount} findings".</summary>
-    public string FilterSummary => IsFiltered
-        ? $"Showing {VisibleCount} of {TotalCount}"
-        : $"{TotalCount} findings";
+    public string FilterSummary => _findingsView.FilterSummary;
 
     /// <summary>True when findings exist but the active filters hide them all — gates the dedicated
-    /// "no matches" empty state, DISTINCT from the all-clear empty state (<see cref="_allRows"/> empty).</summary>
-    public bool HasNoMatches => _allRows.Count > 0 && Findings.Count == 0;
+    /// "no matches" empty state, DISTINCT from the all-clear empty state.</summary>
+    public bool HasNoMatches => _findingsView.HasNoMatches;
 
     /// <summary>True when the scope produced NO findings at all (the master list is empty) — gates the
     /// all-clear "No findings to list." text apart from the filtered <see cref="HasNoMatches"/> state.</summary>
-    public bool IsAllClear => _allRows.Count == 0;
+    public bool IsAllClear => _findingsView.IsAllClear;
 
     /// <summary>The active sort column (WP5d). <see cref="AuditSortColumn.None"/> = the canonical
     /// report order; the view's header carets read this + <see cref="SortDescending"/>.</summary>
@@ -768,87 +757,18 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         PersistView();
     }
 
-    /// <summary>Repopulates <see cref="Categories"/> in place from the current <see cref="Summary"/>
-    /// + report. The display name + canonical order come from <see cref="Ruleset.EnumerateRules"/>;
-    /// the count from <see cref="AuditSummary.ByRuleClass"/>; the dot's max severity from a single
-    /// pass over the report's findings (the borrowed report is read-only — never mutated).</summary>
-    private void RebuildCategories()
-    {
-        // Max severity per rule id, one pass over the canonically-ordered findings (Info<Warning<Error).
-        var maxByRuleId = new Dictionary<string, RuleSeverity>(StringComparer.OrdinalIgnoreCase);
-        foreach (var violation in _report.Violations)
-        {
-            if (!maxByRuleId.TryGetValue(violation.RuleId, out var s) || violation.Severity > s)
-            {
-                maxByRuleId[violation.RuleId] = violation.Severity;
-            }
-        }
+    /// <summary>Repopulates <see cref="Categories"/> in place from the current <see cref="Summary"/> +
+    /// report — delegates to <see cref="_findingsView"/> (<see cref="AuditFindingsView.RebuildCategories"/>).</summary>
+    private void RebuildCategories() => _findingsView.RebuildCategories(_report, _ruleset, Summary);
 
-        Categories.Clear();
-        foreach (var rule in _ruleset.EnumerateRules())
-        {
-            // ByRuleClass only carries ids that produced a finding, so a 0-count / clean class is
-            // skipped — the pane lists classes with findings, in canonical rule order.
-            if (Summary.ByRuleClass.TryGetValue(rule.Id, out var count) && count > 0)
-            {
-                var severity = maxByRuleId.TryGetValue(rule.Id, out var max) ? max : RuleSeverity.Info;
-                // IsActive mirrors the rule-class filter set so the active affordance survives a
-                // summary rebuild (exactly like the filter chips do — WP-C/#180).
-                Categories.Add(new AuditCategoryRow(rule.Id, rule.DisplayName, count, severity)
-                {
-                    IsActive = _ruleClassFilter.Contains(rule.Id),
-                });
-            }
-        }
-
-        OnPropertyChanged(nameof(HasCategories));
-    }
-
-    /// <summary>Repopulates <see cref="Findings"/> in place from the current report: one row per
-    /// <see cref="RuleReport.Violations"/> entry, name-resolved snapshot-only via the shared
-    /// <see cref="SubjectNameResolver"/> (identical to the sidebar), the rule-class label from
-    /// <see cref="Ruleset.EnumerateRules"/>. Each row's checkbox <c>PropertyChanged</c> is wired so
-    /// the selection bar stays live; the prior rows are detached first (a settings re-thread drops
-    /// the old selection). The collection is then ordered by the active sort (default = report order).</summary>
+    /// <summary>Repopulates <see cref="Findings"/> in place from the current would-be report —
+    /// delegates to <see cref="_findingsView"/> (<see cref="AuditFindingsView.RebuildFindings"/>), then
+    /// applies the cross-cluster resets a re-thread must ALSO invalidate: the detail-pane selection
+    /// (WP5f / #160) and the run-compare projection + "saved" affordance (ADR-032 D4) — none of these
+    /// belong to the findings-view collaborator.</summary>
     private void RebuildFindings()
     {
-        // Detach the OLD master rows (the subscription lives on _allRows, not the visible view — WP1).
-        foreach (var row in _allRows)
-        {
-            row.PropertyChanged -= OnFindingPropertyChanged;
-        }
-
-        // Rule id -> human class label (canonical EnumerateRules order); naming rules carry their id.
-        var ruleClassById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rule in _ruleset.EnumerateRules())
-        {
-            ruleClassById[rule.Id] = rule.DisplayName;
-        }
-
-        _allRows.Clear();
-        var reportOrder = 0;
-        foreach (var violation in _wouldBeReport.Violations)
-        {
-            var name = SubjectNameResolver.Resolve(_snapshot, violation.PrimaryDn);
-            var ruleClass = ruleClassById.TryGetValue(violation.RuleId, out var label) ? label : violation.RuleId;
-            // Per-row status (ADR-028): match the finding's ESCAPED primary DN against the LIVE
-            // ruleset's tagged ignore entries — a hit means a tagged entry covers it (ack/suppress).
-            var escapedDn = TriageEntry.Escape(violation.PrimaryDn);
-            var status = TriageEntry.StatusFor(_ruleset.Ignore, escapedDn) switch
-            {
-                TriageKind.Acknowledge => TriageStatus.Acknowledged,
-                TriageKind.Suppress => TriageStatus.Suppressed,
-                _ => TriageStatus.Open,
-            };
-            var row = new AuditFindingRowModel(
-                reportOrder++,
-                violation,
-                name,
-                ruleClass,
-                status);
-            row.PropertyChanged += OnFindingPropertyChanged;
-            _allRows.Add(row);
-        }
+        _findingsView.RebuildFindings(_wouldBeReport, _ruleset, _snapshot, SortColumn, SortDescending);
 
         // A re-thread rebuilds the rows, so the prior detail selection no longer points at a live row;
         // clear it (the detail pane returns to its empty state). WP5f / #160.
@@ -857,116 +777,16 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         // findings just changed) — clear both so neither lingers over a new evaluation (ADR-032 D4).
         Comparison = null;
         RunSaved = false;
-        // Rebuild the chips AFTER _allRows (severity/status counts derive from it); this preserves the
-        // severity/status sets and prunes the rule-class set to surviving rule ids. The rule-class
-        // filter is driven by the categories pane (WP-C/#180), not a separate chip group.
-        RebuildFilterChips();
-        ApplyView();
     }
 
-    /// <summary>Rebuilds the severity + status chip collections (WP1) from the freshly-built
-    /// <see cref="_allRows"/> (both are fixed domains, counts over <see cref="_allRows"/>; their filter
-    /// sets are PRESERVED). Also prunes the rule-class filter set to the rule ids still present so a
-    /// stale id (after a re-thread dropped a class) never silently filters everything out — that set is
-    /// now driven by the categories pane (WP-C/#180), so there is no rule-class chip collection. Each
-    /// chip's <see cref="AuditFilterChip.IsActive"/> is set from the (preserved/pruned) sets.</summary>
-    private void RebuildFilterChips()
+    /// <summary>Re-filters + re-sorts <see cref="Findings"/> in place — delegates to
+    /// <see cref="_findingsView"/> (<see cref="AuditFindingsView.ApplyView"/>).</summary>
+    private void ApplyView() => _findingsView.ApplyView(SortColumn, SortDescending);
+
+    /// <summary>Re-projects the bound props <see cref="AuditFindingsView.ApplyView"/> can affect,
+    /// fired via <see cref="AuditFindingsView.ViewChanged"/>.</summary>
+    private void OnFindingsViewChanged()
     {
-        SeverityChips.Clear();
-        foreach (var severity in new[] { RuleSeverity.Error, RuleSeverity.Warning, RuleSeverity.Info })
-        {
-            var count = _allRows.Count(r => r.Severity == severity);
-            SeverityChips.Add(new AuditFilterChip(AuditFilterAxis.Severity, severity, SeverityLabel(severity), count, severity)
-            {
-                IsActive = _severityFilter.Contains(severity),
-            });
-        }
-
-        StatusChips.Clear();
-        foreach (var status in new[] { TriageStatus.Open, TriageStatus.Acknowledged, TriageStatus.Suppressed })
-        {
-            var count = _allRows.Count(r => r.Status == status);
-            StatusChips.Add(new AuditFilterChip(AuditFilterAxis.Status, status, StatusLabel(status), count, null)
-            {
-                IsActive = _statusFilter.Contains(status),
-            });
-        }
-
-        // Prune the rule-class filter set to the rule ids still present (a re-thread can drop a rule
-        // class) so a stale id never silently filters everything out. The set is the single source of
-        // truth the categories pane's rows mirror (RebuildCategories sets each row's IsActive from it).
-        var ruleIds = _allRows
-            .Select(r => r.RuleId)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        _ruleClassFilter.RemoveWhere(id => !ruleIds.Contains(id));
-    }
-
-    private static string SeverityLabel(RuleSeverity severity) => severity switch
-    {
-        RuleSeverity.Error => "Errors",
-        RuleSeverity.Warning => "Warnings",
-        _ => "Info",
-    };
-
-    private static string StatusLabel(TriageStatus status) => status switch
-    {
-        TriageStatus.Acknowledged => "Acknowledged",
-        TriageStatus.Suppressed => "Suppressed",
-        _ => "Open",
-    };
-
-    /// <summary>Rebuilds the visible <see cref="Findings"/> view (WP1) from the <see cref="_allRows"/>
-    /// master list: FILTER (the three fail-open axes AND'd) then the existing SORT
-    /// (<see cref="SortColumn"/>/<see cref="SortDescending"/>, <see cref="AuditSortColumn.None"/> = the
-    /// canonical <see cref="RuleReport.Violations"/> report order, with the report-order index as every
-    /// key's deterministic tie-break). Rows filtered OUT are deselected (a no-op on a pure sort — the
-    /// visible set is unchanged — so selection survives sorting but never lingers on a hidden row).
-    /// Rebuilds by in-place Clear/Add (the bound collection reference never changes).</summary>
-    private void ApplyView()
-    {
-        // FILTER: a row passes iff it satisfies every NON-EMPTY axis (empty axis => no constraint).
-        var filtered = _allRows.Where(r =>
-            (_severityFilter.Count == 0 || _severityFilter.Contains(r.Severity))
-            && (_statusFilter.Count == 0 || _statusFilter.Contains(r.Status))
-            && (_ruleClassFilter.Count == 0 || _ruleClassFilter.Contains(r.RuleId)));
-
-        // SORT: r.ReportOrder is the canonical report-projection rank — the None ordering and the
-        // deterministic tie-break for every other column, independent of current row order.
-        IEnumerable<AuditFindingRowModel> ordered = SortColumn switch
-        {
-            AuditSortColumn.Severity => SortDescending
-                ? filtered.OrderByDescending(r => (int)r.Severity).ThenBy(r => r.ReportOrder)
-                : filtered.OrderBy(r => (int)r.Severity).ThenBy(r => r.ReportOrder),
-            AuditSortColumn.ObjectName => SortDescending
-                ? filtered.OrderByDescending(r => r.ObjectName, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ReportOrder)
-                : filtered.OrderBy(r => r.ObjectName, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ReportOrder),
-            AuditSortColumn.RuleClass => SortDescending
-                ? filtered.OrderByDescending(r => r.RuleClass, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ReportOrder)
-                : filtered.OrderBy(r => r.RuleClass, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.ReportOrder),
-            _ => filtered.OrderBy(r => r.ReportOrder),
-        };
-
-        var visible = ordered.ToList();
-
-        Findings.Clear();
-        foreach (var row in visible)
-        {
-            Findings.Add(row);
-        }
-
-        // Deselect rows the filter hid — a no-op on a pure sort (membership unchanged) so selection
-        // survives sorting but never lingers on a hidden row.
-        var visibleSet = new HashSet<AuditFindingRowModel>(visible);
-        foreach (var row in _allRows)
-        {
-            if (!visibleSet.Contains(row))
-            {
-                row.IsSelected = false;
-            }
-        }
-
-        SelectedCount = Findings.Count(r => r.IsSelected);
         OnPropertyChanged(nameof(HasFindings));
         OnPropertyChanged(nameof(AllSelected));
         OnPropertyChanged(nameof(VisibleCount));
@@ -977,79 +797,31 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsAllClear));
     }
 
-    /// <summary>Toggles one filter chip (WP1): flips its <see cref="AuditFilterChip.IsActive"/>, adds/
-    /// removes its <see cref="AuditFilterChip.Key"/> in the set selected by its
-    /// <see cref="AuditFilterChip.Axis"/>, and rebuilds the visible view. The chips multi-select within
-    /// AND across axes (each axis is independent + fail-open).</summary>
+    /// <summary>Toggles one filter chip (WP1) — delegates to <see cref="_findingsView"/>
+    /// (<see cref="AuditFindingsView.ToggleFilter"/>), then persists (best-effort, no-op while
+    /// restoring / un-wired).</summary>
     [RelayCommand]
     private void ToggleFilter(AuditFilterChip chip)
     {
-        chip.IsActive = !chip.IsActive;
-        switch (chip.Axis)
-        {
-            case AuditFilterAxis.Severity:
-                ToggleKey(_severityFilter, (RuleSeverity)chip.Key, chip.IsActive);
-                break;
-            case AuditFilterAxis.Status:
-                ToggleKey(_statusFilter, (TriageStatus)chip.Key, chip.IsActive);
-                break;
-        }
-
-        ApplyView();
+        _findingsView.ToggleFilter(chip, SortColumn, SortDescending);
         PersistView();
     }
 
-    /// <summary>Toggles the rule-class filter from a categories-pane row (WP-C/#180): flips the row's
-    /// <see cref="AuditCategoryRow.IsActive"/>, adds/removes its <see cref="AuditCategoryRow.RuleId"/>
-    /// in <c>_ruleClassFilter</c>, and rebuilds the visible view. The rule-class axis is the single
-    /// source of truth here — the category rows ARE the rule-class filter facet (the separate strip
-    /// chip group was removed as a duplicate). Multi-select within the axis; ANDs with severity/status.</summary>
+    /// <summary>Toggles the rule-class filter from a categories-pane row (WP-C/#180) — delegates to
+    /// <see cref="_findingsView"/> (<see cref="AuditFindingsView.ToggleCategory"/>), then persists.</summary>
     [RelayCommand]
     private void ToggleCategory(AuditCategoryRow row)
     {
-        row.IsActive = !row.IsActive;
-        ToggleKey(_ruleClassFilter, row.RuleId, row.IsActive);
-        ApplyView();
+        _findingsView.ToggleCategory(row, SortColumn, SortDescending);
         PersistView();
     }
 
-    private static void ToggleKey<T>(HashSet<T> set, T key, bool active)
-    {
-        if (active)
-        {
-            set.Add(key);
-        }
-        else
-        {
-            set.Remove(key);
-        }
-    }
-
-    /// <summary>Clears every filter axis (WP1): empties all three sets, deactivates every chip, and
-    /// rebuilds the full (only-sorted) view. The "Clear filters" affordance.</summary>
+    /// <summary>Clears every filter axis (WP1) — delegates to <see cref="_findingsView"/>
+    /// (<see cref="AuditFindingsView.ClearFilters"/>), then persists. The "Clear filters" affordance.</summary>
     [RelayCommand]
     private void ClearFilters()
     {
-        _severityFilter.Clear();
-        _statusFilter.Clear();
-        _ruleClassFilter.Clear();
-        foreach (var chip in SeverityChips)
-        {
-            chip.IsActive = false;
-        }
-
-        foreach (var chip in StatusChips)
-        {
-            chip.IsActive = false;
-        }
-
-        // The rule-class axis lives on the categories pane (WP-C/#180) — reset its rows' active state.
-        foreach (var row in Categories)
-        {
-            row.IsActive = false;
-        }
-
-        ApplyView();
+        _findingsView.ClearFilters(SortColumn, SortDescending);
         PersistView();
     }
 
@@ -1075,28 +847,15 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>The select-all / select-none header checkbox (WP5d): if every row is already
-    /// selected, clears all; otherwise selects all. The per-row notifications re-tally the bar.</summary>
+    /// <summary>The select-all / select-none header checkbox (WP5d) — delegates to
+    /// <see cref="_findingsView"/> (<see cref="AuditFindingsView.ToggleSelectAll"/>).</summary>
     [RelayCommand]
-    private void ToggleSelectAll()
-    {
-        var target = !AllSelected;
-        foreach (var row in Findings)
-        {
-            row.IsSelected = target;
-        }
-    }
+    private void ToggleSelectAll() => _findingsView.ToggleSelectAll();
 
-    /// <summary>The selection bar's "Clear" (WP5d): deselects every row. No Ack/Suppress action
-    /// here — that is WP5e.</summary>
+    /// <summary>The selection bar's "Clear" (WP5d) — delegates to <see cref="_findingsView"/>
+    /// (<see cref="AuditFindingsView.ClearSelection"/>). No Ack/Suppress action here — that is WP5e.</summary>
     [RelayCommand]
-    private void ClearSelection()
-    {
-        foreach (var row in Findings)
-        {
-            row.IsSelected = false;
-        }
-    }
+    private void ClearSelection() => _findingsView.ClearSelection();
 
     /// <summary>Acknowledge every SELECTED open finding (WP5e / ADR-028): emits one
     /// <c>[ack]</c> triage request per selected Open row through the shell seam (the gate appends the
@@ -1168,15 +927,6 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
         if (requests.Count > 0)
         {
             _triage?.Invoke(requests);
-        }
-    }
-
-    /// <summary>Re-tallies <see cref="SelectedCount"/> when a row's checkbox toggles (WP5d).</summary>
-    private void OnFindingPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(AuditFindingRowModel.IsSelected))
-        {
-            SelectedCount = Findings.Count(r => r.IsSelected);
         }
     }
 
