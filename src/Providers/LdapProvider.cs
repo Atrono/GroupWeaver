@@ -2,6 +2,7 @@ using System.DirectoryServices;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
 
@@ -24,6 +25,13 @@ namespace GroupWeaver.Providers;
 public sealed class LdapProvider : IDirectoryProvider
 {
     private const string AnyObjectFilter = "(objectClass=*)";
+
+    /// <summary>
+    /// Member DNs per batched resolution filter (ADR-039 D1) — conservative
+    /// relative to AD's default LDAP admin limits, independent of
+    /// <see cref="_pageSize"/> (which paginates RESULTS, not filter complexity).
+    /// </summary>
+    private const int MemberBatchSize = 200;
 
     private readonly string? _server;
     private readonly string? _baseDn;
@@ -202,12 +210,17 @@ public sealed class LdapProvider : IDirectoryProvider
                 return [];
             }
 
+            if (memberDns.Count == 0)
+            {
+                return [];
+            }
+
+            IReadOnlyDictionary<string, LdapEntry> resolved = ResolveBatch(memberDns, cancellationToken);
             var members = new List<AdObject>(memberDns.Count);
             foreach (string memberDn in memberDns)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                members.Add(FindEntry(memberDn) is { } member
-                    ? LdapEntry.Map(member)
+                members.Add(resolved.TryGetValue(memberDn, out LdapEntry? entry)
+                    ? LdapEntry.Map(entry)
                     : MakeExternal(memberDn));
             }
 
@@ -305,13 +318,67 @@ public sealed class LdapProvider : IDirectoryProvider
             return (rangeAttribute, []); // no result/values left → collector terminates
         });
 
-    private string EffectiveBaseDn()
+    /// <summary>
+    /// Resolves the DN list collected via <see cref="CollectMembers"/> to full
+    /// entries in chunked subtree searches (ADR-039 D1) instead of one bind per
+    /// DN. Rooted at <see cref="DomainNamingContext"/> — not the configured
+    /// <see cref="EffectiveBaseDn"/> — because members can live outside the
+    /// configured scope (e.g. a foreign-security-principal member sits in
+    /// <c>CN=ForeignSecurityPrincipals</c>, always outside a lab/OU-scoped base).
+    /// A DN absent from the result (vanished, or genuinely unresolvable) is simply
+    /// missing from the returned map — the caller's existing "unresolvable is a
+    /// value" fallback (<see cref="MakeExternal"/>) is unchanged.
+    /// </summary>
+    private IReadOnlyDictionary<string, LdapEntry> ResolveBatch(
+        IReadOnlyList<string> dns, CancellationToken cancellationToken)
     {
-        if (_baseDn is not null)
+        var resolved = new Dictionary<string, LdapEntry>(dns.Count, Dn.Comparer);
+        using var root = new DirectoryEntry(PathFor(DomainNamingContext()));
+        foreach (string[] chunk in dns.Distinct(Dn.Comparer).Chunk(MemberBatchSize))
         {
-            return _baseDn;
+            cancellationToken.ThrowIfCancellationRequested();
+            using var searcher = CreateSearcher(
+                root, SearchScope.Subtree, BuildDnFilter(chunk), AttributeWhitelist.FetchProperties);
+            using SearchResultCollection results = searcher.FindAll();
+            foreach (SearchResult result in results)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                LdapEntry entry = ToLdapEntry(result);
+                resolved[entry.Dn] = entry;
+            }
         }
 
+        return resolved;
+    }
+
+    /// <summary>
+    /// Builds <c>(|(distinguishedName=dn1)(distinguishedName=dn2)…)</c> — every
+    /// value passes through <see cref="LdapFilter.Escape"/> (RFC 4515, ADR-039
+    /// D3); this is the codebase's one place a filter is composed from
+    /// directory-derived data, so every value MUST be escaped, no exceptions.
+    /// </summary>
+    private static string BuildDnFilter(IReadOnlyList<string> dns)
+    {
+        var filter = new StringBuilder("(|");
+        foreach (string dn in dns)
+        {
+            filter.Append("(distinguishedName=").Append(LdapFilter.Escape(dn)).Append(')');
+        }
+
+        return filter.Append(')').ToString();
+    }
+
+    private string EffectiveBaseDn() => _baseDn ?? DomainNamingContext();
+
+    /// <summary>
+    /// The domain's <c>defaultNamingContext</c>, cached — always the whole
+    /// domain root regardless of a configured <see cref="_baseDn"/>. Distinct
+    /// from <see cref="EffectiveBaseDn"/>, which honors <see cref="_baseDn"/>
+    /// when set; batched member resolution (ADR-039 D2) always wants the wider
+    /// domain root so out-of-scope members remain resolvable.
+    /// </summary>
+    private string DomainNamingContext()
+    {
         lock (_baseDnLock)
         {
             return _defaultNamingContext ??= ReadDefaultNamingContext();

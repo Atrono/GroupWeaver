@@ -411,6 +411,30 @@ public class LdapProviderIntegrationTests : IClassFixture<LdapLabFixture>
         Assert.Empty(members);
     }
 
+    // --- ADR-039: batched resolution preserves per-DN behavior, incl. filter metacharacters ---
+
+    [AdFact]
+    public async Task GetMembers_DlFsSalesRw_MemberDnContainsParentheses_ResolvesLiveNotAsExternalFallback()
+    {
+        // ADR-039 D1/D3 regression: member resolution now goes through one
+        // chunked (|(distinguishedName=...)...) subtree search per batch
+        // instead of a per-DN bind, so every member DN is interpolated into an
+        // LDAP filter via LdapFilter.Escape. u001's RDN is seeded by
+        // tools/seed-testad.ps1 as "Anna Acker (u001)" - a literal '(' and ')'
+        // in the DN, exactly the RFC 4515 metacharacters ADR-039 D3 exists to
+        // defend. If escaping were missing or wrong, the parenthesized filter
+        // clause would be malformed (best case: the batch search throws / the
+        // group vanishes from resolved results and this member silently
+        // degrades to the MakeExternal fallback, which sets Name to the raw DN
+        // and Kind to External) instead of resolving live.
+        var members = await _fixture.Provider.GetMembersAsync(DlFsSalesRwDn);
+
+        var user = Assert.Single(members, m => Dn.Comparer.Equals(m.Dn, User001Dn));
+        Assert.Equal(AdObjectKind.User, user.Kind);
+        Assert.Equal("Anna Acker (u001)", user.Name);
+        Assert.Equal("u001", user.SamAccountName);
+    }
+
     // --- T13: FSP member resolution (cross-forest AGDLP shape) -------------------------
 
     [AdFact]
