@@ -264,6 +264,11 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// call. See <see cref="AuditFindingsView"/>.</summary>
     private readonly AuditFindingsView _findingsView = new();
 
+    /// <summary>The Ack/Suppress/Untriage batch-building + shell-seam collaborator (#299): owns the
+    /// WP5e triage callback seam and the request-building logic the triage commands delegate to. See
+    /// <see cref="AuditTriageCoordinator"/>.</summary>
+    private readonly AuditTriageCoordinator _triageCoordinator = new();
+
     /// <summary>The current LIVE rule report (post-suppression) — borrowed at construction, replaced
     /// in place by <see cref="ApplyRuleset"/> (a settings Apply/Save re-thread). Drives
     /// <see cref="Summary"/> / health — ack'd AND suppressed findings are BOTH absent from it.</summary>
@@ -275,13 +280,6 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// the LIVE ruleset's tagged entries. One extra cheap <see cref="RuleEngine.Evaluate"/> per
     /// ruleset change (accepted per the full-re-run rule-engine contract).</summary>
     private RuleReport _wouldBeReport;
-
-    /// <summary>The shell-supplied triage seam (WP5e / ADR-028): the <see cref="AuditViewModel"/>
-    /// hands it a batch of <see cref="TriageRequest"/>s; the SHELL appends/removes the global-ignore
-    /// entries and routes them through the existing <c>SettingsViewModel</c> gate (the single write
-    /// path — never AD). Dead until armed by <see cref="UseTriageCallback"/> (mirrors the Design-plan
-    /// callback idiom), so a headless / un-wired audit never half-acts; the commands no-op when null.</summary>
-    private Action<IReadOnlyList<TriageRequest>>? _triage;
 
     /// <summary>The connection summary threaded from the shell (WP2 / ADR-013 §2) for the HTML
     /// report header. Empty when un-threaded (e.g. the 5-arg test ctors); a non-empty value is used
@@ -363,7 +361,8 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// workspace Design-plan/Audit callbacks (<c>OnRootChosen</c>). Until called the Ack/Suppress/
     /// Un-triage commands are inert no-ops, so a renderer-less / headless audit never half-acts.
     /// Idempotent — the last writer wins.</summary>
-    public void UseTriageCallback(Action<IReadOnlyList<TriageRequest>> triage) => _triage = triage;
+    public void UseTriageCallback(Action<IReadOnlyList<TriageRequest>> triage) =>
+        _triageCoordinator.UseTriageCallback(triage);
 
     /// <summary>Installs the real export save-picker seam (WP2 / ADR-013 §5; mirrors
     /// <see cref="WorkspaceViewModel.UseExportFileDialogs"/>): the production <c>MainWindow</c>
@@ -862,73 +861,34 @@ public sealed partial class AuditViewModel : ObservableObject, IDisposable
     /// tagged ignore entries → RulesetApplied re-threads → the rows re-project as Acknowledged + the
     /// findings drop from the live health report). Already-triaged selected rows are skipped (no-op).</summary>
     [RelayCommand]
-    private void AcknowledgeSelected() => TriageSelected(TriageKind.Acknowledge);
+    private void AcknowledgeSelected() => _triageCoordinator.AcknowledgeSelected(Findings);
 
     /// <summary>Suppress every SELECTED open finding (WP5e / ADR-028): the <c>[suppress]</c>
     /// twin of <see cref="AcknowledgeSelected"/> — equal engine strength, different note tag.</summary>
     [RelayCommand]
-    private void SuppressSelected() => TriageSelected(TriageKind.Suppress);
+    private void SuppressSelected() => _triageCoordinator.SuppressSelected(Findings);
 
     /// <summary>Reverse triage on every SELECTED triaged finding (WP5e / ADR-028): emits one
     /// Un-triage request per selected Acknowledged/Suppressed row (the gate removes the matching
     /// tagged ignore entry → the finding reappears as Open + re-enters the live report). Open rows
     /// are skipped.</summary>
     [RelayCommand]
-    private void UntriageSelected()
-    {
-        var requests = Findings
-            .Where(r => r.IsSelected && r.IsTriaged)
-            .Select(r => new TriageRequest(TriageEntry.Escape(r.PrimaryDn), r.RuleId, TriageKind.Untriage, null))
-            .ToList();
-        Submit(requests);
-    }
+    private void UntriageSelected() => _triageCoordinator.UntriageSelected(Findings);
 
     /// <summary>Acknowledge a single open finding (WP5e): the per-row affordance equivalent of
     /// <see cref="AcknowledgeSelected"/> for <paramref name="row"/>.</summary>
     [RelayCommand]
-    private void AcknowledgeRow(AuditFindingRowModel row) => TriageRows([row], TriageKind.Acknowledge);
+    private void AcknowledgeRow(AuditFindingRowModel row) => _triageCoordinator.AcknowledgeRow(row);
 
     /// <summary>Suppress a single open finding (WP5e): the per-row equivalent of
     /// <see cref="SuppressSelected"/> for <paramref name="row"/>.</summary>
     [RelayCommand]
-    private void SuppressRow(AuditFindingRowModel row) => TriageRows([row], TriageKind.Suppress);
+    private void SuppressRow(AuditFindingRowModel row) => _triageCoordinator.SuppressRow(row);
 
     /// <summary>Reverse triage on a single triaged finding (WP5e): the per-row equivalent of
     /// <see cref="UntriageSelected"/> for <paramref name="row"/>.</summary>
     [RelayCommand]
-    private void UntriageRow(AuditFindingRowModel row)
-    {
-        if (row.IsTriaged)
-        {
-            Submit([new TriageRequest(TriageEntry.Escape(row.PrimaryDn), row.RuleId, TriageKind.Untriage, null)]);
-        }
-    }
-
-    /// <summary>Builds an Ack/Suppress batch over the SELECTED Open rows and submits it.</summary>
-    private void TriageSelected(TriageKind kind) =>
-        TriageRows(Findings.Where(r => r.IsSelected).ToList(), kind);
-
-    /// <summary>Builds an Ack/Suppress batch over the OPEN rows in <paramref name="rows"/> (triaged
-    /// rows are skipped — re-tagging an already-ignored finding is a no-op) and submits it through
-    /// the shell seam. The DN is glob-escaped so a single-object ignore stays exact.</summary>
-    private void TriageRows(IReadOnlyList<AuditFindingRowModel> rows, TriageKind kind)
-    {
-        var requests = rows
-            .Where(r => !r.IsTriaged)
-            .Select(r => new TriageRequest(TriageEntry.Escape(r.PrimaryDn), r.RuleId, kind, null))
-            .ToList();
-        Submit(requests);
-    }
-
-    /// <summary>Hands a non-empty triage batch to the shell seam (WP5e). The shell owns the gate; a
-    /// null seam (un-armed / headless) or empty batch is a no-op — never a parallel write path.</summary>
-    private void Submit(IReadOnlyList<TriageRequest> requests)
-    {
-        if (requests.Count > 0)
-        {
-            _triage?.Invoke(requests);
-        }
-    }
+    private void UntriageRow(AuditFindingRowModel row) => _triageCoordinator.UntriageRow(row);
 
     /// <summary>Re-threads a settings Apply/Save into this live audit step (WP5; the shell's
     /// <c>OnRulesetApplied</c> calls it): swaps the ruleset, re-Evaluates over the BORROWED Ist
