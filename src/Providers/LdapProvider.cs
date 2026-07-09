@@ -27,6 +27,16 @@ public sealed class LdapProvider : IDirectoryProvider
     private const string AnyObjectFilter = "(objectClass=*)";
 
     /// <summary>
+    /// Every bind requests Kerberos sealing (encryption) and signing (integrity)
+    /// on top of secure (integrated) authentication — never just <c>Secure</c>
+    /// alone, .NET's silent default (ADR-040 D1). Username/password stay
+    /// <c>null</c> in every <see cref="OpenEntry"/> call: this is a stronger
+    /// requirement on the SAME integrated-auth bind, never a credential.
+    /// </summary>
+    private const AuthenticationTypes RequiredAuth =
+        AuthenticationTypes.Secure | AuthenticationTypes.Sealing | AuthenticationTypes.Signing;
+
+    /// <summary>
     /// Member DNs per batched resolution filter (ADR-039 D1) — conservative
     /// relative to AD's default LDAP admin limits, independent of
     /// <see cref="_pageSize"/> (which paginates RESULTS, not filter complexity).
@@ -64,7 +74,7 @@ public sealed class LdapProvider : IDirectoryProvider
         {
             try
             {
-                using var rootDse = new DirectoryEntry(RootDsePath());
+                using var rootDse = OpenEntry(RootDsePath());
                 rootDse.RefreshCache(); // forces the actual bind
             }
             catch (Exception ex)
@@ -75,7 +85,7 @@ public sealed class LdapProvider : IDirectoryProvider
 
             string baseDn = EffectiveBaseDn();
             int groupCount = 0;
-            using (var root = new DirectoryEntry(PathFor(baseDn)))
+            using (var root = OpenEntry(PathFor(baseDn)))
             using (var searcher = CreateSearcher(
                 root, SearchScope.Subtree, "(objectCategory=group)", ["distinguishedName"]))
             using (SearchResultCollection results = searcher.FindAll())
@@ -114,7 +124,7 @@ public sealed class LdapProvider : IDirectoryProvider
                 },
             };
 
-            using var root = new DirectoryEntry(PathFor(baseDn));
+            using var root = OpenEntry(PathFor(baseDn));
             using var searcher = CreateSearcher(
                 root,
                 SearchScope.Subtree,
@@ -149,7 +159,7 @@ public sealed class LdapProvider : IDirectoryProvider
                 return snapshot;
             }
 
-            using var root = new DirectoryEntry(PathFor(baseDn));
+            using var root = OpenEntry(PathFor(baseDn));
             using var searcher = CreateSearcher(
                 root, SearchScope.Subtree, AnyObjectFilter, AttributeWhitelist.FetchProperties);
             using SearchResultCollection results = searcher.FindAll();
@@ -269,7 +279,7 @@ public sealed class LdapProvider : IDirectoryProvider
     {
         try
         {
-            using var entry = new DirectoryEntry(PathFor(dn));
+            using var entry = OpenEntry(PathFor(dn));
             using var searcher = CreateSearcher(
                 entry, SearchScope.Base, AnyObjectFilter, AttributeWhitelist.FetchProperties);
             using SearchResultCollection results = searcher.FindAll();
@@ -300,7 +310,7 @@ public sealed class LdapProvider : IDirectoryProvider
         MemberCollector.CollectAllMembers(groupDn, initialProperties, rangeAttribute =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var entry = new DirectoryEntry(PathFor(groupDn));
+            using var entry = OpenEntry(PathFor(groupDn));
             using var searcher = CreateSearcher(
                 entry, SearchScope.Base, AnyObjectFilter, [rangeAttribute]);
             using SearchResultCollection results = searcher.FindAll();
@@ -333,7 +343,7 @@ public sealed class LdapProvider : IDirectoryProvider
         IReadOnlyList<string> dns, CancellationToken cancellationToken)
     {
         var resolved = new Dictionary<string, LdapEntry>(dns.Count, Dn.Comparer);
-        using var root = new DirectoryEntry(PathFor(DomainNamingContext()));
+        using var root = OpenEntry(PathFor(DomainNamingContext()));
         foreach (string[] chunk in dns.Distinct(Dn.Comparer).Chunk(MemberBatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -387,7 +397,7 @@ public sealed class LdapProvider : IDirectoryProvider
 
     private string ReadDefaultNamingContext()
     {
-        using var rootDse = new DirectoryEntry(RootDsePath());
+        using var rootDse = OpenEntry(RootDsePath());
         return rootDse.Properties["defaultNamingContext"].Value as string
             ?? throw new DirectoryUnavailableException(
                 $"'{RootDsePath()}' did not expose defaultNamingContext.");
@@ -397,6 +407,18 @@ public sealed class LdapProvider : IDirectoryProvider
         _server is null ? "LDAP://RootDSE" : $"LDAP://{_server}/RootDSE";
 
     private string PathFor(string dn) => AdsPath.For(_server, dn);
+
+    /// <summary>
+    /// Opens a <see cref="DirectoryEntry"/> at <paramref name="path"/> with
+    /// <see cref="RequiredAuth"/> (ADR-040) — the ONLY way this provider ever
+    /// constructs one. <c>username</c>/<c>password</c> stay <c>null</c>
+    /// (integrated auth, unchanged); a domain that cannot satisfy sealing +
+    /// signing fails the bind loudly (surfaces as
+    /// <see cref="DirectoryUnavailableException"/> via <see cref="RunAsync"/> /
+    /// <see cref="ConnectAsync"/>'s existing exception mapping) instead of
+    /// silently running unprotected.
+    /// </summary>
+    internal static DirectoryEntry OpenEntry(string path) => new(path, null, null, RequiredAuth);
 
     private DirectorySearcher CreateSearcher(
         DirectoryEntry searchRoot, SearchScope scope, string filter, IEnumerable<string> propertiesToLoad)
