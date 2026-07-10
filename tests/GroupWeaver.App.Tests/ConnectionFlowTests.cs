@@ -391,6 +391,57 @@ public sealed class ConnectionFlowTests
     }
 
     [Fact]
+    public void TargetProsePlusTargetDn_ComposeTargetLine_AcrossTheFourTargetingStates()
+    {
+        // #287: the view renders TargetProse + TargetDn as two Runs (the DN half in the
+        // mono dn face); their concatenation must stay byte-identical to the pinned
+        // TargetLine in every branch, or the split silently rewrites the confirmation text.
+        var connect = new ConnectionViewModel(_ => Stub(new DirectoryConnection("x", 0)), (_, _, _) => { });
+
+        // Both blank.
+        Assert.Equal(connect.TargetLine, connect.TargetProse + connect.TargetDn);
+
+        // Server only.
+        connect.TargetServer = "dc01.corp.local";
+        Assert.Equal(connect.TargetLine, connect.TargetProse + connect.TargetDn);
+
+        // Base DN only.
+        connect.TargetServer = null;
+        connect.TargetBaseDn = "OU=Groups,DC=corp,DC=local";
+        Assert.Equal(connect.TargetLine, connect.TargetProse + connect.TargetDn);
+
+        // Both entered.
+        connect.TargetServer = "dc01";
+        Assert.Equal(connect.TargetLine, connect.TargetProse + connect.TargetDn);
+    }
+
+    [Fact]
+    public void TargetDn_CarriesTheTrimmedBaseDnOnly_NeverAHostname()
+    {
+        var connect = new ConnectionViewModel(_ => Stub(new DirectoryConnection("x", 0)), (_, _, _) => { });
+        string ctx = connect.CurrentUserContext;
+
+        // Both blank and server-only: no base DN entered ⇒ the mono Run renders nothing —
+        // a hostname is prose, never a DN (#287 monospace honesty).
+        Assert.Equal(string.Empty, connect.TargetDn);
+        connect.TargetServer = "dc01.corp.local";
+        Assert.Equal(string.Empty, connect.TargetDn);
+
+        // Base DN only: TargetDn is the TRIMMED base DN; the prose keeps the connective
+        // text and ends where the mono Run takes over.
+        connect.TargetServer = null;
+        connect.TargetBaseDn = "  OU=Groups,DC=corp,DC=local  ";
+        Assert.Equal("OU=Groups,DC=corp,DC=local", connect.TargetDn);
+        Assert.Equal($"as {ctx} against ", connect.TargetProse);
+
+        // Both entered: the host stays in the prose (ending "{server} — "); TargetDn is
+        // still the DN alone.
+        connect.TargetServer = "dc01";
+        Assert.Equal("OU=Groups,DC=corp,DC=local", connect.TargetDn);
+        Assert.Equal($"as {ctx} against dc01 — ", connect.TargetProse);
+    }
+
+    [Fact]
     public void ToggleAdvanced_FlipsTheDisclosure_CollapsedByDefault()
     {
         var connect = new ConnectionViewModel(_ => Stub(new DirectoryConnection("x", 0)), (_, _, _) => { });

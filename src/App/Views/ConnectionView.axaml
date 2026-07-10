@@ -54,10 +54,12 @@
                    TextWrapping="Wrap" TextAlignment="Center" />
 
         <!-- ADR-031 D4: the pre-bind target confirmation — WHICH directory this connects to,
-             before binding. Tracks the Advanced fields below (or "the detected domain" when blank). -->
+             before binding. Tracks the Advanced fields below (or "the detected domain" when blank).
+             #287: two Runs (the wordmark pattern) so the base-DN half renders in the mono face
+             (monospace honesty) while prose — including a server hostname — stays proportional;
+             the DN Run is empty when no base DN is entered. -->
         <TextBlock Classes="secondary"
-                   Text="{Binding TargetLine}"
-                   TextWrapping="Wrap" TextAlignment="Center" />
+                   TextWrapping="Wrap" TextAlignment="Center"><Run Text="{Binding TargetProse}" /><Run Text="{Binding TargetDn}" FontFamily="{StaticResource FontFamilyMono}" /></TextBlock>
 
         <!-- ADR-031 D1: collapsed-by-default "Advanced" disclosure to target a specific domain/DC.
              Blank fields keep the zero-config serverless default (the card above is unchanged when

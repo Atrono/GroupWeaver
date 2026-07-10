@@ -44,6 +44,7 @@ public sealed partial class ConnectionViewModel : ObservableObject
     /// before the bind. Drives the <see cref="TargetLine"/> pre-bind confirmation.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TargetLine))]
+    [NotifyPropertyChangedFor(nameof(TargetProse))]
     private string? _targetServer;
 
     /// <summary>ADR-031 D1: the optional base DN to target. Blank = read <c>defaultNamingContext</c>
@@ -51,6 +52,8 @@ public sealed partial class ConnectionViewModel : ObservableObject
     /// composed into an LDAP filter. Drives the <see cref="TargetLine"/> pre-bind confirmation.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TargetLine))]
+    [NotifyPropertyChangedFor(nameof(TargetProse))]
+    [NotifyPropertyChangedFor(nameof(TargetDn))]
     private string? _targetBaseDn;
 
     public ConnectionViewModel(
@@ -76,23 +79,38 @@ public sealed partial class ConnectionViewModel : ObservableObject
     /// target only — no enumerate, no pre-bind round-trip: an entered <see cref="TargetServer"/>
     /// (the DC/domain) and/or <see cref="TargetBaseDn"/> (the scope), or "the detected domain" when
     /// both are blank (the serverless default resolves the FQDN at bind time).
+    /// <para>#287: the view renders <see cref="TargetProse"/> + <see cref="TargetDn"/> as two
+    /// Runs so the base-DN half gets the mono <c>dn</c> face (monospace honesty); this whole-line
+    /// form is their concatenation, kept for the pinned VM tests.</para>
     /// </summary>
-    public string TargetLine
+    public string TargetLine => TargetProse + TargetDn;
+
+    /// <summary>
+    /// #287: the proportional (prose) half of <see cref="TargetLine"/> — identity, connective
+    /// text, and the server host when entered (a hostname is prose, not a DN). Ends with the
+    /// separator when <see cref="TargetDn"/> follows.
+    /// </summary>
+    public string TargetProse
     {
         get
         {
             var server = TargetServer?.Trim();
             var baseDn = TargetBaseDn?.Trim();
-            string target = (string.IsNullOrEmpty(server), string.IsNullOrEmpty(baseDn)) switch
+            return (string.IsNullOrEmpty(server), string.IsNullOrEmpty(baseDn)) switch
             {
-                (true, true) => "the detected domain",
-                (false, true) => server!,
-                (true, false) => baseDn!,
-                (false, false) => $"{server} — {baseDn}",
+                (true, true) => $"as {CurrentUserContext} against the detected domain",
+                (false, true) => $"as {CurrentUserContext} against {server}",
+                (true, false) => $"as {CurrentUserContext} against ",
+                (false, false) => $"as {CurrentUserContext} against {server} — ",
             };
-            return $"as {CurrentUserContext} against {target}";
         }
     }
+
+    /// <summary>
+    /// #287: the raw base-DN half of <see cref="TargetLine"/>, empty when no base DN is entered —
+    /// the view styles this Run in the mono <c>dn</c> face.
+    /// </summary>
+    public string TargetDn => TargetBaseDn?.Trim() is { Length: > 0 } baseDn ? baseDn : string.Empty;
 
     /// <summary>ADR-031 D1: opens/closes the Advanced disclosure. Collapsed by default.</summary>
     [RelayCommand]
