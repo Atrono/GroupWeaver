@@ -22,6 +22,11 @@ Also verify:
 - LDAP filter inputs are escaped/validated (user input reaches filters!).
 - Smallest-diff discipline; Conventional Commit message; ADR present when an
   architectural decision was made.
+- Gate-surface diffs carry justification (`.claude/rules/harness.md`): any
+  change to `tools/build.ps1`, `tools/bootstrap.ps1`, `.claude/hooks/*.ps1`,
+  or `.github/workflows/*.yml` must be called out in the PR/commit body with a
+  one-line why - these are the harness's own enforcement surface. Silent gate
+  weakening (dropped steps, loosened filters/floors) is a reject.
 
 Output: verdict APPROVE or REJECT first, then findings ordered by severity with
 file:line references. Reject on genuine doubt - the merge can wait.
