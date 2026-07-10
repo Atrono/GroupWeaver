@@ -181,7 +181,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var primary = Screens.Primary ?? Screens.All.FirstOrDefault();
+            var primary = Screens.Primary ?? (Screens.All.Count > 0 ? Screens.All[0] : null);
             AppLog.CreateLogger("App.Lifecycle").LogInformation(
                 new EventId(0, "UiEnvironment"),
                 "UiEnvironment {screens} {resolution} {renderScaling}",

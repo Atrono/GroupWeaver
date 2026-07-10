@@ -19,6 +19,11 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17" Condition="'$(Configuration)' == 'Debug'" />
+    <!-- Lock-file stabilizer twin: same package with ALL assets excluded outside Debug,
+         so packages.lock.json is configuration-independent (a Debug-evaluated lock would
+         otherwise fail the gate's locked-mode restore after any Release-configured
+         restore rewrote it). Contributes nothing to Release compile or output. -->
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17" ExcludeAssets="all" Condition="'$(Configuration)' != 'Debug'" />
     <!-- Official AvaloniaUI WebView, MIT; 11.3.x package versions are deprecated commercial
          builds - pin exactly [11.4.0] (ADR-001). Depends on Avalonia >= 11.1.0, so the
          11.3.17 core pin above stays untouched. -->

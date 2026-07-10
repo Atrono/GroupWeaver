@@ -246,6 +246,8 @@ public sealed class LdapProvider : IDirectoryProvider
     /// (the body knows which value the contract demands), never wholesale.
     /// Cancellation flows through.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1068:CancellationToken parameters must come last",
+        Justification = "The Func<T> body stays last on purpose - trailing-lambda call sites read as the operation they wrap.")]
     private static Task<T> RunAsync<T>(
         string operation, CancellationToken cancellationToken, Func<T> body) =>
         Task.Run(

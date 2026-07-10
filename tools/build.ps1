@@ -10,10 +10,17 @@
 
 .PARAMETER SkipAdTests
     Exclude integration tests that require the live AGDLP-Lab AD fixtures.
+
+.PARAMETER Coverage
+    Opt-in: collect code coverage during the test step (built-in "Code Coverage"
+    collector, cobertura format) into artifacts/coverage/. The default invocation
+    is unchanged - no collection, no slowdown. Render a report afterwards with
+    tools/coverage-report.ps1.
 #>
 [CmdletBinding()]
 param(
-    [switch]$SkipAdTests
+    [switch]$SkipAdTests,
+    [switch]$Coverage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,7 +56,10 @@ function Invoke-Step {
     Write-Host "OK: $Name" -ForegroundColor Green
 }
 
-Invoke-Step 'dotnet restore' { dotnet restore $solution }
+# -locked-mode: fail loudly when packages.lock.json disagrees with the csproj graph
+# (transitive pinning). After a deliberate package edit, regenerate the lock files
+# with a plain `dotnet restore GroupWeaver.sln`, then re-run the gate.
+Invoke-Step 'dotnet restore (locked mode)' { dotnet restore $solution --locked-mode }
 
 Invoke-Step 'dotnet build (Release)' { dotnet build $solution --no-restore -c Release }
 
@@ -69,6 +79,17 @@ $testArgs = @($solution, '--no-build', '-c', 'Release')
 if ($SkipAdTests) {
     $testArgs += @('--filter', 'Category!=RequiresAd')
     Write-Host 'AD integration tests (Category=RequiresAd) are excluded.' -ForegroundColor Yellow
+}
+if ($Coverage) {
+    # Built-in Microsoft collector (ships with Microsoft.NET.Test.Sdk - no extra
+    # package, so the NuGet lock files stay untouched); cobertura for the
+    # ReportGenerator tool in tools/coverage-report.ps1. Clean first: stale
+    # cobertura files from a previous run would double-count in the report.
+    $coverageDir = Join-Path $repoRoot 'artifacts/coverage'
+    if (Test-Path $coverageDir) { Remove-Item $coverageDir -Recurse -Force }
+    $testArgs += @('--collect', 'Code Coverage;Format=cobertura',
+                   '--results-directory', $coverageDir)
+    Write-Host 'Coverage collection enabled -> artifacts/coverage/' -ForegroundColor Yellow
 }
 Invoke-Step 'dotnet test (Release)' { dotnet test @testArgs }
 

@@ -13,3 +13,39 @@ indent_size = 2
 
 [*.cs]
 csharp_style_namespace_declarations = file_scoped:suggestion
+
+# --- CA analyzer opt-outs (AnalysisLevel=latest-recommended, Directory.Build.props).
+# Every entry needs a one-line justification; anything not listed here is an ERROR
+# via TreatWarningsAsErrors. Inventory + triage: #301 item 7.
+
+# ADR-037 D1 hand-rolled low-volume JSONL sink - LoggerMessage delegate ceremony buys nothing here.
+dotnet_diagnostic.CA1848.severity = none
+# Lowercase log-template placeholders are the established convention; the JSONL evidence
+# is consumed by e2e assertions and renames would break those greps for zero user value.
+dotnet_diagnostic.CA1727.severity = none
+# Interface-first seams (renderer, provider) are deliberate architecture; perf contracts
+# are pinned by SyntheticScaleTests, not micro-devirtualization.
+dotnet_diagnostic.CA1859.severity = none
+# *EventArgs names on renderer/shell event payload records are deliberate; they are event
+# args in role, and inheriting System.EventArgs adds nothing to record types.
+dotnet_diagnostic.CA1711.severity = none
+# C#-only WinExe codebase - no VB/F# consumers to clash with reserved keywords (union, on).
+dotnet_diagnostic.CA1716.severity = none
+# MVVM command targets ([RelayCommand]) must stay instance members for the toolkit's
+# generated command properties and AXAML bindings.
+dotnet_diagnostic.CA1822.severity = none
+# CA1001 (disposable-field owner) and CA1068 (token position) stay LIVE repo-wide -
+# their two known-good cases (App's process-lifetime E2E channel; LdapProvider.RunAsync's
+# deliberate trailing-lambda signature) carry targeted [SuppressMessage] attributes with
+# justifications at the site, so a future violator is still flagged.
+
+[tests/**.cs]
+# xunit method-name convention (Given_When_Then underscores) - repo-wide test style.
+dotnet_diagnostic.CA1707.severity = none
+# Constant test-data arrays in assertions; allocation pressure is irrelevant in tests.
+dotnet_diagnostic.CA1861.severity = none
+# Perf/logging advisory rules add nothing in test code (fakes log, helpers wrap).
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1727.severity = none
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.CA1826.severity = none
