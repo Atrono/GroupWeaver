@@ -49,7 +49,10 @@ function Invoke-Step {
     Write-Host "OK: $Name" -ForegroundColor Green
 }
 
-Invoke-Step 'dotnet restore' { dotnet restore $solution }
+# -locked-mode: fail loudly when packages.lock.json disagrees with the csproj graph
+# (transitive pinning). After a deliberate package edit, regenerate the lock files
+# with a plain `dotnet restore GroupWeaver.sln`, then re-run the gate.
+Invoke-Step 'dotnet restore (locked mode)' { dotnet restore $solution --locked-mode }
 
 Invoke-Step 'dotnet build (Release)' { dotnet build $solution --no-restore -c Release }
 

@@ -10,6 +10,16 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Version>0.4.4</Version>
+    <!-- Pin the transitive NuGet graph (packages.lock.json per project); the build
+         gate restores with -locked-mode so a lock/manifest mismatch fails loudly.
+         Regenerate after a package edit with a plain `dotnet restore`. Spikes are
+         excluded: not in the .sln, not CI-built, throwaway by convention. -->
+    <RestorePackagesWithLockFile Condition="!$(MSBuildProjectDirectory.Contains('spikes'))">true</RestorePackagesWithLockFile>
+    <!-- Declare the (sole) publish RID everywhere so every lock file carries the
+         win-x64 graph: CI's `dotnet publish -r win-x64` restores the App's whole
+         ProjectReference closure with that RID, and without this the RID graph is
+         alternately added/stripped depending on which restore ran last. -->
+    <RuntimeIdentifiers Condition="!$(MSBuildProjectDirectory.Contains('spikes'))">win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
 </Project>
