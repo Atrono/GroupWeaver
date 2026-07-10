@@ -4,9 +4,9 @@
     "net8.0": {
       "System.DirectoryServices": {
         "type": "Direct",
-        "requested": "[8.0.0, )",
-        "resolved": "8.0.0",
-        "contentHash": "7nit//efUTy1OsAKco2f02PMrwsR2S234N0dVVp84udC77YcvpOQDz5znAWMtgMWBzY1aRJvUW61jo/7vQRfXg=="
+        "requested": "[10.0.9, )",
+        "resolved": "10.0.9",
+        "contentHash": "AF8OLvTKeJek89WVELaRB722RSnUodblZ6qRrathez99gk4J24h6Z8FlHrbN2xKFVkGC2fWlrvGegm9XHU5Bng=="
       },
       "groupweaver.core": {
         "type": "Project"
@@ -15,9 +15,9 @@
     "net8.0/win-x64": {
       "System.DirectoryServices": {
         "type": "Direct",
-        "requested": "[8.0.0, )",
-        "resolved": "8.0.0",
-        "contentHash": "7nit//efUTy1OsAKco2f02PMrwsR2S234N0dVVp84udC77YcvpOQDz5znAWMtgMWBzY1aRJvUW61jo/7vQRfXg=="
+        "requested": "[10.0.9, )",
+        "resolved": "10.0.9",
+        "contentHash": "AF8OLvTKeJek89WVELaRB722RSnUodblZ6qRrathez99gk4J24h6Z8FlHrbN2xKFVkGC2fWlrvGegm9XHU5Bng=="
       }
     }
   }

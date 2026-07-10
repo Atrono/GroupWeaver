@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <!-- Read-only LDAP access: DirectorySearcher/DirectoryEntry reads only, never writes (project rule #1). -->
-    <PackageReference Include="System.DirectoryServices" Version="8.0.0" />
+    <PackageReference Include="System.DirectoryServices" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
