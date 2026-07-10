@@ -8,11 +8,19 @@
     artifacts/coverage/ and renders them with ReportGenerator (pinned local
     dotnet tool, .config/dotnet-tools.json) to artifacts/coverage/report/.
     Prints the text summary so the headline number lands in the console.
-    Measurement only - no threshold, no gating (audit plan item 6; a gate is a
-    separate, later decision once a baseline exists).
+
+.PARAMETER MinLine
+    Optional line-coverage floor in percent (#311 item 12). When set, the script
+    exits non-zero if product-assembly line coverage falls below it. CI passes 83
+    - two points under the measured CI-equivalent baseline (85.1% with
+    Category=RequiresAd excluded; the full local suite measures higher because
+    the live-AD tests exercise LdapProvider). Raise deliberately, never lower to
+    make a build green (CLAUDE.md test rule applies in spirit).
 #>
 [CmdletBinding()]
-param()
+param(
+    [double]$MinLine = 0
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -39,7 +47,23 @@ dotnet tool run reportgenerator `
 if ($LASTEXITCODE -ne 0) { Write-Host 'reportgenerator failed.' -ForegroundColor Red; exit $LASTEXITCODE }
 
 Write-Host ''
-Get-Content (Join-Path $reportDir 'Summary.txt')
+$summary = Get-Content (Join-Path $reportDir 'Summary.txt')
+$summary
 Write-Host ''
 Write-Host "HTML report: $reportDir\index.html" -ForegroundColor Green
+
+if ($MinLine -gt 0) {
+    # Compute the percentage from the covered/coverable integers - locale-proof
+    # (the formatted "Line coverage:" string could use a comma decimal separator
+    # on a de-DE box).
+    $covered = [long](($summary | Select-String '^\s*Covered lines:').Line -replace '\D', '')
+    $coverable = [long](($summary | Select-String '^\s*Coverable lines:').Line -replace '\D', '')
+    if ($coverable -eq 0) { Write-Host 'FAILED: no coverable lines found in the report.' -ForegroundColor Red; exit 1 }
+    $pct = [math]::Round(100.0 * $covered / $coverable, 1)
+    if ($pct -lt $MinLine) {
+        Write-Host "FAILED: line coverage $pct% is below the $MinLine% floor." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "OK: line coverage $pct% meets the $MinLine% floor." -ForegroundColor Green
+}
 exit 0
