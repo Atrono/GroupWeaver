@@ -125,14 +125,17 @@
          MatchEntryEditor.Build ignores it). Content is the MatchEntryEditor so the compiled
          bindings resolve against it. -->
     <DataTemplate x:Key="GlobPreviewRowTemplate" x:DataType="settings:MatchEntryEditor">
-      <StackPanel Orientation="Horizontal" Spacing="6">
-        <TextBox Width="200" Watermark="test a DN/name against the glob"
+      <!-- #286: the candidate TextBox stretches in a star column (mirroring the Value/Note row
+           siblings) so the full watermark fits; the two chips share the Auto cell — they are
+           never visible at the same time. -->
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+        <TextBox Grid.Column="0" MinWidth="200" Watermark="test a DN/name against the glob"
                  Text="{Binding PreviewCandidate}" VerticalAlignment="Center" />
-        <TextBlock Text="✓ matches"
+        <TextBlock Grid.Column="1" Text="✓ matches"
                    Foreground="{DynamicResource ReadOnlyPillTextBrush}" FontWeight="SemiBold"
                    VerticalAlignment="Center"
                    IsVisible="{Binding PreviewMatch}" />
-        <TextBlock Text="✗ no match"
+        <TextBlock Grid.Column="1" Text="✗ no match"
                    Opacity="0.7" VerticalAlignment="Center">
           <TextBlock.IsVisible>
             <MultiBinding Converter="{x:Static BoolConverters.And}">
@@ -141,7 +144,7 @@
             </MultiBinding>
           </TextBlock.IsVisible>
         </TextBlock>
-      </StackPanel>
+      </Grid>
     </DataTemplate>
 
     <!-- One per-rule EXCEPTION row (AP 3.3 / S7): the same MatchEntryEditor, reused by every
