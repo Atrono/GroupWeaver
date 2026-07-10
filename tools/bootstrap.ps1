@@ -38,8 +38,11 @@ $packages = @(
     @{ Pkg = 'dotnet-8.0-sdk';   Present = {
             if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { return $false }
             $pin = [Version](Get-Content (Join-Path $PSScriptRoot '..\global.json') -Raw | ConvertFrom-Json).sdk.version
-            [bool]((& dotnet --list-sdks) | ForEach-Object { [Version]($_ -split ' ')[0] } |
-                Where-Object { $_.Major -eq $pin.Major -and $_.Minor -eq $pin.Minor -and $_ -ge $pin })
+            [bool]((& dotnet --list-sdks) |
+                Where-Object { $_ -match '^\d+\.\d+\.\d+ ' } |
+                ForEach-Object { [Version]($_ -split ' ')[0] } |
+                Where-Object { $_.Major -eq $pin.Major -and $_.Minor -eq $pin.Minor -and
+                    [math]::Floor($_.Build / 100) -eq [math]::Floor($pin.Build / 100) -and $_ -ge $pin })
         } }
     @{ Pkg = 'nodejs-lts';       Present = { [bool](Get-Command node -ErrorAction SilentlyContinue) } }
     @{ Pkg = 'powershell-core';  Present = { [bool](Get-Command pwsh -ErrorAction SilentlyContinue) } }
