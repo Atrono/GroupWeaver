@@ -4,7 +4,7 @@
   "description": "Playwright verification harness for the shipped graph bundle (src/App/web) - ADR-004. Run via tools/test-graph-bundle.ps1, never directly in CI.",
   "type": "module",
   "dependencies": {
-    "playwright": "1.60.0"
+    "playwright": "1.61.1"
   },
   "devDependencies": {
     "eslint": "10.6.0"
