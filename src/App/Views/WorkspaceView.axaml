@@ -114,12 +114,13 @@
                (S5 fills Evaluate); shows the all-clear state until then. -->
           <views:ViolationsSidebarView Grid.Row="0" />
 
-          <!-- WP-B (#178): the findings/detail resize handle - a Rows GridSplitter that keeps the
-               old hairline look (a thin #33808080 line) with a taller transparent grab band around
-               it so it stays easy to hit. Rows 0/2 stay ONE-WAY bound to the VM star getters (no
-               jitter): the splitter mutates the live RowDefinitions during the drag, and the
-               code-behind DragCompleted handler syncs+clamps+persists the fraction on release.
-               Inside col 2 (the rail), never over GraphHost (ADR-001 airspace guardrail 5). -->
+          <!-- WP-B (#178): the findings/detail resize handle - a Rows GridSplitter drawn as a 1px
+               CardBorderBrush hairline (the same theme-aware token as every sibling separator;
+               #285) with a taller transparent grab band around it so it stays easy to hit.
+               Rows 0/2 stay ONE-WAY bound to the VM star getters (no jitter): the splitter
+               mutates the live RowDefinitions during the drag, and the code-behind DragCompleted
+               handler syncs+clamps+persists the fraction on release. Inside col 2 (the rail),
+               never over GraphHost (ADR-001 airspace guardrail 5). -->
           <GridSplitter Grid.Row="1" Name="FindingsDetailSplitter"
                         ResizeDirection="Rows" Height="7"
                         HorizontalAlignment="Stretch" VerticalAlignment="Center"
@@ -129,7 +130,7 @@
               <ControlTemplate>
                 <Border Background="Transparent">
                   <Border Height="1" VerticalAlignment="Center"
-                          HorizontalAlignment="Stretch" Background="#33808080" />
+                          HorizontalAlignment="Stretch" Background="{DynamicResource CardBorderBrush}" />
                 </Border>
               </ControlTemplate>
             </GridSplitter.Template>
