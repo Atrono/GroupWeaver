@@ -39,7 +39,7 @@ jobs:
       # once on the exact failure signature (exit 4 + that message), so the shared
       # gate needs no separate CI step.
       - name: Cache NuGet packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9   # v6.1.0
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props', '**/packages.lock.json', '.config/dotnet-tools.json') }}
@@ -87,7 +87,7 @@ jobs:
         run: pwsh tools/test-cli-matrix.ps1
 
       - name: Cache Playwright browsers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9   # v6.1.0
         with:
           path: ~\AppData\Local\ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('tests/graph-bundle/package-lock.json') }}
