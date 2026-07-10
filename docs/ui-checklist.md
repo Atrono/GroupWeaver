@@ -205,6 +205,48 @@ selects a never-fetched member of a group-rooted scope (honest NotLoaded).
 - [ ] Dimmed/secondary text (DNs, hints, status bar) still legible at both sizes [S: every pair]
 - [ ] Centered layouts (Connect card, picker column, placeholders) stay centered, not stretched or stuck to a corner, at 1920×1080 [S: every -1920x1080]
 
+### Display scaling & text scaling (WCAG 1.4.4 / 1.4.10)
+
+Every pinned capture renders at 100% scale (1280×720 / 1920×1080 / 2560×1080
+native, 1600×1000 web). Windows deployments routinely run 125–200% display
+scale; 1.4.4 requires text at 200% to stay usable, 1.4.10 requires reflow
+without two-dimensional scrolling. Nothing pins these yet — judge deliberately
+whenever layout or type changes.
+
+- [ ] Web bundle at 2× device scale: graph stage, legend key, control cluster and
+      command palette stay legible and inside the viewport at `deviceScaleFactor: 2`
+      — crisp vector swatches (no blurry raster), no clipped controls, dot-grid pitch
+      still subtle [I — intended pin: a scaled verify.mjs probe context (planned with
+      the structural-invariant slice); judge from a scaled capture until then]
+- [ ] Native chrome at 150%/200% Windows display scale: top strip, rail, settings
+      tabs, audit tiles and both help/settings windows reflow without clipped text or
+      overlapping controls (headless Skia renders at 1.0 only — evidence via the
+      windowed `tools/capture-window.ps1` path on a scaled desktop) [I]
+- [ ] Long-string resilience at scale: the ellipsize-vs-wrap decisions that hold at
+      100% (picker DN ellipsis, detail-panel DN full-wrap, status bar single line)
+      still hold at 150%+ — scaling must never turn an ellipsis into an overflow [I]
+
+### Keyboard traversal & accessible names (WCAG 2.1.1 / 2.4.3 / 2.4.7 / 4.1.2)
+
+- [ ] Every focusable interactive control in every realized shell step exposes a
+      non-empty UIA name — explicit `AutomationProperties.Name` on glyph-only
+      controls, text-derived elsewhere; an empty-named interactive control is a
+      failure [T:AccessibleNameSweepTests — sweep over the realized steps; the four
+      state-aware glyph-button names stay separately pinned by
+      GlyphControlAccessibilityTests]
+- [ ] Tab order follows the visual reading order per step (top command strip →
+      step content → rail), no focus trap, Esc backs out of modal windows [I — the
+      traversal sequence is deliberately NOT test-pinned (brittle against legitimate
+      layout changes); judge on every layout-changing diff]
+- [ ] Focus visible at every stop (ADR-033 accent ring), including after mode
+      transitions (focus-mode entry parks focus visibly on the expand chevron, exit
+      returns it — ADR-022/#230) [I — ring token parity pinned by
+      FocusRingTokenParityTests / FocusRingViewTests]
+- [ ] Modifier shortcuts listed in the F1 sheet all function in the windowed app:
+      Ctrl+B rail, Ctrl+K palette, Ctrl+F find, Ctrl+0 fit [I — modifier key-state
+      is not drivable on this box (ADR-038 scope); spot-check by hand whenever
+      shortcut wiring changes]
+
 ### Keyboard shortcuts help (discoverability, issue #271)
 
 `keyboard-help-560x480` (the window's own default `Width`/`Height`,
@@ -460,3 +502,31 @@ via `wp-audit-compare-{dark,light}`, so this is a pure reorg, not new coverage).
       identity, timestamps) has never been inspected by any prior process — only that "Save audit run"
       exists and is wired; open a real written run file and read it before trusting its shape [I — no
       prior fixture opens the written file]
+
+### Exported artifacts (CSV / HTML / PS1 / run JSON)
+
+The per-surface "exported artifact quality" tripwires above (violations sidebar,
+plan editor, audit screen, run history) all admit the same debt: no process has
+ever OPENED a written export. This section is the bar to judge against whenever
+one IS opened (real demo-mode exports, rendered/read as evidence):
+
+- [ ] Findings CSV (sidebar + audit): opens in Excel without mangling — encoding
+      deliberate (UTF-8; BOM decision explicit), delimiter/quoting correct for DNs
+      containing commas (escaped DNs stay verbatim), header row present, one finding
+      per row (RuleId / Severity / DNs / Message), severity carried as text (never
+      color-only) [I — no fixture opens the written file yet]
+- [ ] Findings HTML (sidebar + audit): renders standalone with zero external
+      fetches; real table semantics (`<th>` headers); palette matches BrandTokens
+      with AA text contrast in its rendered presentation; findings in canonical
+      report order; the optional ruleset/triage/unchecked header rows render when
+      present and are absent for legacy headers (ADR-030 D3) [I — intended pin: a
+      headless render check for console errors + tokens (planned with the
+      structural-invariant slice)]
+- [ ] Plan export .ps1: ASCII-only (the PS 5.1 no-BOM rule applies to files we
+      EMIT, not just our own tools), carries the read-only provenance comment
+      (GroupWeaver never executes it), object/membership statements mirror the
+      draft plan 1:1, parses clean under the PS 5.1 parser [I]
+- [ ] Audit run JSON (`%APPDATA%\GroupWeaver\runs\`): field correctness — ISO-8601
+      timestamp, ruleset name + content hash, finding identity as structured
+      RuleId + DNs (never the display Message); a saved run re-read by "Compare to
+      previous run" reproduces its counts exactly [I]
