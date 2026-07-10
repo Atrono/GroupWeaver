@@ -34,12 +34,10 @@ dotnet_diagnostic.CA1716.severity = none
 # MVVM command targets ([RelayCommand]) must stay instance members for the toolkit's
 # generated command properties and AXAML bindings.
 dotnet_diagnostic.CA1822.severity = none
-# LdapProvider.RunAsync keeps the Func<T> body LAST (trailing-lambda call-site style,
-# deliberate); reordering for token-position pedantry would churn a security-reviewed file.
-dotnet_diagnostic.CA1068.severity = none
-# App owns the E2E channel for the whole process lifetime; Avalonia's Application has no
-# disposal point, so IDisposable on it would be ceremony nobody calls.
-dotnet_diagnostic.CA1001.severity = none
+# CA1001 (disposable-field owner) and CA1068 (token position) stay LIVE repo-wide -
+# their two known-good cases (App's process-lifetime E2E channel; LdapProvider.RunAsync's
+# deliberate trailing-lambda signature) carry targeted [SuppressMessage] attributes with
+# justifications at the site, so a future violator is still flagged.
 
 [tests/**.cs]
 # xunit method-name convention (Given_When_Then underscores) - repo-wide test style.

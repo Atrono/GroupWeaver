@@ -17,6 +17,8 @@ using Microsoft.Extensions.Logging;
 
 namespace GroupWeaver.App;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The E2E channel lives for the whole process; Avalonia's Application has no disposal point, so IDisposable here would be ceremony nobody calls.")]
 public sealed partial class App : Application
 {
     /// <summary>
