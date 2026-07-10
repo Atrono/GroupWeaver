@@ -50,6 +50,13 @@ jobs:
       - name: Build gate
         run: pwsh tools/build.ps1 -SkipAdTests
 
+      # Check-only correctness lint for the hand-authored web bundle (#301 item 8).
+      # Never mutates: the "web bundle survives publish" step below hash-compares
+      # the published bundle against these exact source bytes.
+      - name: Web bundle lint
+        timeout-minutes: 5
+        run: pwsh tools/lint-web.ps1
+
       # Process-level CLI probe matrix (ADR-038 / WP3, issue #242): runs the REAL
       # built exe through --check --demo (pinned stdout), the watchdogged bare
       # --check (the launch-smoke-hang regression guard: bare --check once hit live
