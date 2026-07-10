@@ -32,7 +32,15 @@ function Test-ChocoPkg([string]$pkg) { [bool]($chocoInstalled -match "^$([regex]
 $packages = @(
     @{ Pkg = 'git';              Present = { [bool](Get-Command git -ErrorAction SilentlyContinue) } }
     @{ Pkg = 'gh';               Present = { [bool](Get-Command gh -ErrorAction SilentlyContinue) } }
-    @{ Pkg = 'dotnet-8.0-sdk';   Present = { (Get-Command dotnet -ErrorAction SilentlyContinue) -and ((& dotnet --list-sdks) -match '^8\.') } }
+    # SDK presence is checked against global.json's pin (rollForward latestPatch:
+    # any installed patch of the pinned feature band AT OR ABOVE the pin counts),
+    # not just "some 8.x SDK" - a stale patch below the pin triggers a reinstall.
+    @{ Pkg = 'dotnet-8.0-sdk';   Present = {
+            if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { return $false }
+            $pin = [Version](Get-Content (Join-Path $PSScriptRoot '..\global.json') -Raw | ConvertFrom-Json).sdk.version
+            [bool]((& dotnet --list-sdks) | ForEach-Object { [Version]($_ -split ' ')[0] } |
+                Where-Object { $_.Major -eq $pin.Major -and $_.Minor -eq $pin.Minor -and $_ -ge $pin })
+        } }
     @{ Pkg = 'nodejs-lts';       Present = { [bool](Get-Command node -ErrorAction SilentlyContinue) } }
     @{ Pkg = 'powershell-core';  Present = { [bool](Get-Command pwsh -ErrorAction SilentlyContinue) } }
     # WebView2 Evergreen Runtime - not preinstalled on Server 2022; choco-list guard only
