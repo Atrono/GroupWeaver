@@ -38,23 +38,20 @@ problems (architecture, gnarly debugging, graph performance) with **ultrathink**
 
 ## Bootstrap (first session — run once, keep idempotent)
 
-1. Install Chocolatey itself if absent, then `choco install -y git gh dotnet-8.0-sdk
-   nodejs-lts powershell-core` + WebView2 Evergreen Runtime (absent on Server 2022).
-2. If the host is not yet a DC: install the AD DS role, promote to a new forest
-   `agdlp.lab` (generate a throwaway DSRM password at runtime — never hardcode
-   it), reboot, continue. Put all of it in `tools/bootstrap.ps1`.
-3. `git init` here, commit, `gh repo create GroupWeaver --public --source . --push`
-   (`groupweaver-app` if taken); enable Actions; add `.gitattributes` (`* text=auto`
-   — prevents CRLF churn in `dotnet format`) + MIT `LICENSE`. **Only manual step:**
-   a human ran `gh auth login` (PAT: `repo` + `workflow`) — Claude can't mint creds.
+1. Run `tools/bootstrap.ps1` (idempotent; PS 5.1-safe, ASCII-only): Chocolatey +
+   toolchain — git, gh, dotnet-8 SDK (checked against `global.json`'s pin), node,
+   pwsh, WebView2, ffmpeg, console fonts/Windows Terminal, WER crash dumps.
+2. The same script handles DC promotion when the host isn't one yet: AD DS role, new
+   forest `agdlp.lab` (throwaway runtime DSRM password, never hardcoded), reboot, continue.
+3. `git init` here, commit, `gh repo create GroupWeaver --public --source . --push`;
+   enable Actions; `.gitattributes` (`* text=auto`, prevents CRLF churn) + MIT `LICENSE`.
+   **Only manual step:** a human ran `gh auth login` (PAT `repo`+`workflow`) — Claude can't mint creds.
 4. Scaffold `.claude/`: `agents/` (definitions below), `rules/`, `skills/`,
    `settings.json` with the hooks listed below.
 5. Run `tools/seed-testad.ps1` via `ad-fixture-admin`: seeds `OU=AGDLP-Lab` mirroring
-   the DemoProvider dataset spec (PLANNING.md AP 1.4; the DemoProvider JSON is a
-   separate deliverable) — ~200 objects, deliberate AGDLP + naming violations, one
-   circular nesting (A→B→A), empty groups: the test bed.
-6. Verify the toolchain: `dotnet --version` (8.x), `pwsh -v`, `gh --version`.
-7. **Marketplace plugins** (`/plugin` Discover): code-review (powers `reviewer`),
+   the DemoProvider dataset (PLANNING.md AP 1.4) — ~200 objects, deliberate AGDLP +
+   naming violations, one circular nesting (A→B→A), empty groups: the test bed.
+6. **Marketplace plugins** (`/plugin` Discover): code-review (powers `reviewer`),
    security-guidance (`/security-review`), frontend-design, superpowers. **MCP servers**
    (claude.ai, account-scoped, not choco/script-installable): Microsoft Learn, Context7.
    Nothing else — every plugin is fully trusted code on this box; minimal surface wins.
@@ -70,12 +67,15 @@ tools/             # bootstrap.ps1, seed-testad.ps1, build.ps1
 docs/adr/  docs/journal/  docs/ui-checklist.md  ·  artifacts/ui/ (screenshots, gitignored)
 ```
 
-- Full local gate: `pwsh tools/build.ps1` (restore → build → `dotnet format
-  --verify-no-changes` → `dotnet test`)
+- Full local gate: `pwsh tools/build.ps1` (locked-mode restore → build, CA analyzers
+  as errors → `dotnet format --verify-no-changes` → `dotnet test`; opt-in `-Coverage`);
+  web-bundle lint `pwsh tools/lint-web.ps1` (check-only, also a CI step). After a
+  package edit, plain `dotnet restore` regenerates the lock files (see harness.md).
 - AD integration tests: xUnit trait `Category=RequiresAd` — required locally, excluded
-  in CI (`build.ps1 -SkipAdTests`); skip + warn loudly if the OU is unreachable.
-- Run app: `dotnet run --project src/App` (`--demo` for demo mode). Stack: .NET 8 LTS,
-  Avalonia, xUnit; graph library per ADR-001.
+  in CI (`build.ps1 -SkipAdTests`; accepted risk, harness.md); skip + warn loudly
+  if the OU is unreachable.
+- Run app: `dotnet run --project src/App` (`--demo` for demo mode). Stack per the
+  map above; graph library per ADR-001; SDK pinned by `global.json`.
 
 ## Workflow
 
@@ -127,9 +127,8 @@ Docs/config-only changes (no `src/`/`tests/` edits) need only steps 4–6 (revie
 - **PreToolUse** (Bash **and** PowerShell): block force pushes (`--force*`, `-f`,
   `+refspec`), `git reset --hard origin*`, and inline non-`Get-AD*` `*-AD*` cmdlets
   (`pwsh tools/seed-testad.ps1` contains none). Best-effort; the rules are primary.
-- **SessionStart**: effort/ultracode reminder; show current phase + last `docs/journal/` entry
-- **Stop**: non-blocking `additionalContext` nudge to run the `wrap-session` skill when
-  `docs/journal/<today>.md` is missing (reminder only — never authors the entry)
+- **SessionStart**: effort reminder + last `docs/journal/` entry. **Stop**: non-blocking
+  nudge to run `wrap-session` when today's journal is missing (never authors the entry).
 
 ## Recovery & stuck policy
 
