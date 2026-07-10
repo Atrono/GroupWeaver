@@ -14,3 +14,17 @@ node_modules/
 
 # local-only Claude settings
 .claude/settings.local.json
+
+# Claude Code runtime state (harness-managed, never project content). Versioned
+# here - not just .git/info/exclude - so a fresh clone after a box rebuild
+# (CLAUDE.md: "assume rebuild at any time") inherits the rules on its own.
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/first-run
+.claude/assistant-daemon-state.json
