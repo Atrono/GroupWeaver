@@ -75,6 +75,13 @@ Invoke-Step 'dotnet format (verify no changes)' {
     }
 }
 
+# Deterministic WCAG AA check over the pinned palette (tools/check-contrast.ps1
+# -Gate): fast and dependency-free, so it runs before the test step to fail early.
+# Plain check-contrast.ps1 (no switch) stays report-only.
+Invoke-Step 'contrast gate (WCAG AA, pinned palette)' {
+    pwsh -NoProfile -File (Join-Path $PSScriptRoot 'check-contrast.ps1') -Gate
+}
+
 $testArgs = @($solution, '--no-build', '-c', 'Release')
 if ($SkipAdTests) {
     $testArgs += @('--filter', 'Category!=RequiresAd')

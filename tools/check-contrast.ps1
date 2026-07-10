@@ -41,15 +41,25 @@
 .PARAMETER RegionB
     "x,y,w,h" of the second region to average (background).
 
+.PARAMETER Gate
+    Gate mode: after printing the standard pinned-palette report, exit non-zero if ANY
+    pair fails its applicable AA floor (4.5:1 for text-context pairs, 3:1 for
+    graphic-context pairs), except pairs on the commented $gateExpectedFail allowlist
+    (reported as EXPECTED FAIL; an allowlisted pair that PASSES fails the gate as a
+    stale entry - the list may only shrink). Without the switch the script is
+    report-only, as before.
+
 .EXAMPLE
     pwsh tools/check-contrast.ps1
+    pwsh tools/check-contrast.ps1 -Gate
     pwsh tools/check-contrast.ps1 -SamplePng artifacts/ui/x.png -RegionA "10,10,8,8" -RegionB "200,200,8,8"
 #>
 [CmdletBinding()]
 param(
     [string]$SamplePng,
     [string]$RegionA,
-    [string]$RegionB
+    [string]$RegionB,
+    [switch]$Gate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -188,6 +198,45 @@ Write-Host ('-' * 52)
 
 $bg = ConvertFrom-Hex $pageBg
 $anyNonTextFail = $false
+
+# Gate-mode bookkeeping: each pair is judged against ITS floor only (the Context
+# field picks the meaningful WCAG criterion) - 4.5:1 for text, 3:1 for graphic.
+#
+# Expected-fail allowlist for -Gate. The RATCHET: this list may only SHRINK. An
+# allowlisted pair that starts PASSING (or matches no pinned pair) is a hard gate
+# failure until its entry is removed, and nothing may be added here just to turn
+# the gate green - every entry carries a WHY.
+$gateExpectedFail = @(
+    # Sub-3:1 kind fills accepted by design: the 2px NodeLiftRing #8A93A3 ring
+    # carries WCAG 1.4.11 graphical-object distinguishability for these nodes
+    # instead (ADR-021, #90; see the palette comment above the ring entry).
+    'DomainLocal #A14000'
+    'Universal #744DA9'
+    'Computer #556070'
+    # Deliberate regression-proof documentation row of the FIXED #268 bug state;
+    # fails by construction and is never a rendered surface (see textPairs note).
+    'Light ink on double-card composite (bug, FAILS)'
+    # KNOWN GAP: naming-preview Error caption text, tracked as issue #315.
+    # Remove this entry in the #315 fix PR.
+    'Error glyph "E" on bg'
+)
+$gateFailures = [System.Collections.Generic.List[string]]::new()
+$gateExpected = [System.Collections.Generic.List[string]]::new()
+$gateStale = [System.Collections.Generic.List[string]]::new()
+$gateAllowlistSeen = [System.Collections.Generic.List[string]]::new()
+
+function Add-GateResult([string]$name, [double]$ratio, [string]$ratioStr, [double]$floor, [string]$floorLabel) {
+    $allowlisted = $gateExpectedFail -contains $name
+    if ($allowlisted) { $gateAllowlistSeen.Add($name) }
+    if ($ratio -lt $floor) {
+        if ($allowlisted) { $gateExpected.Add("$name = $ratioStr (floor $floorLabel)") }
+        else { $gateFailures.Add("$name = $ratioStr (floor $floorLabel)") }
+    }
+    elseif ($allowlisted) {
+        $gateStale.Add("$name = $ratioStr now clears floor $floorLabel - remove the stale allowlist entry")
+    }
+}
+
 foreach ($p in $palette) {
     $fg = ConvertFrom-Hex $p.Hex
     $ratio = Get-ContrastRatio $fg $bg
@@ -195,6 +244,8 @@ foreach ($p in $palette) {
     $textPass = Format-Pass $ratio $TEXT_AA
     $nonTextPass = Format-Pass $ratio $NONTEXT_AA
     if ($nonTextPass -eq 'FAIL') { $anyNonTextFail = $true }
+    if ($p.Context -eq 'text') { Add-GateResult $p.Name $ratio $rStr $TEXT_AA '4.5:1 text' }
+    else { Add-GateResult $p.Name $ratio $rStr $NONTEXT_AA '3:1 non-text' }
     Write-Host ($fmt -f $p.Name, $rStr, $textPass, $nonTextPass)
 }
 
@@ -207,6 +258,7 @@ foreach ($p in $textPairs) {
     $bgp = ConvertFrom-Hex $p.Bg
     $ratio = Get-ContrastRatio $fg $bgp
     $rStr = Format-Ratio $ratio
+    Add-GateResult $p.Name $ratio $rStr $TEXT_AA '4.5:1 text'
     Write-Host ($fmt -f $p.Name, $rStr, (Format-Pass $ratio $TEXT_AA), (Format-Pass $ratio $NONTEXT_AA))
 }
 
@@ -242,6 +294,32 @@ if ($SamplePng) {
             (Format-Ratio $ratio), (Format-Pass $ratio $TEXT_AA), (Format-Pass $ratio $NONTEXT_AA))
     }
     finally { $bmp.Dispose() }
+}
+
+# --- opt-in gate mode ----------------------------------------------------------
+if ($Gate) {
+    Write-Host ''
+    foreach ($e in $gateExpected) { Write-Host "EXPECTED FAIL (allowlisted): $e" }
+    # Ratchet: allowlist entries that match no pinned pair are stale too (typo,
+    # or the pair itself was removed) - they must not linger as dead exemptions.
+    foreach ($u in $gateExpectedFail) {
+        if ($gateAllowlistSeen -notcontains $u) {
+            $gateStale.Add("$u matches no pinned pair - remove the stale allowlist entry")
+        }
+    }
+    if ($gateFailures.Count -gt 0 -or $gateStale.Count -gt 0) {
+        if ($gateFailures.Count -gt 0) {
+            Write-Host ("GATE FAIL: {0} pair(s) below their AA floor:" -f $gateFailures.Count)
+            foreach ($f in $gateFailures) { Write-Host "  $f" }
+        }
+        if ($gateStale.Count -gt 0) {
+            Write-Host ("GATE FAIL: {0} stale allowlist entry(ies):" -f $gateStale.Count)
+            foreach ($s in $gateStale) { Write-Host "  $s" }
+        }
+        Write-Host ''
+        exit 1
+    }
+    Write-Host ("GATE PASS: no pair below its AA floor beyond the {0} allowlisted expected-fail(s)." -f $gateExpected.Count)
 }
 
 Write-Host ''
