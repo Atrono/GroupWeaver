@@ -1,0 +1,33 @@
+# Dependency-update surfacing (#301 item 9). Conservative by design: weekly,
+# PR-only, never auto-merged - every PR goes through the normal reviewer + CI
+# gate. An autonomous agent only acts when something queues work for it; this
+# is the "someone watches the outside world for CVEs" trigger.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      test-packages:
+        patterns:
+          - "Microsoft.NET.Test.Sdk"
+          - "xunit*"
+    ignore:
+      # Pinned EXACTLY per ADR-001/ADR-003 D2 - Avalonia upgrades are deliberate,
+      # reviewed events, never bot-proposed (see src/App/GroupWeaver.App.csproj).
+      - dependency-name: "Avalonia"
+      - dependency-name: "Avalonia.*"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: "/tests/graph-bundle"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
