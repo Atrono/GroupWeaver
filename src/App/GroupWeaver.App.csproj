@@ -31,7 +31,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <!-- ADR-037 D1: the logging API - abstractions ONLY (dependency-free; the JSONL sink is
          hand-rolled in src/App/Diagnostics). Never the full Microsoft.Extensions.Logging stack. -->
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>

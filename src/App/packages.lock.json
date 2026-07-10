@@ -63,11 +63,12 @@
       },
       "Microsoft.Extensions.Logging.Abstractions": {
         "type": "Direct",
-        "requested": "[8.0.3, )",
-        "resolved": "8.0.3",
-        "contentHash": "dL0QGToTxggRLMYY4ZYX5AMwBb+byQBd/5dMiZE07Nv73o6I5Are3C7eQTh7K2+A4ct0PVISSr7TZANbiNb2yQ==",
+        "requested": "[10.0.9, )",
+        "resolved": "10.0.9",
+        "contentHash": "9S/DFt4cohlMPpzIxjG6kk0L8MuN2vDm9pbMCulxtJzzk82oJHVLBd8vuQxaPskaYQwKqmFmbannf5eoChgjYg==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.2"
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.9",
+          "System.Diagnostics.DiagnosticSource": "10.0.9"
         }
       },
       "Avalonia.Angle.Windows.Natives": {
@@ -188,8 +189,8 @@
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "Transitive",
-        "resolved": "8.0.2",
-        "contentHash": "3iE7UF7MQkCv1cxzCahz+Y/guQbTqieyxyaWKhrRO91itI9cOKO76OHeQDahqG4MmW5umr3CcCvGmK92lWNlbg=="
+        "resolved": "10.0.9",
+        "contentHash": "g41l/30G3K4B/d/L8kjux0+30e27c8D0FVQ/PFCpbekgfDpj9mnDhieP67EqXWvl1EWNeZh2rpR4F5B/jcDOHA=="
       },
       "SkiaSharp": {
         "type": "Transitive",
@@ -222,6 +223,11 @@
         "type": "Transitive",
         "resolved": "2.88.9",
         "contentHash": "wb2kYgU7iy84nQLYZwMeJXixvK++GoIuECjU4ECaUKNuflyRlJKyiRhN1MAHswvlvzuvkrjRWlK0Za6+kYQK7w=="
+      },
+      "System.Diagnostics.DiagnosticSource": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "VzIU41Sb23Em98hDQc71LPwKTC72xkiG7lpCZaIkf84jBJW+ViaKPa24qqR4FPmj1N4vDWilzs6Dq5Om8aFj+Q=="
       },
       "System.DirectoryServices": {
         "type": "Transitive",
