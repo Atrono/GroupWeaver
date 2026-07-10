@@ -38,8 +38,8 @@ namespace GroupWeaver.App.Tests;
 /// branch fires only for a <c>NativeWebView</c>; a <see cref="Border"/> takes the plain swap —
 /// which the ParkSpike proved equivalent for a control with no live page. So these tests pin the
 /// VISUAL-TREE choreography (park/mount parent transitions, bounded parked count, abandon
-/// disposal) — the actual WebView2-page + same-HWND + viewport survival is the windowed smoke's
-/// job (<c>tools/smoke-back-nav.ps1</c>), as is calling out below.</para>
+/// disposal) — the actual WebView2-page + same-HWND + viewport survival is the windowed e2e
+/// scenario's job (<c>tools/e2e/run-e2e.ps1 -Scenario back-nav</c>), as is calling out below.</para>
 ///
 /// <para>Comparisons are by surface PROJECTION (the renderer's single cached <c>View</c> control
 /// identity, its parent, the <c>ParkingLot.Children</c> count, and the renderer's <c>Disposed</c>

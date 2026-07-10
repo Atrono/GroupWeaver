@@ -125,6 +125,6 @@ REMAIN for live-AD scenarios, which run seamless by design (ADR-038 D6).
 `renderingMode` in the summary distinguishes GPU vs software rendering - perf
 budgets are keyed by mode and never compared across modes (ADR-038 D5).
 
-`tools/smoke-back-nav.ps1` is a deprecation wrapper around
-`run-e2e.ps1 -Scenario back-nav`; the journey now lives in
-`scenarios/back-nav.ps1`.
+The pre-harness `tools/smoke-back-nav.ps1` wrapper has been removed; invoke the
+journey directly via `run-e2e.ps1 -Scenario back-nav` (it lives in
+`scenarios/back-nav.ps1`).
