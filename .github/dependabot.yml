@@ -19,6 +19,14 @@ updates:
       # reviewed events, never bot-proposed (see src/App/GroupWeaver.App.csproj).
       - dependency-name: "Avalonia"
       - dependency-name: "Avalonia.*"
+      # Runtime-family packages track .NET releases; on this net8.0 LTS app a
+      # major (e.g. 8.x -> 10.x) is a TFM-migration-sized decision (its own ADR),
+      # not a weekly bot PR. Minors/patches within the 8.x band still flow.
+      # Decided 2026-07-10 declining #309/#310.
+      - dependency-name: "System.DirectoryServices*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
