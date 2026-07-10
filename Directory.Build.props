@@ -7,13 +7,20 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- CA-rule static analysis at the recommended level; every finding is an error
+         via TreatWarningsAsErrors. Per-rule opt-outs live in .editorconfig, each
+         with a one-line justification - never suppress without one. -->
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Version>0.4.4</Version>
     <!-- Pin the transitive NuGet graph (packages.lock.json per project); the build
          gate restores with -locked-mode so a lock/manifest mismatch fails loudly.
          Regenerate after a package edit with a plain `dotnet restore`. Spikes are
-         excluded: not in the .sln, not CI-built, throwaway by convention. -->
+         excluded: not in the .sln, not CI-built, throwaway by convention.
+         Known quirk: a SELF-CONTAINED publish rewrites the locks (its implicit
+         ILLink.Tasks reference joins the graph project-wide) - re-normalize with a
+         plain `dotnet restore`; tools/pack-release.ps1 does that itself. -->
     <RestorePackagesWithLockFile Condition="!$(MSBuildProjectDirectory.Contains('spikes'))">true</RestorePackagesWithLockFile>
     <!-- Declare the (sole) publish RID everywhere so every lock file carries the
          win-x64 graph: CI's `dotnet publish -r win-x64` restores the App's whole

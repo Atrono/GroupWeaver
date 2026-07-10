@@ -92,15 +92,15 @@ public static class RemediationSnippet
         var member = violation.Dns.Count > 1 ? Quote(violation.Dns[1]) : Quote(violation.Dns[0]);
 
         var sb = NewSnippet();
-        sb.AppendLine($"# Nesting violation under '{subjectName}'.");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Nesting violation under '{subjectName}'.");
         sb.AppendLine("# This member is nested at the wrong A-G-DL-P layer (e.g. a user/global group");
         sb.AppendLine("# directly in a domain-local group, or a domain-local group in a global group).");
         sb.AppendLine("# Step 1 — remove the disallowed direct nesting:");
-        sb.AppendLine($"# Remove-ADGroupMember -Identity {parent} -Members {member} -Confirm:$false");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Remove-ADGroupMember -Identity {parent} -Members {member} -Confirm:$false");
         sb.AppendLine("# Step 2 — re-add the member through the correct intermediate group so the");
         sb.AppendLine("#          chain is Account -> Global -> DomainLocal -> (Permission):");
-        sb.AppendLine($"# Add-ADGroupMember -Identity <correct-intermediate-group> -Members {member}");
-        sb.AppendLine($"# Add-ADGroupMember -Identity {parent} -Members <correct-intermediate-group>");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Add-ADGroupMember -Identity <correct-intermediate-group> -Members {member}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Add-ADGroupMember -Identity {parent} -Members <correct-intermediate-group>");
         return sb.ToString().TrimEnd();
     }
 
@@ -112,12 +112,12 @@ public static class RemediationSnippet
         var last = Quote(violation.Dns[^1]);
 
         var sb = NewSnippet();
-        sb.AppendLine($"# Circular nesting through '{subjectName}'.");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Circular nesting through '{subjectName}'.");
         sb.AppendLine("# Cycle (membership direction parent -> member):");
-        sb.AppendLine($"#   {FormatCycle(violation.Dns)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"#   {FormatCycle(violation.Dns)}");
         sb.AppendLine("# Break ONE edge on the cycle to end the loop. The closing back-edge");
-        sb.AppendLine($"# (last -> first) is usually the safest to remove:");
-        sb.AppendLine($"# Remove-ADGroupMember -Identity {last} -Members {anchor} -Confirm:$false");
+        sb.AppendLine("# (last -> first) is usually the safest to remove:");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Remove-ADGroupMember -Identity {last} -Members {anchor} -Confirm:$false");
         return sb.ToString().TrimEnd();
     }
 
@@ -128,14 +128,14 @@ public static class RemediationSnippet
         var subject = Quote(violation.Dns[0]);
 
         var sb = NewSnippet();
-        sb.AppendLine($"# Naming-convention violation on '{subjectName}'.");
-        sb.AppendLine($"# Rule message: {Clean(violation.Message)}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Naming-convention violation on '{subjectName}'.");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Rule message: {Clean(violation.Message)}");
         sb.AppendLine("# REVIEW CAREFULLY — a rename is disruptive: downstream scripts, GPO filters and");
         sb.AppendLine("# documentation may reference the current name. Confirm the convention first, then");
         sb.AppendLine("# rename to a name that matches it (example only — substitute the real new name):");
-        sb.AppendLine($"# Rename-ADObject -Identity {subject} -NewName '<New-Conforming-Name>'");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Rename-ADObject -Identity {subject} -NewName '<New-Conforming-Name>'");
         sb.AppendLine("# If the sAMAccountName must also change, set it explicitly:");
-        sb.AppendLine($"# Set-ADGroup -Identity {subject} -SamAccountName '<New-Conforming-Name>'");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Set-ADGroup -Identity {subject} -SamAccountName '<New-Conforming-Name>'");
         return sb.ToString().TrimEnd();
     }
 
@@ -145,12 +145,12 @@ public static class RemediationSnippet
         var subject = Quote(violation.Dns[0]);
 
         var sb = NewSnippet();
-        sb.AppendLine($"# Empty group '{subjectName}'.");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Empty group '{subjectName}'.");
         sb.AppendLine("# Decide: does this group serve a purpose? If yes, populate it; if it is dead, remove it.");
         sb.AppendLine("# Option A — populate it with its intended member(s):");
-        sb.AppendLine($"# Add-ADGroupMember -Identity {subject} -Members <member-to-add>");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Add-ADGroupMember -Identity {subject} -Members <member-to-add>");
         sb.AppendLine("# Option B — remove the unused group (only after confirming nothing references it):");
-        sb.AppendLine($"# Remove-ADGroup -Identity {subject} -Confirm:$false");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"# Remove-ADGroup -Identity {subject} -Confirm:$false");
         return sb.ToString().TrimEnd();
     }
 

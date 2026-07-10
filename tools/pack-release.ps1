@@ -89,6 +89,15 @@ Invoke-Step "dotnet publish ($Runtime, self-contained single-file)" {
         -o $publishDir
 }
 
+# The self-contained publish restore rewrites packages.lock.json files (its implicit
+# ILLink.Tasks reference lands in the graph; SelfContained is a global property, so
+# every ProjectReference is affected). The canonical committed lock shape is the
+# plain-restore shape the build gate checks in locked mode - re-normalize so packing
+# a release never leaves a dirty working tree.
+Invoke-Step 'dotnet restore (re-normalize lock files after publish)' {
+    dotnet restore (Join-Path $repoRoot 'GroupWeaver.sln')
+}
+
 # ---------- 3. web-bundle integrity gate (lifted verbatim from ci.yml:75-95) ----------
 # The bundle must survive single-file publish as LOOSE files that are byte-identical to
 # the vendored source; a silent drop/corruption would only surface at app runtime.
