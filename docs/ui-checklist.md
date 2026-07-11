@@ -370,13 +370,13 @@ representative hand-built diff — a couple of Added objects, a Removed object, 
 and a known-but-unloaded Ist area — `RefreshAsync` run, rendered through the `GapView`
 DataTemplate, both 1280×720 and 1920×1080). Gap mode is a sibling shell step (ADR-014/ADR-015)
 reached from Plan Mode via the "Gap analysis" button and returning to the SAME plan via
-"← Back to explore". It shows the Plan-vs-Ist DIFF, never rule severity. The headless fixture
+"← Back to plan". It shows the Plan-vs-Ist DIFF, never rule severity. The headless fixture
 has no renderer, so GraphHost shows its placeholder — the right-hand chrome is the judged surface.
 
 - [ ] Airspace held: GraphHost (the diff preview, left) is the reserved region; the gap chrome
       sits BESIDE it in its own column, never floating/layering over the graph (ADR-001
       guardrail 5) [S:gap-view]
-- [ ] Header: "Gap" title + "← Back to explore" button (Back returns to the same plan, never a
+- [ ] Header: "Gap" title + "← Back to plan" button (Back returns to the same plan, never a
       reload); the chrome column has no clipped or overlapping controls at both sizes [S:gap-view]
 - [ ] Gap-summary line: a single legible line of node deltas / membership deltas / unchecked
       tally ("+a / −b objects · +c / −d memberships · e unchecked"); hidden until the first
