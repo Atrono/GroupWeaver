@@ -1,6 +1,6 @@
 # ADR-041: Visual regression via structural invariants — no committed pixel baselines
 
-**Status:** Proposed · **Date:** 2026-07-11
+**Status:** Accepted · **Date:** 2026-07-11
 **Decides:** issue #334 (how silent visual drift is caught between LLM-judged passes) · **Phase:** 4 (feedback-driven)
 **Builds on:** ADR-021 (single-source tokens — the pins these gates enforce), ADR-004/ADR-012 (`src/App/web` byte-identity hash chain the gates must never touch), ADR-038 (state probes over golden images — the same environment reasoning, now applied to the headless side), `.claude/rules/harness.md` (build.ps1 as the sole gate extension point), `docs/ui-checklist.md` (the "intended pin" markers in the scaling and exported-artifacts sections this ADR fulfills)
 
