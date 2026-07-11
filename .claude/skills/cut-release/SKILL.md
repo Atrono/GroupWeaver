@@ -29,6 +29,17 @@ tests — they are fixed fixtures, decoupled from the app version on purpose.
 
 ## Sequence
 
+0. **UX pre-flight (fit-audit cadence, 2026-07-11):** BEFORE bumping, run the
+   `fit-audit` workflow scoped to the UI surfaces changed since the previous
+   tag (`git diff --stat v<prev>..HEAD -- src/App` names them; pass
+   `args.surfaces` as the matching `DEFAULT_SURFACES` entries copied from
+   `.claude/workflows/fit-audit.js` — full `{key, name, files, section}`
+   objects, never bare name strings — plus `args.focus`, and
+   `args.artifactsDir` if frames are fresh). Any Bucket-A ("ship now") finding **blocks the tag**: ship the fix
+   first, or demote it with a one-line rationale in the release PR body.
+   Releases are exactly when gaps reach users — this step is why the audit
+   can't be forgotten. Skip only when NO file under `src/App` changed since
+   the previous tag (Core-only patch), and say so in the PR body.
 1. **Bump** the four files above (branch `chore/release-X.Y.Z`).
 2. **Local gate:** `pwsh tools/build.ps1` (build + format + all tests incl. the
    pin smoke). Run from the repo root — a stale agent-worktree cwd silently

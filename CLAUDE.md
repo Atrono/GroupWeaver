@@ -87,6 +87,8 @@ per work package → PR → reviewer approval → squash merge. Conventional Com
 release. Public media (README GIF, screenshots): **demo mode only** — never a real or
 lab AD. End every session: append 3–5 lines to `docs/journal/YYYY-MM-DD.md` (done,
 decided, next), then commit + push — the journal only recovers what reached the remote.
+UX-gap cadence: `cut-release` pre-flights a scoped fit-audit (A-findings block the
+tag); `wrap-session` queues a whole-app fit-audit when the newest is >14 days old.
 
 ## Subagents — delegate by default
 

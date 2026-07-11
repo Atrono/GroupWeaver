@@ -30,7 +30,11 @@ about what the session did), so never ask the user; just write, commit, push.
    sit within the **first 15 lines** - that is the slice the SessionStart hook
    shows next session, so it has to carry the orienting context on its own.
    `## Next` is `- (clear)` (or the queued WP / blocker) when nothing is in flight.
-3. **Write** `docs/journal/<date>.md`.
+3. **Write** `docs/journal/<date>.md`. **Fit-audit staleness check (cadence,
+   2026-07-11):** while composing `## Next`, list `docs/ux-fit-audit-*.md` and
+   take the newest by name (none found = stale); if its date is more than 14 days ago, add
+   `- run a whole-app fit-audit (last: <date>, stale)` to `## Next`. The audit
+   itself is next-session work — never run it as part of the wrap.
 4. **Stage only it:** `git add docs/journal/<date>.md` - plus any ADR/rule files
    *this* session created, named explicitly. **Never `git add -A`** (it would
    sweep unrelated WIP into the journal commit).
