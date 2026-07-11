@@ -179,6 +179,23 @@ gh attestation verify .\GroupWeaver-0.4.4-win-x64.zip --repo Atrono/GroupWeaver
 
 A passing check prints the matched attestation and the workflow that produced it.
 
+## Feedback and support
+
+GroupWeaver is feedback-driven: what gets built next is prioritized from real
+users' GitHub issues.
+
+- **Something broken?** [Report a bug](https://github.com/Atrono/GroupWeaver/issues/new?template=bug_report.yml)
+- **Something confusing, awkward, or hard to use?** [UX feedback](https://github.com/Atrono/GroupWeaver/issues/new?template=ux_feedback.yml)
+  — friction counts, nothing has to crash
+- **Missing capability?** [Feature request](https://github.com/Atrono/GroupWeaver/issues/new?template=feature_request.yml)
+
+Please include the version (title bar or `--check`), demo vs. live mode, and
+your Windows display scale. **Never paste real Active Directory data** — DNs,
+names, group structures — into a public issue; reproduce in demo mode
+(`--demo`) if you can. And whatever you report: GroupWeaver never changed your
+directory — it holds no code path that writes to Active Directory (see the
+read-only guarantee above).
+
 ## License
 
 [MIT](LICENSE) — © Atrono. Third-party components are listed in
