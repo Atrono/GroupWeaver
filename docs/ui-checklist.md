@@ -216,8 +216,12 @@ whenever layout or type changes.
 - [ ] Web bundle at 2× device scale: graph stage, legend key, control cluster and
       command palette stay legible and inside the viewport at `deviceScaleFactor: 2`
       — crisp vector swatches (no blurry raster), no clipped controls, dot-grid pitch
-      still subtle [I — intended pin: a scaled verify.mjs probe context (planned with
-      the structural-invariant slice); judge from a scaled capture until then]
+      still subtle [P — verify.mjs `deviceScale2Probe` (ADR-041 D2.2): node bboxes +
+      legend/controls in-viewport at fit, no chrome text clipping/spill, `--gw-*`
+      tokens resolving, and the canvas backing store pinned to graph.js' deliberate
+      `pixelRatio: 1` (the canvas raster is 1×-upscaled at 200% BY DESIGN — the
+      software-rendering-floor perf decision; DOM chrome/SVG stays vector-crisp);
+      dot-grid subtlety and raster crispness judgments stay [I]]
 - [ ] Native chrome at 150%/200% Windows display scale: top strip, rail, settings
       tabs, audit tiles and both help/settings windows reflow without clipped text or
       overlapping controls (headless Skia renders at 1.0 only — evidence via the
@@ -519,9 +523,11 @@ one IS opened (real demo-mode exports, rendered/read as evidence):
       fetches; real table semantics (`<th>` headers); palette matches BrandTokens
       with AA text contrast in its rendered presentation; findings in canonical
       report order; the optional ruleset/triage/unchecked header rows render when
-      present and are absent for legacy headers (ADR-030 D3) [I — intended pin: a
-      headless render check for console errors + tokens (planned with the
-      structural-invariant slice)]
+      present and are absent for legacy headers (ADR-030 D3) [P —
+      tests/graph-bundle/verify-export.mjs over the `--dump-export` demo artifact
+      (ADR-041 D2.3): zero console errors/pageerrors/external fetches, `<th>` cells,
+      the pinned severity hexes in the rendered styles, the 19-row baseline and the
+      honesty header rows; AA contrast + legacy-header absence stay [I]/[T-exporter]]
 - [ ] Plan export .ps1: ASCII-only (the PS 5.1 no-BOM rule applies to files we
       EMIT, not just our own tools), carries the read-only provenance comment
       (GroupWeaver never executes it), object/membership statements mirror the

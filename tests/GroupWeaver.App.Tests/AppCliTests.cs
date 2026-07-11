@@ -15,6 +15,8 @@ namespace GroupWeaver.App.Tests;
 /// the App executable's CLI surface, not the provider contract. AP 2.2 S4 adds the
 /// <c>--dump-graph</c> contract (ADR-004 D7): demo-only flat graph JSON dumps — without
 /// <c>--demo</c> the app exits 64, because live-AD structure must never reach artifacts.
+/// ADR-041 D2.3 adds the <c>--dump-export</c> twin: the demo-baseline findings HTML for
+/// the graph-bundle gate's render check, under the same demo-only exit-64 guard.
 /// </summary>
 public sealed class AppCliTests
 {
@@ -198,6 +200,76 @@ public sealed class AppCliTests
         {
             File.Delete(path);
         }
+    }
+
+    // --- --dump-export (ADR-041 D2.3) ------------------------------------------
+
+    /// <summary>
+    /// The findings-report HTML dump seam (ADR-041 D2.3): runs the real
+    /// <c>ViolationReportExporter.ToHtml</c> over the 19-finding demo baseline with the
+    /// populated 7-arg <c>ReportHeader</c>. Pins exit 0, the file write, the findings-table
+    /// header row, and the ADR-030 D3 honesty rows (Ruleset/Triaged/Unchecked) — the deeper
+    /// rendered-output assertions live in the graph-bundle gate's headless render check
+    /// (<c>tests/graph-bundle/verify-export.mjs</c>).
+    /// </summary>
+    [Fact]
+    public async Task DemoDumpExport_WritesTheFindingsHtmlForTheDemoBaseline()
+    {
+        var path = TempDumpPath();
+        try
+        {
+            var (exitCode, _, stderr) = await RunAppAsync("--demo", "--dump-export", path);
+
+            Assert.True(exitCode == 0, $"app exited with {exitCode}; stderr: {stderr}");
+            Assert.True(File.Exists(path), $"'{path}' was not written");
+
+            var html = await File.ReadAllTextAsync(path);
+            Assert.StartsWith("<!DOCTYPE html>", html, StringComparison.Ordinal);
+
+            // The pinned findings-table header row (the exporter emits it only when the
+            // report has violations — the demo baseline always has 19).
+            Assert.Contains(
+                "<th>Severity</th><th>Rule</th><th>Subject</th><th>Primary DN</th><th>DNs</th><th>Message</th>",
+                html,
+                StringComparison.Ordinal);
+
+            // The ADR-030 D3 honesty header rows render (RulesetName is non-null on this path).
+            Assert.Contains("<tr><th>Ruleset</th>", html, StringComparison.Ordinal);
+            Assert.Contains("<tr><th>Triaged</th>", html, StringComparison.Ordinal);
+            Assert.Contains("<tr><th>Unchecked</th>", html, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>The demo-only guard, exactly the <c>--dump-graph</c> exit-64 precedent:
+    /// live-AD-derived findings must never reach an artifact.</summary>
+    [Fact]
+    public async Task DumpExport_WithoutDemo_Exits64MentioningDemo_AndWritesNothing()
+    {
+        var path = TempDumpPath();
+        try
+        {
+            var (exitCode, _, stderr) = await RunAppAsync("--dump-export", path);
+
+            Assert.Equal(64, exitCode);
+            Assert.Contains("demo", stderr, StringComparison.OrdinalIgnoreCase);
+            Assert.False(File.Exists(path), $"'{path}' must never be written without --demo");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task DumpExport_AsLastArgWithoutPath_ExitsNonzero()
+    {
+        var (exitCode, _, _) = await RunAppAsync("--demo", "--dump-export");
+
+        Assert.NotEqual(0, exitCode);
     }
 
     // --- --dump-graph determinism (WP3 / #242, ADR-038) -----------------------

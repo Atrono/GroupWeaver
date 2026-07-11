@@ -36,4 +36,17 @@
     <Compile Include="..\GroupWeaver.Tests\Providers\Ldap\AdFactAttribute.cs" Link="Shared\AdFactAttribute.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- ADR-041 D3 (font determinism): embedded measurement fonts, pinned by
+         TestAppBuilder via FontManagerOptions + the FontFamilyMono resource override so
+         DesiredSize/TextLayout-based asserts (TextClippingSweepTests) measure identically
+         on this box and the windows-2022 CI runner. OFL 1.1 (license texts alongside):
+         Selawik is Microsoft's OFL metric companion to Segoe UI (the ambient default both
+         environments would otherwise resolve); Cascadia Mono is the app's own first-choice
+         mono family (installed on NEITHER environment today - both silently fall back to
+         Consolas, and any box that gains it would measure differently). Test-host-only:
+         the shipped app still resolves system fonts. -->
+    <AvaloniaResource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
+
 </Project>

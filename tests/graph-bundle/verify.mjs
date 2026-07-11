@@ -568,6 +568,143 @@ async function assertEasedFocus(page, ids, label) {
 }
 
 // ---------------------------------------------------------------------------
+// ADR-041 D2.2 stage-geometry structural invariants: the deterministic
+// replacement for "does the frame LOOK right" pixel checks. One snapshot
+// helper (primitives only out of page.evaluate, CI moral) + one assert
+// helper, shared between the DEFAULT main run (asserted at the initial fit,
+// scale-independent) and the deviceScaleFactor:2 probe context below - so the
+// two scales are judged by the LITERAL same invariants:
+//   (1) every rendered node bounding box (node BODY: labels/overlays excluded,
+//       they legitimately extend past the fit box) is non-zero and inside the
+//       viewport at fit - a broken fit/layout/pixelRatio regression fails here;
+//   (2) #legend and #controls exist and sit fully inside the viewport
+//       (positional airspace stays pinned by the stricter #87/ADR-023 blocks);
+//   (3) no text inside #legend/#controls is CLIPPED - the web twin of the
+//       native TextClippingSweepTests, with the same "deliberate styles pass"
+//       shape. Two sub-rules, because CSS overflow has two failure modes:
+//       (3a) an element whose computed overflow is hidden/clip truncates its
+//            content - scroll vs client dims (1px slack) flags it, EXCEPT
+//            text-overflow:ellipsis width truncation (the deliberate-ellipsis
+//            exemption, e.g. the palette rows) and scrollable boxes
+//            (overflow auto/scroll - #legend's own max-height scroll);
+//       (3b) an element whose overflow is visible PAINTS outside its box (a
+//            line-height:1 glyph overhang is fine) - that is only a defect
+//            when the paint spills past the CHROME CONTAINER itself, so each
+//            descendant's border box must sit inside the container's box
+//            (2px slack).
+//       INPUTs are excluded by design (an editable field scrolls its value);
+//       [hidden]/display:none/contents boxes are skipped (display:contents
+//       rows have no box of their own).
+// ---------------------------------------------------------------------------
+function stageGeometrySnapshot(page) {
+  return page.evaluate(() => {
+    const out = {
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio,
+      nodeCount: 0,
+      zeroBoxes: [],
+      offViewport: [],
+      overlay: {},
+      overflows: [],
+    };
+    const nodes = window.__cy.nodes();
+    out.nodeCount = nodes.length;
+    for (let i = 0; i < nodes.length; i++) {
+      const bb = nodes[i].renderedBoundingBox({ includeLabels: false, includeOverlays: false });
+      if (!(bb.w > 0 && bb.h > 0)) {
+        if (out.zeroBoxes.length < 5) {
+          out.zeroBoxes.push(nodes[i].id());
+        }
+        continue;
+      }
+      if (bb.x1 < -1 || bb.y1 < -1 || bb.x2 > window.innerWidth + 1 || bb.y2 > window.innerHeight + 1) {
+        if (out.offViewport.length < 5) {
+          out.offViewport.push(
+            `${nodes[i].id()} [${bb.x1.toFixed(1)},${bb.y1.toFixed(1)} - ${bb.x2.toFixed(1)},${bb.y2.toFixed(1)}]`);
+        }
+      }
+    }
+    for (const id of ['legend', 'controls']) {
+      const el = document.getElementById(id);
+      if (el === null) {
+        out.overlay[id] = null;
+        continue;
+      }
+      const box = el.getBoundingClientRect();
+      out.overlay[id] = {
+        left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+        width: box.width, height: box.height,
+      };
+      const describe = (child, detail) => {
+        if (out.overflows.length < 8) {
+          const cls = typeof child.className === 'string' && child.className.length > 0
+            ? '.' + child.className.trim().split(/\s+/).join('.')
+            : '';
+          out.overflows.push(
+            `#${id} ${child.tagName.toLowerCase()}${child.id ? '#' + child.id : ''}${cls} ${detail}`
+            + ` text='${(child.textContent || '').trim().slice(0, 32)}'`);
+        }
+      };
+      const descendants = [el, ...el.querySelectorAll('*')];
+      for (const child of descendants) {
+        if (child.tagName === 'INPUT' || child.hidden) {
+          continue;
+        }
+        const cs = getComputedStyle(child);
+        if (cs.display === 'none' || cs.display === 'contents' || cs.visibility === 'hidden') {
+          continue;
+        }
+        // (3a) truncating boxes: only hidden/clip actually cut content; auto/
+        // scroll are deliberate scrollable regions; ellipsis width cuts are the
+        // deliberate-truncation style.
+        const clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
+        const clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
+        const ellipsis = cs.textOverflow.includes('ellipsis');
+        if (clipsX && !ellipsis && child.scrollWidth - child.clientWidth > 1) {
+          describe(child, `clips WIDTH: scroll ${child.scrollWidth} vs client ${child.clientWidth}`);
+        }
+        if (clipsY && child.scrollHeight - child.clientHeight > 1) {
+          describe(child, `clips HEIGHT: scroll ${child.scrollHeight} vs client ${child.clientHeight}`);
+        }
+        // (3b) visible-overflow spill past the chrome container's own box.
+        if (child !== el) {
+          const cb = child.getBoundingClientRect();
+          if (cb.width > 0 && cb.height > 0
+            && (cb.left < box.left - 2 || cb.top < box.top - 2
+              || cb.right > box.right + 2 || cb.bottom > box.bottom + 2)) {
+            describe(child,
+              `spills past #${id}: child [${cb.left.toFixed(1)},${cb.top.toFixed(1)} - ${cb.right.toFixed(1)},${cb.bottom.toFixed(1)}]`
+              + ` vs container [${box.left.toFixed(1)},${box.top.toFixed(1)} - ${box.right.toFixed(1)},${box.bottom.toFixed(1)}]`);
+          }
+        }
+      }
+    }
+    return out;
+  });
+}
+
+function assertStageGeometry(got, label, expectedNodeCount) {
+  assert(got.nodeCount === expectedNodeCount,
+    `${label}: rendered node count ${got.nodeCount} != expected ${expectedNodeCount}`);
+  assert(got.zeroBoxes.length === 0,
+    `${label}: every rendered node must have a non-zero bounding box; zero-sized: ${got.zeroBoxes.join(', ')}`);
+  assert(got.offViewport.length === 0,
+    `${label}: at fit every node body must sit inside the ${got.innerWidth}x${got.innerHeight} viewport; outside: ${got.offViewport.join('; ')}`);
+  for (const id of ['legend', 'controls']) {
+    const box = got.overlay[id];
+    assert(box !== null, `${label}: #${id} must exist in the DOM`);
+    assert(box.width > 0 && box.height > 0,
+      `${label}: #${id} must have a non-zero box, got ${box.width}x${box.height}`);
+    assert(box.left >= 0 && box.top >= 0
+      && box.right <= got.innerWidth + 0.5 && box.bottom <= got.innerHeight + 0.5,
+      `${label}: #${id} must sit fully inside the viewport - box [${box.left},${box.top} - ${box.right},${box.bottom}] vs ${got.innerWidth}x${got.innerHeight}`);
+  }
+  assert(got.overflows.length === 0,
+    `${label}: no #legend/#controls text may be clipped (overflow:hidden truncation without ellipsis) or spill past its chrome container:\n  ${got.overflows.join('\n  ')}`);
+}
+
+// ---------------------------------------------------------------------------
 // Fresh-page probe (AP 2.3 review pin): graphUpdate dispatched BEFORE any
 // graphCommit has no live cytoscape instance to update - ADR-005 D1 pins
 // "graphUpdate before any graphCommit -> jsError". A SEPARATE page (own
@@ -1990,6 +2127,179 @@ async function lightThemeProbe(browser, indexHtml, screenshotDir) {
   await page.close();
 }
 
+// ---------------------------------------------------------------------------
+// Fresh-page 2x DEVICE-SCALE probe (ADR-041 D2.2; ui-checklist "Web bundle at
+// 2x device scale"). Windows deployments routinely run 125-200% display scale
+// and the WebView inherits the host DPI, but every other frame this harness
+// judges renders at deviceScaleFactor 1 - so a pixelRatio-dependent regression
+// (canvas backing store not scaled => blurry raster; overlay geometry computed
+// in device px instead of CSS px => chrome off-viewport) is invisible to the
+// default context. Its OWN page/context/channel with deviceScaleFactor: 2 set
+// at creation (modeled on reducedMotionProbe: bridge-message waits only,
+// primitives out of evaluate, watchdog-bounded, no sleeps). Asserts:
+//   (1) the SAME stage-geometry invariants as the default run (shared
+//       assertStageGeometry: node bboxes non-zero + in-viewport at fit,
+//       #legend/#controls present + inside the viewport, no chrome text
+//       overflowing its box);
+//   (2) the cytoscape canvas backing store honors graph.js' DELIBERATE
+//       `pixelRatio: 1` init pin (canvas.width == CSS width even at DPR 2 -
+//       the software-rendering-floor perf decision, ADR-001/GraphSpike): the
+//       canvas raster is 1x-and-upscaled at 200% BY DESIGN today, so this pins
+//       the decision, not crispness - flipping pixelRatio is a deliberate
+//       bundle change that must update this assert (and the checklist's
+//       crispness judgment) with it;
+//   (3) every load-bearing --gw-* chrome token resolves to a non-empty value
+//       and the body background actually consumes --gw-canvas-bg (#1b1f27) -
+//       a var() typo/rename renders as transparent/initial, never a JS error.
+// ---------------------------------------------------------------------------
+async function deviceScale2Probe(browser, indexHtml, fixture) {
+  const probeMessages = [];
+  const probePending = new Map();
+  const probeWaiters = new Map();
+
+  function onProbeMessage(text) {
+    const msg = JSON.parse(text);
+    probeMessages.push(msg);
+    const waiter = probeWaiters.get(msg.type)?.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(msg);
+      return;
+    }
+    if (!probePending.has(msg.type)) {
+      probePending.set(msg.type, []);
+    }
+    probePending.get(msg.type).push(msg);
+  }
+
+  function awaitProbeMessage(type, context) {
+    const queued = probePending.get(type)?.shift();
+    if (queued) {
+      return Promise.resolve(queued);
+    }
+    return new Promise((resolvePromise, rejectPromise) => {
+      const timer = setTimeout(() => {
+        const list = probeWaiters.get(type) ?? [];
+        const index = list.findIndex((w) => w.resolve === resolvePromise);
+        if (index >= 0) {
+          list.splice(index, 1);
+        }
+        const seen = probeMessages.map((m) => m.type).join(', ') || '(none)';
+        rejectPromise(new Error(
+          `timed out after ${MESSAGE_TIMEOUT_MS / 1000}s waiting for '${type}' (2x-scale: ${context}); probe messages seen so far: ${seen}`));
+      }, MESSAGE_TIMEOUT_MS);
+      if (!probeWaiters.has(type)) {
+        probeWaiters.set(type, []);
+      }
+      probeWaiters.get(type).push({ resolve: resolvePromise, timer });
+    });
+  }
+
+  // deviceScaleFactor is a context-creation option - CSS layout stays 1600x1000
+  // CSS px; only rasterization density doubles (exactly the Windows 200% shape).
+  const page = await browser.newPage({
+    viewport: { width: 1600, height: 1000 },
+    deviceScaleFactor: 2,
+  });
+  page.on('crash', () => {
+    console.error(
+      `FAILED page-crash: 2x-scale probe renderer crashed; last completed phase: ${lastPhase}`);
+    process.exit(1);
+  });
+  page.on('pageerror', (err) => onProbeMessage(JSON.stringify(
+    { type: 'jsError', source: 'playwright:pageerror', message: String(err) })));
+  await page.exposeFunction('__bridgeSendShim', onProbeMessage);
+
+  // Publish window.__cy exactly like the main run (no motion recorders needed -
+  // this probe never drives motion).
+  await page.addInitScript(() => {
+    let wrapped;
+    Object.defineProperty(window, 'cytoscape', {
+      configurable: true,
+      get() { return wrapped; },
+      set(real) {
+        wrapped = function (...args) {
+          const instance = real.apply(this, args);
+          window.__cy = instance;
+          return instance;
+        };
+        Object.assign(wrapped, real);
+      },
+    });
+  });
+
+  await page.goto(pathToFileURL(indexHtml).href);
+  await awaitProbeMessage('ready', '2x-scale bundle startup after goto');
+
+  for (const chunk of toChunks(fixture.nodes, fixture.edges)) {
+    await page.evaluate((cmd) => window.bridge.dispatch(cmd), chunk);
+  }
+  await page.evaluate(() => window.bridge.dispatch({ type: 'graphCommit' }));
+  await awaitProbeMessage('loaded', '2x-scale graphCommit -> first render');
+
+  // (1) the shared stage-geometry invariants, at the 2x devicePixelRatio.
+  const geometry = await stageGeometrySnapshot(page);
+  assert(geometry.devicePixelRatio === 2,
+    `2x-scale: window.devicePixelRatio must be 2 in this context, got ${geometry.devicePixelRatio}`);
+  assertStageGeometry(geometry, '2x-scale', fixture.nodes.length);
+  phase('2x-scale: stage geometry (node bboxes at fit + legend/controls in-viewport + no chrome text overflow)');
+
+  // (2) the canvas backing store honors graph.js' deliberate `pixelRatio: 1`
+  // init pin: layer canvases stay at CSS size even at DPR 2 (1x raster,
+  // browser-upscaled - the documented software-rendering-floor perf choice).
+  // Pinned in BOTH directions: a bundle that starts honoring devicePixelRatio
+  // (2x backing store) is a deliberate perf/crispness change and must update
+  // this assert alongside graph.js.
+  const backing = await page.evaluate(() => {
+    const canvases = [...document.querySelectorAll('#cy canvas')];
+    return canvases.map((c) => ({
+      width: c.width,
+      clientWidth: c.clientWidth,
+      height: c.height,
+      clientHeight: c.clientHeight,
+    }));
+  });
+  assert(backing.length > 0, '2x-scale: cytoscape must render canvas layers under #cy');
+  for (const c of backing) {
+    assert(Math.abs(c.width - c.clientWidth) <= 2 && Math.abs(c.height - c.clientHeight) <= 2,
+      `2x-scale: canvas backing store must equal its CSS size (graph.js pixelRatio:1, the deliberate software-rendering-floor pin) - got ${c.width}x${c.height} for a ${c.clientWidth}x${c.clientHeight} CSS box; if graph.js dropped pixelRatio:1 deliberately, update this pin with it`);
+  }
+  phase('2x-scale: canvas backing store stays 1x (graph.js pixelRatio:1 pinned, both directions)');
+
+  // (3) the load-bearing --gw-* tokens resolve, and the canvas bg consumes one.
+  // Reads the EFFECTIVE computed value - graph.js applies its CHROME table onto
+  // documentElement at IIFE init (applyChromeVariant), so this guards the whole
+  // chain: the :root default, the CHROME table entry, and the applier.
+  const REQUIRED_GW_VARS = [
+    '--gw-canvas-bg', '--gw-canvas-grid', '--gw-chrome-bg', '--gw-chrome-border',
+    '--gw-chrome-title', '--gw-chrome-label', '--gw-chrome-count', '--gw-edge-member',
+    '--gw-edge-contains', '--gw-sev-error', '--gw-sev-warning', '--gw-sev-info',
+    '--gw-diff-added', '--gw-diff-removed', '--gw-diff-unchecked', '--gw-accent',
+  ];
+  const tokens = await page.evaluate((names) => {
+    const cs = getComputedStyle(document.documentElement);
+    const out = { values: {}, bodyBg: getComputedStyle(document.body).backgroundColor };
+    for (const name of names) {
+      out.values[name] = cs.getPropertyValue(name).trim();
+    }
+    return out;
+  }, REQUIRED_GW_VARS);
+  for (const name of REQUIRED_GW_VARS) {
+    assert(tokens.values[name].length > 0,
+      `2x-scale: themed token ${name} must resolve to a non-empty value on :root (renamed/dropped var?)`);
+  }
+  assert(toHex(tokens.bodyBg) === '#1B1F27',
+    `2x-scale: body background must consume --gw-canvas-bg (#1b1f27), got '${tokens.bodyBg}' (a broken var() falls back silently)`);
+  phase('2x-scale: --gw-* chrome tokens resolve and the canvas bg consumes them');
+
+  // This probe is itself jsError-free on its own channel.
+  const probeJsErrors = probeMessages.filter((m) => m.type === 'jsError');
+  assert(probeJsErrors.length === 0,
+    `2x-scale probe must be jsError-free on its own channel: ${JSON.stringify(probeJsErrors, null, 2)}`);
+
+  await page.close();
+}
+
 async function main() {
   const fixturePath = process.argv[2];
   const screenshotDir = process.argv[3];
@@ -2102,6 +2412,15 @@ async function main() {
     assert(loaded.nodeCount >= 190,
       `anti-vacuous floor: demo graph must have >= 190 nodes, got ${loaded.nodeCount}`);
     phase(`loaded (${loaded.nodeCount} nodes, ${loaded.edgeCount} edges)`);
+
+    // --- stage geometry at the initial fit (ADR-041 D2.2, default 1x context) --
+    // Scale-independent structural invariants, asserted BEFORE any phase moves
+    // the camera: node bboxes non-zero + inside the viewport at fit, the
+    // legend/controls chrome present + in-viewport, and no chrome text
+    // overflowing its own box. The deviceScale2Probe below re-runs the literal
+    // same asserts at deviceScaleFactor 2.
+    assertStageGeometry(await stageGeometrySnapshot(page), 'stage-geometry(1x)', fixture.nodes.length);
+    phase('stage geometry at fit (node bboxes in-viewport, chrome in-viewport, no chrome text overflow)');
 
     // --- BASE edge styling parity C# <-> JS (F6/F7 edge-legibility change) -----
     // Pin the NON-diff edge[rel='member'] / edge[rel='contains'] computed styles
@@ -5197,6 +5516,15 @@ async function main() {
     await lightThemeProbe(browser, indexHtml, screenshotDir);
     phase('light-theme probe (fresh page: live light restyle vs LIGHT_* + dark round-trip)');
 
+    // --- fresh-page 2x DEVICE-SCALE probe (ADR-041 D2.2) ---------------------
+    // After the audit and the other probes, on its OWN page/context/channel with
+    // deviceScaleFactor: 2 set at context creation (a context option - it can
+    // never leak into the 1x main run). Re-runs the shared stage-geometry
+    // invariants at 2x and adds the backing-store + --gw-* token pins, flipping
+    // the ui-checklist "Web bundle at 2x device scale" item to [P].
+    await deviceScale2Probe(browser, indexHtml, fixture);
+    phase('2x-scale probe (fresh page: shared geometry invariants + 2x backing store + tokens resolve)');
+
     console.log(
       `PASS graph-bundle: ${loaded.nodeCount} nodes, ${loaded.edgeCount} edges `
       + `(post-update ${updated.nodeCount}/${updated.edgeCount}), `
@@ -5214,6 +5542,7 @@ async function main() {
       + `control cluster + find (name/DN/no-match) + zoom/fit + labels toggle + keyboard verified (ADR-023), `
       + `issues-only filter (toggle on/off, keep flagged+roll-up, hide clean, survive graphUpdate, reveal-on-select, all-clear inert) verified (WP3b #142), `
       + `minimap (bottom-left/disjoint, thumbnail, viewport-tracks-camera, click-to-pan silent, theme re-png, empty+degenerate hidden) verified (WP3d #146), `
+      + `stage geometry at 1x + 2x device scale (fit bboxes, chrome in-viewport/no-overflow, pixelRatio:1 backing-store pin, tokens) verified (ADR-041), `
       + `minDist ${minDistance.toFixed(1)}, ${assertCount} asserts, `
       + `8 screenshots -> ${screenshotDir}`);
   } finally {

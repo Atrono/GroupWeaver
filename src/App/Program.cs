@@ -6,6 +6,8 @@ using System.Text.Json;
 using Avalonia;
 using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Graph;
+using GroupWeaver.App.ViewModels;
+using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Graph;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Providers;
@@ -34,6 +36,12 @@ internal static class Program
         if (dumpGraphIndex >= 0)
         {
             return RunDumpGraph(demo, dumpGraphIndex + 1 < args.Length ? args[dumpGraphIndex + 1] : null);
+        }
+
+        var dumpExportIndex = Array.IndexOf(args, "--dump-export");
+        if (dumpExportIndex >= 0)
+        {
+            return RunDumpExport(demo, dumpExportIndex + 1 < args.Length ? args[dumpExportIndex + 1] : null);
         }
 
         // ---------- GUI path ONLY from here (ADR-037 D2/D7): the CLI paths above stay
@@ -428,6 +436,68 @@ internal static class Program
 
             File.WriteAllText(
                 path, GraphJson.SerializeFlat(GraphBuilder.Build(snapshot, rootDn), report, belowMap));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Headless findings-report HTML dump — the visual-regression export seam (ADR-041 D2.3).
+    /// Demo-only by design: without <c>--demo</c> it exits 64, because live-AD structure
+    /// must never reach artifacts (public-media rule). Never initializes Avalonia; runs the
+    /// real <see cref="ViolationReportExporter.ToHtml"/> over the demo baseline report with
+    /// the populated 7-arg <see cref="ReportHeader"/> shape the audit surface builds
+    /// (ADR-030 D3 honesty fields; TriagedCount is 0 — no triage store on this path).
+    /// </summary>
+    private static int RunDumpExport(bool demo, string? path)
+    {
+        EnsureConsole();
+
+        if (!demo)
+        {
+            Console.Error.WriteLine(
+                "--dump-export is demo-only: live-AD structure must never reach artifacts - re-run with --demo");
+            return 64;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            Console.Error.WriteLine("usage: GroupWeaver --demo --dump-export <path>");
+            return 64;
+        }
+
+        try
+        {
+            var provider = new DemoProvider();
+            var connection = provider.ConnectAsync().GetAwaiter().GetResult();
+
+            // The demo dataset root: same selection as RunDumpGraph — the candidate closest
+            // to the directory root (fewest escape-aware RDN components, ordinal tie-break).
+            var rootDn = provider.GetRootCandidatesAsync().GetAwaiter().GetResult()
+                .OrderBy(candidate => RdnComponentCount(candidate.Dn))
+                .ThenBy(candidate => candidate.Dn, StringComparer.Ordinal)
+                .First().Dn;
+
+            var snapshot = provider.LoadScopeAsync(rootDn).GetAwaiter().GetResult();
+            var ruleset = RulesetLoader.LoadDefault();
+            var report = RuleEngine.Evaluate(snapshot, ruleset);
+
+            var header = new ReportHeader(
+                rootDn,
+                SubjectNameResolver.Resolve(snapshot, rootDn),
+                $"connected, {connection.GroupCount} groups loaded — {connection.Description}",
+                DateTimeOffset.Now,
+                RulesetName: ruleset.Name,
+                TriagedCount: 0,
+                UncheckedCount: report.UncheckedDns.Count);
+
+            File.WriteAllText(
+                path,
+                ViolationReportExporter.ToHtml(report, dn => SubjectNameResolver.Resolve(snapshot, dn), header));
             return 0;
         }
         catch (Exception ex)

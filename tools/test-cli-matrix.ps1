@@ -1,8 +1,8 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    GroupWeaver CLI probe matrix gate: four process-level checks against the REAL
-    built exe (ADR-038 / WP3, issue #242).
+    GroupWeaver CLI probe matrix gate: six process-level checks against the REAL
+    built exe (ADR-038 / WP3, issue #242; checks 5-6 per ADR-041 D2.3).
 
 .DESCRIPTION
     Pins the headless CLI surface as a gate, used identically on the dev box and
@@ -21,6 +21,12 @@
                                   live-AD structure must never reach artifacts).
       4. --demo --dump-graph x2   byte-identical dumps (determinism pin), both
                                   parse as JSON.
+      5. --dump-export (no --demo) exit 64 and no file written (the ADR-041 D2.3
+                                  seam under the same demo-only refusal).
+      6. --demo --dump-export     exit 0, HTML written carrying the pinned
+                                  findings-table header row. (No determinism pin:
+                                  the export embeds the generation timestamp by
+                                  design, ADR-013.)
 
     Process handling per the pack-release launch-smoke lessons (docs/journal
     2026-06-13): ALWAYS redirect BOTH stdout and stderr (single-stream redirect
@@ -188,6 +194,46 @@ try {
         }
         else {
             Report 'check 4 (--demo --dump-graph x2)' $true "byte-identical dumps (SHA256 $hashA), both valid JSON"
+        }
+    }
+
+    # ---------- check 5: --dump-export without --demo (demo-only refusal) ----------
+    Write-Host ''
+    Write-Host '==> Check 5: --dump-export without --demo (exit 64, no file written)' -ForegroundColor Cyan
+    $noDemoExport = Join-Path $tmpDir 'export-no-demo.html'
+    $r = Invoke-AppExe -ExeArgs @('--dump-export', "`"$noDemoExport`"") -TimeoutSec 60
+    if ($r.TimedOut) {
+        Report 'check 5 (--dump-export, no --demo)' $false 'did not exit within 60 s (killed)'
+    }
+    elseif ($r.ExitCode -ne 64) {
+        Report 'check 5 (--dump-export, no --demo)' $false "exited $($r.ExitCode), expected 64. stderr: $($r.StdErr.Trim() -replace '\r?\n', ' | ')"
+    }
+    elseif (Test-Path $noDemoExport) {
+        Report 'check 5 (--dump-export, no --demo)' $false "wrote $noDemoExport despite the demo-only refusal"
+    }
+    else {
+        Report 'check 5 (--dump-export, no --demo)' $true 'exit 64 and no file written (demo-only refusal intact)'
+    }
+
+    # ---------- check 6: --demo --dump-export (findings HTML written) ----------
+    Write-Host ''
+    Write-Host '==> Check 6: --demo --dump-export (exit 0, pinned findings header row)' -ForegroundColor Cyan
+    $exportHtml = Join-Path $tmpDir 'export-demo.html'
+    $r = Invoke-AppExe -ExeArgs @('--demo', '--dump-export', "`"$exportHtml`"") -TimeoutSec 120
+    if ($r.TimedOut) {
+        Report 'check 6 (--demo --dump-export)' $false 'did not exit within 120 s (killed)'
+    }
+    elseif ($r.ExitCode -ne 0 -or -not (Test-Path $exportHtml)) {
+        Report 'check 6 (--demo --dump-export)' $false "exited $($r.ExitCode) (file exists: $(Test-Path $exportHtml)). stderr: $($r.StdErr.Trim() -replace '\r?\n', ' | ')"
+    }
+    else {
+        $html = [string](Get-Content $exportHtml -Raw)
+        $headerRow = '<th>Severity</th><th>Rule</th><th>Subject</th><th>Primary DN</th><th>DNs</th><th>Message</th>'
+        if ($html -notlike "*$headerRow*") {
+            Report 'check 6 (--demo --dump-export)' $false 'HTML is missing the pinned findings-table header row'
+        }
+        else {
+            Report 'check 6 (--demo --dump-export)' $true 'exit 0, HTML written with the pinned findings-table header row'
         }
     }
 }
