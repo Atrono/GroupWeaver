@@ -531,10 +531,14 @@ one IS opened (real demo-mode exports, rendered/read as evidence):
       (ADR-041 D2.3): zero console errors/pageerrors/external fetches, `<th>` cells,
       the pinned severity hexes in the rendered styles, the 19-row baseline and the
       honesty header rows; AA contrast + legacy-header absence stay [I]/[T-exporter]]
-- [ ] Plan export .ps1: ASCII-only (the PS 5.1 no-BOM rule applies to files we
-      EMIT, not just our own tools), carries the read-only provenance comment
+- [ ] Plan export .ps1: BOM-led UTF-8 (#330 / ADR-014 addendum — the in-string
+      U+FEFF makes PS 5.1 decode non-ASCII names correctly; the provenance
+      header itself stays ASCII), carries the read-only provenance comment
       (GroupWeaver never executes it), object/membership statements mirror the
-      draft plan 1:1, parses clean under the PS 5.1 parser [I]
+      draft plan 1:1, guards read the raw member attribute (never the
+      FSP-throwing enumeration), parses clean under the PS 5.1 parser
+      [T:PlanScriptExporterTests + T:PlanExportTests — incl. a spawned-PS-5.1
+      Parser.ParseFile zero-errors proof]
 - [ ] Audit run JSON (`%APPDATA%\GroupWeaver\runs\`): field correctness — ISO-8601
       timestamp, ruleset name + content hash, finding identity as structured
       RuleId + DNs (never the display Message); a saved run re-read by "Compare to

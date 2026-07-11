@@ -27,6 +27,15 @@ namespace GroupWeaver.Tests.Core.Plan;
 /// <item>The script carries the disclaiming header (GroupWeaver is read-only / does
 /// NOT run this file) and idempotent existence guards around every create and every
 /// membership add.</item>
+/// <item>GUARD IDIOM (#330): the membership guards read the raw <c>member</c> attribute
+/// (<c>Get-ADGroup -Properties member</c>) and compare DNs — the emitted text NEVER
+/// contains the member-ENUMERATION cmdlet the lab notes document as throwing on
+/// FSP-bearing / &gt;5000-member groups (which, under the script's own Set-StrictMode +
+/// Stop preference, aborts the whole run and breaks the idempotence promise).</item>
+/// <item>ENCODING (#330): the emitted STRING starts with exactly one U+FEFF (the
+/// in-string UTF-8 BOM — the App's BOM-less writer turns it into the file's EF BB BF,
+/// which is what makes PS 5.1 decode non-ASCII correctly), non-ASCII name characters
+/// flow through VERBATIM, and the header/provenance block itself stays ASCII.</item>
 /// <item>Deterministic bytes: given an injected timestamp in
 /// <see cref="PlanScriptHeader"/>, two exports of the same plan are byte-identical.</item>
 /// </list>
@@ -35,6 +44,11 @@ namespace GroupWeaver.Tests.Core.Plan;
 public class PlanScriptExporterTests
 {
     private const string BaseOu = "OU=AGDLP-Lab,DC=agdlp,DC=lab";
+
+    /// <summary>U+FEFF — the single in-string UTF-8 BOM character the emitted script must
+    /// lead with (#330). Spelled numerically so the invisible char never sits raw in this
+    /// source file.</summary>
+    private const char Bom = (char)0xFEFF;
 
     private static readonly PlanScriptHeader Header = new(
         BaseOuDn: BaseOu,
@@ -303,8 +317,10 @@ public class PlanScriptExporterTests
 
         // The header must state, in a leading comment, that GroupWeaver does NOT
         // execute this file (read-only product) and is for the operator to run.
-        var firstLine = script.Split('\n')[0];
-        Assert.StartsWith("#", firstLine.TrimEnd('\r'), StringComparison.Ordinal);
+        // RE-PINNED for #330: the script now begins with exactly one U+FEFF (the
+        // in-string BOM — see the Encoding region below), immediately followed by
+        // the disclaiming comment. Old pin: the first line started with '#' bare.
+        Assert.StartsWith("\uFEFF#", script, StringComparison.Ordinal);
         Assert.Contains("GroupWeaver", script, StringComparison.Ordinal);
         Assert.Contains("NOT", script, StringComparison.Ordinal);
         Assert.Contains("read-only", script, StringComparison.OrdinalIgnoreCase);
@@ -320,10 +336,181 @@ public class PlanScriptExporterTests
 
         var script = PlanScriptExporter.ToPowerShell(plan, Header);
 
-        // Idempotence: a "-not (... existence query ...)" guard wraps creates and
-        // membership adds, so re-running the script is safe.
+        // Idempotence: a "-not (... existence query ...)" guard wraps the creates, and
+        // every membership add sits behind its own raw-member-attribute guard (that
+        // guard's exact shape is pinned in the "#330 membership guard idiom" region
+        // below), so re-running the script is safe.
         Assert.Contains("if (-not", script, StringComparison.Ordinal);
         Assert.Contains("Set-StrictMode", script, StringComparison.Ordinal);
+    }
+
+    // --- #330 membership guard idiom: raw member attribute, never the throwing enumerator --
+    //
+    // The lab notes (.claude/rules/lab-environment.md, AD quirks) document that the member-
+    // ENUMERATION cmdlet throws "unspecified error" on any group containing an unresolvable
+    // FSP (and on >5000-member groups). The emitted script runs under Set-StrictMode +
+    // $ErrorActionPreference = 'Stop', so a membership guard built on that cmdlet aborts the
+    // WHOLE script mid-run on precisely the messy real-world directories it exists for —
+    // breaking the header's "idempotent - existence checks guard every ..." promise (issue
+    // #330, audit Lever 2). The fixed guard reads the raw `member` attribute
+    // (Get-ADGroup -Properties member) and compares DNs — the exact idiom
+    // tools/seed-testad.ps1 already uses. Shape notes, all deliberate:
+    //   - the untrusted parent/child tokens are bound to locals as single-quoted literals
+    //     first and only the VARIABLES appear afterwards (the same discipline as the
+    //     create-guards' $sam binding; the token never leaves a single-quoted literal);
+    //   - the child DN is resolved kind-agnostically (group OR user member) via a -Filter
+    //     query — filter queries return empty on no match, they never throw under Stop;
+    //   - `Select-Object -ExpandProperty DistinguishedName` (not a direct `.Property`
+    //     access) so a vanished child yields $null instead of a StrictMode property error,
+    //     and the add statement then runs and reports the REAL problem;
+    //   - `.member` on the -Properties member result is always present (possibly empty),
+    //     so the -notcontains test is StrictMode-safe on empty and FSP-bearing groups alike.
+
+    [Fact]
+    public void ToPowerShell_MembershipGuard_ReadsTheRawMemberAttribute()
+    {
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_X_RW", sam: "DL_X_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+        plan.AddEdge(dl.Dn, gg.Dn);
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        // (a) The membership guard queries the parent's raw member attribute.
+        Assert.Contains(
+            "Get-ADGroup -Identity $parent -Properties member",
+            script,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_NeverEmitsTheThrowingMemberEnumerationCmdletName()
+    {
+        // (b) The throwing enumerator's name must not appear ANYWHERE in the emitted
+        // text — not in guards, not in comments. (Its name is a strict superstring of
+        // the safe group-query cmdlet's name, so this scan cannot false-positive on
+        // the create guards or the raw-member guard.)
+        var plan = BuildRepresentativePlan();
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        Assert.DoesNotContain("Get-ADGroupMember", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ToPowerShell_MembershipGuard_PinnedBlock_SkipsWhenPresent_AddsWhenMissing()
+    {
+        // (c) The guard still GUARDS — the full emitted block is pinned textually:
+        // existing membership (child DN already in the raw member list) => the
+        // -notcontains test is false => the add is SKIPPED; missing membership =>
+        // the add statement inside the braces RUNS. Idempotence lives in this shape.
+        var plan = new PlanModel(BaseOu);
+        var dl = plan.AddNode(PlanCreatableKind.DomainLocalGroup, "DL_X_RW", sam: "DL_X_RW");
+        var gg = plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Sales", sam: "GG_Sales");
+        plan.AddEdge(dl.Dn, gg.Dn);
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        var expected =
+            "$parent = 'DL_X_RW'\r\n"
+            + "$child = 'GG_Sales'\r\n"
+            + "$childDn = Get-ADObject -Filter 'SamAccountName -eq $child' | Select-Object -ExpandProperty DistinguishedName\r\n"
+            + "if ((Get-ADGroup -Identity $parent -Properties member).member -notcontains $childDn) {\r\n"
+            + "    Add-ADGroupMember -Identity $parent -Members $child\r\n"
+            + "}\r\n";
+        Assert.Contains(expected, script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_MembershipGuard_UserMember_UsesTheSameKindAgnosticDnLookup()
+    {
+        // A USER member flows through the identical guard shape — the child-DN lookup
+        // is kind-agnostic by construction (the directory-object query, not a
+        // group-only or user-only one), so group→group and group→user memberships
+        // cannot drift apart.
+        var plan = BuildRepresentativePlan(); // contains GG_Sales_EU ← ada.lovelace
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        var expected =
+            "$parent = 'GG_Sales_EU'\r\n"
+            + "$child = 'ada.lovelace'\r\n"
+            + "$childDn = Get-ADObject -Filter 'SamAccountName -eq $child' | Select-Object -ExpandProperty DistinguishedName\r\n"
+            + "if ((Get-ADGroup -Identity $parent -Properties member).member -notcontains $childDn) {\r\n"
+            + "    Add-ADGroupMember -Identity $parent -Members $child\r\n"
+            + "}\r\n";
+        Assert.Contains(expected, script, StringComparison.Ordinal);
+    }
+
+    // --- #330 encoding: one leading in-string BOM, non-ASCII names VERBATIM ----------------
+    //
+    // PS 5.1 (-File and Parser.ParseFile alike) reads a BOM-less script via the ANSI
+    // codepage, so a non-ASCII group name in the emitted UTF-8 file mojibakes — and a
+    // multi-byte sequence whose bytes mis-decode to a curly-quote char (a string DELIMITER
+    // to PowerShell's tokenizer) breaks the PARSE outright. The exporter therefore leads
+    // the emitted STRING with exactly one U+FEFF: the App's writer stays BOM-less
+    // (UTF8Encoding(false), pinned by PlanExportTests), so the char travels in-string and
+    // becomes the file's EF BB BF preamble — the same in-string idiom #329 established for
+    // the CSV export. This DELIBERATELY re-pins the old implicit no-BOM/ASCII-only
+    // expectation (issue #330, audit Lever 2); non-ASCII characters that pass the
+    // PlanText.IsUnsafe gate flow through VERBATIM — never transliterated, never escaped.
+
+    [Fact]
+    public void ToPowerShell_StartsWithExactlyOneBomCharacter()
+    {
+        var script = PlanScriptExporter.ToPowerShell(BuildRepresentativePlan(), Header);
+
+        Assert.Equal(Bom, script[0]);
+        // Exactly ONE — a doubled BOM (e.g. exporter + a future writer both adding one)
+        // would surface as a visible U+FEFF glyph inside the parsed script.
+        Assert.Equal(1, script.Count(c => c == Bom));
+        // The disclaiming comment follows the BOM immediately — nothing in between.
+        Assert.StartsWith(Bom + "# GroupWeaver plan export", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_NonAsciiName_FlowsVerbatim_InsideTheSingleQuotedLiteral()
+    {
+        // An umlaut name is legal directory reality; with the BOM in place PS 5.1
+        // decodes it correctly, so the exporter must emit it UNCHANGED inside the
+        // single-quoted literal — no transliteration (Kaeufer), no escaping.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Vertrieb_Käufer", sam: "GG_Vertrieb_Käufer");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        Assert.Contains("'GG_Vertrieb_Käufer'", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_NonAsciiNameWithApostrophe_KeepsVerbatimUmlautAndQuoteDoubling()
+    {
+        // The two rules compose: the umlaut stays verbatim AND the ASCII apostrophe is
+        // still doubled inside the same single-quoted literal.
+        var plan = new PlanModel(BaseOu);
+        plan.AddNode(PlanCreatableKind.GlobalGroup, "GG_Käufer's", sam: "GG_Kaeufers");
+
+        var script = PlanScriptExporter.ToPowerShell(plan, Header);
+
+        Assert.Contains("'GG_Käufer''s'", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToPowerShell_HeaderAndProvenance_StayAscii_AfterTheLeadingBom()
+    {
+        // The exporter's OWN prose (provenance header, section comments up to the first
+        // section marker) stays pure ASCII — only directory-supplied tokens may carry
+        // non-ASCII. With the all-ASCII fixture, everything before the Groups marker
+        // (minus the single leading BOM) must be ASCII, and the read-only provenance
+        // comment plus the untouched ToolVersion literal must survive the #330 rework.
+        var script = PlanScriptExporter.ToPowerShell(BuildRepresentativePlan(), Header);
+
+        var headerEnd = IndexOfRequired(script, "# --- Groups");
+        var header = script[..headerEnd].TrimStart(Bom);
+        Assert.All(header, c => Assert.True(
+            c <= '\x7f', $"non-ASCII U+{(int)c:X4} leaked into the exporter's own header"));
+        Assert.Contains("read-only", header, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("(GroupWeaver 0.2.0)", header, StringComparison.Ordinal);
     }
 
     // --- Deterministic bytes given an injected timestamp ----------------------------------

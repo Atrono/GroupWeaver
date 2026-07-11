@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -30,13 +31,21 @@ namespace GroupWeaver.App.Tests;
 /// <c>.ps1</c> is reproducible — never the wall clock, never the live assembly version. A
 /// test therefore knows the EXACT expected bytes: with a FIXED clock value and a FIXED tool
 /// version, the command must write <c>PlanScriptExporter.ToPowerShell(plan, new
-/// PlanScriptHeader(BaseOuDn, toolVersion, fixedClockValue))</c> encoded UTF-8 with NO BOM.</para>
+/// PlanScriptHeader(BaseOuDn, toolVersion, fixedClockValue))</c> through the BOM-less
+/// <c>UTF8Encoding(false)</c> writer. RE-PINNED for #330: the exporter STRING now leads with
+/// one in-string U+FEFF (its own tests pin that), so the BOM-less writer produces a file
+/// whose first bytes ARE the UTF-8 BOM EF BB BF — that preamble is what makes Windows
+/// PowerShell 5.1 decode non-ASCII names correctly (same in-string idiom as #329's CSV).</para>
 ///
 /// <para>Binding contract (AP 4.2.4 spec §A; mirrors the workspace export discipline):</para>
 /// <list type="bullet">
-///   <item><b>Executing the command writes the exporter output to the picked path</b> as
-///   UTF-8 NO-BOM — asserted byte-for-byte AND with an explicit "the first bytes are NOT the
-///   UTF-8 BOM (EF BB BF)" check.</item>
+///   <item><b>Executing the command writes the exporter output to the picked path</b> via the
+///   BOM-less writer — asserted byte-for-byte AND with an explicit "the first bytes ARE the
+///   in-string UTF-8 BOM (EF BB BF), exactly once" check (#330 re-pin; old pin: NO BOM).</item>
+///   <item><b>PS 5.1 parse-clean proof (#330):</b> a plan with a non-ASCII name exported
+///   through the real command produces a file Windows PowerShell 5.1's own parser reads
+///   with ZERO errors (spawned <c>powershell.exe</c>, <c>Parser.ParseFile</c> — which honors
+///   the BOM exactly like <c>-File</c> does).</item>
 ///   <item><b>The kind requested is <see cref="ExportKind.Ps1"/></b> — the fake records it.</item>
 ///   <item><b>A cancelled pick (path == null) is a no-op</b> — nothing is written anywhere.</item>
 ///   <item><b><c>CanExportPlanScript</c></b>: false with no dialogs installed, false on an
@@ -76,15 +85,20 @@ public sealed class PlanExportTests
     /// The keystone byte-exactness pin (spec §A): a non-empty plan + a fake returning a temp
     /// path → <c>ExportPlanScriptCommand</c> writes a <c>.ps1</c> whose bytes EQUAL
     /// <c>PlanScriptExporter.ToPowerShell(plan, new PlanScriptHeader(BaseOuDn, toolVersion,
-    /// fixedClockValue))</c> encoded UTF-8 NO-BOM. The expected bytes are recomputed here from
-    /// the SAME frozen exporter the VM calls and the SAME injected header inputs, so this pins
-    /// that the VM (a) builds the header from <c>BaseOuDn</c> + the injected tool version + the
-    /// injected clock value, (b) routes through the frozen exporter unchanged, and (c) writes
-    /// UTF-8 with NO BOM. A separate explicit assertion proves the first bytes are NOT the
-    /// UTF-8 BOM (EF BB BF) — the no-BOM half cannot be inferred from string equality alone.
+    /// fixedClockValue))</c> encoded through the BOM-less <c>UTF8Encoding(false)</c> writer.
+    /// The expected bytes are recomputed here from the SAME frozen exporter the VM calls and
+    /// the SAME injected header inputs, so this pins that the VM (a) builds the header from
+    /// <c>BaseOuDn</c> + the injected tool version + the injected clock value, (b) routes
+    /// through the frozen exporter unchanged, and (c) keeps the WRITER BOM-less — the BOM the
+    /// file carries is the exporter's own leading in-string U+FEFF, nothing the writer adds.
+    /// RE-PINNED for #330 (old pin: the file must NOT start with EF BB BF): the file now MUST
+    /// start with EF BB BF, exactly once — that preamble is what makes PS 5.1 decode
+    /// non-ASCII names correctly. The explicit first-bytes assertion is load-bearing: a
+    /// writer that ALSO added its own encoder BOM would double the preamble yet still pass a
+    /// naive string round-trip, so the exactly-once check guards both directions.
     /// </summary>
     [Fact(Timeout = 30_000)]
-    public async Task ExportPlanScript_WritesExporterBytes_Utf8NoBom_ToThePickedPath()
+    public async Task ExportPlanScript_WritesExporterBytes_WithTheInStringBomLeading_ToThePickedPath()
     {
         using var temp = new TempFile("ps1");
         var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Ps1, temp.Path);
@@ -95,8 +109,9 @@ public sealed class PlanExportTests
         await plan.ExportPlanScriptCommand.ExecuteAsync(null);
 
         // The frozen exporter is the byte-authority (pinned by PlanScriptExporterTests); the VM
-        // must write EXACTLY ToPowerShell(plan, header) for the injected header inputs, UTF-8
-        // NO-BOM. Recompute the expected text + bytes from the same exporter + the same inputs.
+        // must write EXACTLY ToPowerShell(plan, header) for the injected header inputs through
+        // the BOM-less writer. Recompute the expected text + bytes from the same exporter +
+        // the same inputs.
         var expectedHeader = new PlanScriptHeader(plan.BaseOuDn, FixedToolVersion, FixedClock);
         var expectedText = PlanScriptExporter.ToPowerShell(plan.Plan, expectedHeader);
         var expectedBytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
@@ -106,12 +121,76 @@ public sealed class PlanExportTests
         var actualBytes = File.ReadAllBytes(temp.Path);
         Assert.Equal(expectedBytes, actualBytes);
 
-        // Explicit NO-BOM pin: the file must NOT begin with the UTF-8 BOM EF BB BF. (A
-        // BOM-prefixed file would still decode to the same string, so string equality alone
-        // would not catch a stray BOM — this is the load-bearing extra assertion.)
-        Assert.False(
+        // Explicit BOM pin (#330 re-pin; old assertion was the exact inverse): the file MUST
+        // begin with the UTF-8 BOM EF BB BF — the exporter's in-string U+FEFF surviving the
+        // BOM-less writer — and must carry it exactly ONCE (no writer-added second preamble).
+        Assert.True(
             actualBytes.Length >= 3 && actualBytes[0] == 0xEF && actualBytes[1] == 0xBB && actualBytes[2] == 0xBF,
-            "the .ps1 must be UTF-8 with NO BOM (must not start with EF BB BF)");
+            "the .ps1 must start with the in-string UTF-8 BOM EF BB BF (PS 5.1 decodes non-ASCII via it)");
+        Assert.False(
+            actualBytes.Length >= 6 && actualBytes[3] == 0xEF && actualBytes[4] == 0xBB && actualBytes[5] == 0xBF,
+            "the BOM must appear exactly once - a doubled preamble means the writer added its own");
+
+        plan.Dispose();
+    }
+
+    /// <summary>
+    /// The honest PS 5.1 parse-clean proof (#330): a plan carrying a non-ASCII name, exported
+    /// through the REAL command + the REAL BOM-less writer, must parse with ZERO errors under
+    /// a spawned Windows PowerShell 5.1 (<c>Parser.ParseFile</c> honors the BOM exactly like
+    /// <c>-File</c>; an in-process .NET re-read would silently use UTF-8 and prove nothing).
+    /// The name's trailing Cyrillic <c>ђ</c> (UTF-8 <c>D1 92</c>) is the parse-breaking
+    /// sentinel: BOM-less, ANSI mis-decodes 0x92 into a curly-quote string DELIMITER, so the
+    /// old encoding did not merely mojibake — it failed to parse. Skips LOUDLY via
+    /// <see cref="WindowsPowerShell51FactAttribute"/> when powershell.exe is absent (never on
+    /// this box or windows-2022 CI); the spawn is bounded like every other test here.
+    /// </summary>
+    [WindowsPowerShell51Fact(Timeout = 30_000)]
+    public async Task ExportPlanScript_NonAsciiName_ParsesCleanUnderWindowsPowerShell51()
+    {
+        using var temp = new TempFile("ps1");
+        var dialogs = new FakeExportDialogs().SavePathFor(ExportKind.Ps1, temp.Path);
+        var plan = HeadlessPlanWithExport(dialogs);
+        await SeedGroupAsync(plan, "GG_Vertrieb_Käuferђ");
+
+        await plan.ExportPlanScriptCommand.ExecuteAsync(null);
+        Assert.True(File.Exists(temp.Path), "the export command must write the picked .ps1 file");
+
+        // Spawn Windows PowerShell 5.1 and let ITS parser read the file the way -File would.
+        var psi = new ProcessStartInfo
+        {
+            FileName = WindowsPowerShell51FactAttribute.Ps51Path,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("-NoProfile");
+        psi.ArgumentList.Add("-NonInteractive");
+        psi.ArgumentList.Add("-Command");
+        psi.ArgumentList.Add(
+            "$errs = $null; "
+            + "[void][System.Management.Automation.Language.Parser]::ParseFile('"
+            + temp.Path.Replace("'", "''", StringComparison.Ordinal)
+            + "', [ref]$null, [ref]$errs); "
+            + "$errs.Count");
+        using var proc = Process.Start(psi)!;
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+        await proc.WaitForExitAsync();
+        var stdout = (await stdoutTask).Trim();
+        var stderr = (await stderrTask).Trim();
+
+        Assert.True(proc.ExitCode == 0, $"powershell.exe failed (exit {proc.ExitCode}): {stderr}");
+        Assert.True(
+            stdout == "0",
+            $"PS 5.1 reported {stdout} parse error(s) on the exported .ps1; stderr: {stderr}");
+
+        // File-level first-bytes pin inside the same journey (#330): the parse-clean result
+        // above exists BECAUSE the file starts with the in-string BOM's EF BB BF preamble.
+        var bytes = File.ReadAllBytes(temp.Path);
+        Assert.True(
+            bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+            "the exported .ps1 must start with EF BB BF - without it PS 5.1 reads ANSI");
 
         plan.Dispose();
     }
@@ -346,4 +425,33 @@ public sealed class PlanExportTests
             }
         }
     }
+}
+
+/// <summary>
+/// <see cref="FactAttribute"/> for tests that spawn Windows PowerShell 5.1
+/// (<c>powershell.exe</c>): sets <see cref="FactAttribute.Skip"/> with a LOUD reason when the
+/// binary is absent (mirrors the <c>AdFact</c> loud-skip idiom). It is never absent on this
+/// lab box or the windows-2022 CI image — the guard exists so an exotic environment degrades
+/// to a visible skip instead of a spawn failure.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+internal sealed class WindowsPowerShell51FactAttribute : FactAttribute
+{
+    public WindowsPowerShell51FactAttribute()
+    {
+        if (!File.Exists(Ps51Path))
+        {
+            Skip = "WARNING: Windows PowerShell 5.1 (powershell.exe) not found at "
+                + Ps51Path
+                + " - the PS 5.1 parse-clean pin SKIPPED; it is mandatory on the lab box and CI.";
+        }
+    }
+
+    /// <summary>The canonical 5.1 binary path — also the spawn target for the test body.</summary>
+    internal static string Ps51Path { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe");
 }

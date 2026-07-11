@@ -99,7 +99,10 @@ rewritten `ViolationReportCsvTests`/`ViolationReportHtmlTests`/
   shapes (tests assert their absence).
 - **CSV strings begin with exactly one U+FEFF** (Excel double-click decodes
   UTF-8 correctly); writers stay `UTF8Encoding(false)` — the BOM travels in the
-  string. HTML/JSON/PS1 outputs stay BOM-less.
+  string. This pipeline's HTML and JSON outputs stay BOM-less. (The plan
+  script's encoding is governed separately: the #330 revision in the ADR-014
+  addendum gives the emitted .ps1 the same in-string-BOM treatment for
+  PS 5.1 correctness.)
 - **Multi-DN cells join with LF inside the quoted cell** (DNs cannot contain
   raw newlines; Excel renders in-cell breaks); HTML joins encoded DNs with
   `<br>`. The §3 guard-before-quote order is unchanged and now applies to
