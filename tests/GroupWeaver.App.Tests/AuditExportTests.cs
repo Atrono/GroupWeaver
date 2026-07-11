@@ -101,6 +101,14 @@ public sealed class AuditExportTests
         var expected = ViolationReportExporter.ToCsv(report, ResolveNameOf(snapshot));
         Assert.True(File.Exists(temp.Path), "the CSV command must write the picked file");
         Assert.Equal(expected, ReadAllUtf8(temp.Path));
+
+        // #329 defect 2 (end-to-end): the CSV FILE starts with the UTF-8 BOM bytes EF BB BF (the
+        // exporter's in-string U+FEFF through AuditExportService's BOM-less UTF-8 writer), so an
+        // Excel double-click decodes UTF-8 — the German-AD Excel-correctness contract.
+        var head = File.ReadAllBytes(temp.Path);
+        Assert.True(
+            head.Length >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF,
+            "the CSV export must start with the UTF-8 BOM (EF BB BF)");
     }
 
     [Fact(Timeout = 60_000)]
@@ -434,12 +442,16 @@ public sealed class AuditExportTests
     private static string NormaliseGeneratedRow(string html) =>
         Regex.Replace(
             html,
-            "<tr><th>Generated</th><td>.*?</td></tr>",
+            "<tr><th[^>]*>Generated</th><td>.*?</td></tr>",
             "<tr><th>Generated</th><td>TS</td></tr>",
             RegexOptions.Singleline);
 
+    /// <summary>Decodes the file's raw bytes WITHOUT BOM detection — a leading U+FEFF stays in
+    /// the returned string, so string equality against the exporter output (whose CSV contract
+    /// carries the in-string BOM, #329) compares the true bytes. (<c>File.ReadAllText</c> would
+    /// silently strip a file BOM.)</summary>
     private static string ReadAllUtf8(string path) =>
-        File.ReadAllText(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        Encoding.UTF8.GetString(File.ReadAllBytes(path));
 
     /// <summary>The WP5 findings fixture (mirrors <see cref="AuditTriageTests"/>/<see cref="AuditTableTests"/>):
     /// a fully-LOADED scope tripping the default ruleset's nesting (a DL with a direct User member) +

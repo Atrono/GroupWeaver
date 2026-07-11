@@ -143,6 +143,51 @@ public sealed class GapKindConvertersTests
         Assert.DoesNotContain("unchecked areas areas", line, StringComparison.Ordinal); // no double word
     }
 
+    /// <summary>
+    /// #329 / audit gap-9: the trailing tally pluralizes correctly — exactly one unchecked
+    /// parent renders "1 unchecked area" (singular), never the hardcoded "1 unchecked areas"
+    /// the shipped frame showed. The full line is pinned so the node/membership segments
+    /// (compound "+a / −r" forms whose shared noun stays plural) are unchanged.
+    /// </summary>
+    [Fact]
+    public void ToLine_ExactlyOneUncheckedParent_UsesSingularArea()
+    {
+        var summary = new GapSummary(
+            AddedNodes: 3,
+            RemovedNodes: 1,
+            CommonNodes: 7,
+            AddedEdges: 4,
+            RemovedEdges: 2,
+            CommonEdges: 9,
+            UncheckedEdges: 5,
+            UncheckedParents: 1); // THE gap-9 case — the shipped fixture's own state
+
+        var line = Assert.IsType<string>(Line(summary));
+
+        Assert.Equal("+3 / −1 objects · +4 / −2 memberships · 1 unchecked area", line);
+        Assert.DoesNotContain("1 unchecked areas", line, StringComparison.Ordinal);
+    }
+
+    /// <summary>Zero takes the plural: "0 unchecked areas" (and N&gt;1 stays plural, pinned by
+    /// the corrected-tally test above) — the singular arm is exactly N==1.</summary>
+    [Fact]
+    public void ToLine_ZeroUncheckedParents_KeepsThePluralNoun()
+    {
+        var summary = new GapSummary(
+            AddedNodes: 0,
+            RemovedNodes: 0,
+            CommonNodes: 7,
+            AddedEdges: 0,
+            RemovedEdges: 0,
+            CommonEdges: 9,
+            UncheckedEdges: 0,
+            UncheckedParents: 0);
+
+        var line = Assert.IsType<string>(Line(summary));
+
+        Assert.Equal("+0 / −0 objects · +0 / −0 memberships · 0 unchecked areas", line);
+    }
+
     /// <summary>A <c>null</c> summary (before the first diff is computed) renders the empty
     /// string — the view's IsVisible binds the null-check so nothing shows yet (ADR-015 / #66).</summary>
     [Fact]

@@ -80,3 +80,34 @@ exporting from the VM `Violations` projection (drops `RuleId` and the full
 `Dns`); a synchronous `cy.png` return (the bridge has no sync path); `full:true`
 default (multi-MB raster on large lazily-expanded graphs); gating report export
 on `HasViolations` (would hide the unexpanded-areas appendix).
+
+## Addendum (2026-07-11) — #329 revision of the CSV/HTML surface
+
+The 2026-07-11 fit-audit (docs/ux-fit-audit-2026-07-11.md, Lever 1 → issue
+#329) found the §2/§3 CSV shape broken in practice: the appended `UncheckedDns`
+section produced ragged, unquoted comma-laden rows (breaks RFC-4180 parsers and
+Excel), BOM-less UTF-8 mojibaked non-ASCII names on Excel double-click, and the
+`;`-joined multi-DN cell was unescapable. Revised contract (pinned by the
+rewritten `ViolationReportCsvTests`/`ViolationReportHtmlTests`/
+`GapReportExporterTests`):
+
+- **CSV is ONE rectangular RFC-4180 table** — header
+  `Section,RuleId,Severity,SubjectName,PrimaryDn,Dns,Message`; findings carry
+  `Section=finding`; the former appendix rows become `Section=unchecked` rows
+  (RuleId/Severity/Message empty, SubjectName resolved, PrimaryDn=Dns=dn). The
+  separate section, its blank line, and the quoting exemption are FORBIDDEN
+  shapes (tests assert their absence).
+- **CSV strings begin with exactly one U+FEFF** (Excel double-click decodes
+  UTF-8 correctly); writers stay `UTF8Encoding(false)` — the BOM travels in the
+  string. HTML/JSON/PS1 outputs stay BOM-less.
+- **Multi-DN cells join with LF inside the quoted cell** (DNs cannot contain
+  raw newlines; Excel renders in-cell breaks); HTML joins encoded DNs with
+  `<br>`. The §3 guard-before-quote order is unchanged and now applies to
+  every cell of every row including unchecked rows.
+- **HTML template**: `color-scheme: light` + body ink/background pairing
+  (WCAG F24), `<th scope>` attributes, correct plural forms.
+
+Rejected at revision: keeping the appendix but quoting it (rows stay ragged —
+strict parsers still reject); one row per (finding, DN) pair (duplicates
+finding identity); `sep=` hint or TSV instead of BOM (Excel-only dialect,
+breaks other RFC-4180 consumers).

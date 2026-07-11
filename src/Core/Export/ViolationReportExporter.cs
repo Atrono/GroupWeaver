@@ -19,11 +19,15 @@ public static class ViolationReportExporter
 {
     private const string Eol = "\r\n";
 
-    /// <summary>The fixed CSV header row (ADR-013 §2, pinned by test).</summary>
-    private const string CsvHeader = "RuleId,Severity,SubjectName,PrimaryDn,Dns,Message";
+    /// <summary>The single leading U+FEFF the CSV string carries (#329 defect 2): it
+    /// travels IN the string, so any UTF-8 byte writer — including the App's BOM-less
+    /// <c>UTF8Encoding(false)</c> discipline — produces a file starting <c>EF BB BF</c>
+    /// and Excel double-click decodes UTF-8, not ANSI. CSV-only; HTML stays BOM-less
+    /// (its <c>meta charset</c> is the declaration).</summary>
+    private const char Bom = (char)0xFEFF;
 
-    /// <summary>The literal appendix section header for the unchecked-areas block.</summary>
-    private const string UncheckedDnsHeader = "UncheckedDns";
+    /// <summary>The fixed CSV header row (ADR-013 §2 as revised by #329, pinned by test).</summary>
+    private const string CsvHeader = "Section,RuleId,Severity,SubjectName,PrimaryDn,Dns,Message";
 
     /// <summary>Resolves a DN to a friendly display name. The VM passes a closure
     /// mirroring <c>OnReportChanged</c> exactly:
@@ -32,15 +36,22 @@ public static class ViolationReportExporter
     public delegate string ResolveName(string dn);
 
     /// <summary>
-    /// Renders the report as RFC-4180 CSV. The fixed header row, then one row per
-    /// finding in <see cref="RuleReport.Violations"/> canonical order VERBATIM
-    /// (never re-sorted), then — iff <see cref="RuleReport.UncheckedDns"/> is
-    /// non-empty — a blank line, the literal <c>UncheckedDns</c> header, and the
-    /// DN list one per line. Every cell is encoded GUARD-BEFORE-QUOTE: the
-    /// formula-injection guard (#45) prefixes a single <c>'</c> when the raw cell
-    /// leads with <c>= + - @ \t \r \n</c>, then RFC-4180 quoting wraps cells that
-    /// contain <c>" , \r \n</c> (so the <c>'</c> lands inside the quotes).
-    /// Line endings are CRLF, including a trailing CRLF after the last line.
+    /// Renders the report as ONE rectangular RFC-4180 table (ADR-013 §2 as revised
+    /// by #329): the leading <see cref="Bom"/>, the fixed seven-column header row,
+    /// then one <c>Section=finding</c> row per finding in
+    /// <see cref="RuleReport.Violations"/> canonical order VERBATIM (never
+    /// re-sorted), then one <c>Section=unchecked</c> row per
+    /// <see cref="RuleReport.UncheckedDns"/> entry in report order
+    /// (RuleId/Severity/Message empty; SubjectName = <c>resolveName(dn)</c>;
+    /// PrimaryDn = Dns = the DN) — the legacy two-section appendix is gone. A
+    /// finding's <c>Dns</c> cell is the FULL list joined with a single LF inside
+    /// one quoted cell (DNs cannot contain raw newlines, so the join is
+    /// unambiguous against RFC-4514 escaped semicolons). Every cell is encoded
+    /// GUARD-BEFORE-QUOTE: the formula-injection guard (#45) prefixes a single
+    /// <c>'</c> when the raw cell leads with <c>= + - @ \t \r \n</c>, then
+    /// RFC-4180 quoting wraps cells that contain <c>" , \r \n</c> (so the <c>'</c>
+    /// lands inside the quotes). Line endings are CRLF, including a trailing CRLF
+    /// after the last line.
     /// </summary>
     public static string ToCsv(RuleReport report, ResolveName resolveName)
     {
@@ -48,29 +59,33 @@ public static class ViolationReportExporter
         ArgumentNullException.ThrowIfNull(resolveName);
 
         var sb = new StringBuilder();
-        sb.Append(CsvHeader).Append(Eol);
+        sb.Append(Bom).Append(CsvHeader).Append(Eol);
 
         foreach (var violation in report.Violations)
         {
             var primaryDn = violation.PrimaryDn;
             AppendCsvRow(
                 sb,
+                "finding",
                 violation.RuleId,
                 violation.Severity.ToString(),
                 resolveName(primaryDn),
                 primaryDn,
-                string.Join(";", violation.Dns),
+                string.Join("\n", violation.Dns),
                 violation.Message);
         }
 
-        if (report.UncheckedDns.Count > 0)
+        foreach (var dn in report.UncheckedDns)
         {
-            sb.Append(Eol);
-            sb.Append(UncheckedDnsHeader).Append(Eol);
-            foreach (var dn in report.UncheckedDns)
-            {
-                sb.Append(EncodeAppendixCell(dn)).Append(Eol);
-            }
+            AppendCsvRow(
+                sb,
+                "unchecked",
+                string.Empty,
+                string.Empty,
+                resolveName(dn),
+                dn,
+                dn,
+                string.Empty);
         }
 
         return sb.ToString();
@@ -134,10 +149,12 @@ public static class ViolationReportExporter
         AppendMetaRow(sb, "Root", Encode(header.RootName) + " (" + Encode(header.RootDn) + ")");
         AppendMetaRow(sb, "Connection", Encode(header.ConnectionSummary));
         AppendMetaRow(sb, "Generated", Encode(FormatTimestamp(header.GeneratedAt)));
+        // #329: the countable severity nouns pluralize ("1 error" / "2 errors");
+        // "info" is a mass noun and stays invariant.
         AppendMetaRow(
             sb,
             "Findings",
-            FormatCount(errorCount) + " error, " + FormatCount(warningCount) + " warning, "
+            Plural(errorCount, "error") + ", " + Plural(warningCount, "warning") + ", "
                 + FormatCount(infoCount) + " info");
 
         // ADR-030 D3 (#188): the honesty caveats travel into the header — the active ruleset name, the
@@ -148,8 +165,8 @@ public static class ViolationReportExporter
         if (header.RulesetName is not null)
         {
             AppendMetaRow(sb, "Ruleset", Encode(header.RulesetName));
-            AppendMetaRow(sb, "Triaged", FormatCount(header.TriagedCount) + " findings excluded by triage");
-            AppendMetaRow(sb, "Unchecked", FormatCount(header.UncheckedCount) + " unexpanded areas");
+            AppendMetaRow(sb, "Triaged", Plural(header.TriagedCount, "finding") + " excluded by triage");
+            AppendMetaRow(sb, "Unchecked", Plural(header.UncheckedCount, "unexpanded area"));
         }
 
         sb.Append("</table>").Append(Eol);
@@ -162,8 +179,8 @@ public static class ViolationReportExporter
         {
             sb.Append("<table class=\"findings\">").Append(Eol);
             sb.Append("<thead><tr>")
-                .Append("<th>Severity</th><th>Rule</th><th>Subject</th>")
-                .Append("<th>Primary DN</th><th>DNs</th><th>Message</th>")
+                .Append("<th scope=\"col\">Severity</th><th scope=\"col\">Rule</th><th scope=\"col\">Subject</th>")
+                .Append("<th scope=\"col\">Primary DN</th><th scope=\"col\">DNs</th><th scope=\"col\">Message</th>")
                 .Append("</tr></thead>").Append(Eol);
             sb.Append("<tbody>").Append(Eol);
             foreach (var violation in report.Violations)
@@ -174,7 +191,10 @@ public static class ViolationReportExporter
                 sb.Append("<td>").Append(Encode(violation.RuleId)).Append("</td>");
                 sb.Append("<td>").Append(Encode(resolveName(primaryDn))).Append("</td>");
                 sb.Append("<td>").Append(Encode(primaryDn)).Append("</td>");
-                sb.Append("<td>").Append(Encode(string.Join("; ", violation.Dns))).Append("</td>");
+
+                // #329: each (escaped) DN on its own line via <br> — unambiguous
+                // against RFC-4514 DNs carrying escaped semicolons.
+                sb.Append("<td>").Append(string.Join("<br>", violation.Dns.Select(Encode))).Append("</td>");
                 sb.Append("<td>").Append(Encode(violation.Message)).Append("</td>");
                 sb.Append("</tr>").Append(Eol);
             }
@@ -206,9 +226,10 @@ public static class ViolationReportExporter
     }
 
     /// <summary>One key/value row of the header metadata table. The pre-escaped
-    /// <paramref name="encodedValue"/> is emitted as element text only.</summary>
+    /// <paramref name="encodedValue"/> is emitted as element text only. The
+    /// <c>&lt;th&gt;</c> is a ROW header — <c>scope="row"</c> (WCAG 1.3.1 / H63, #329).</summary>
     private static void AppendMetaRow(StringBuilder sb, string label, string encodedValue) =>
-        sb.Append("<tr><th>").Append(label).Append("</th><td>").Append(encodedValue)
+        sb.Append("<tr><th scope=\"row\">").Append(label).Append("</th><td>").Append(encodedValue)
             .Append("</td></tr>").Append(Eol);
 
     /// <summary>Escapes one untrusted token for HTML element text via
@@ -236,12 +257,21 @@ public static class ViolationReportExporter
     private static string FormatCount(int value) =>
         value.ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>Culture-invariant "N noun(s)": the trailing <c>s</c> appended to the
+    /// whole phrase iff <paramref name="count"/> ≠ 1 (#329 pluralization).</summary>
+    private static string Plural(int count, string noun) =>
+        FormatCount(count) + " " + noun + (count == 1 ? string.Empty : "s");
+
     /// <summary>The inline stylesheet (no external refs). Severity color is
     /// class-keyed (<c>.sev-error</c>/<c>.sev-warning</c>/<c>.sev-info</c>) using the
-    /// pinned ADR-010 palette — never an inline style carrying a token.</summary>
+    /// pinned ADR-010 palette — never an inline style carrying a token. #329: the
+    /// document is a single-theme LIGHT artifact, declared via <c>color-scheme:light</c>,
+    /// and the body ink pairs an explicit background (WCAG F24 — every rule that sets
+    /// <c>color:</c> must also set a background).</summary>
     private const string StyleBlock =
         "<style>\r\n"
-        + "body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1b1f27;}\r\n"
+        + "body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1b1f27;"
+        + "background:#ffffff;color-scheme:light;}\r\n"
         + "h1{font-size:1.4rem;}\r\n"
         + "table{border-collapse:collapse;width:100%;margin-bottom:16px;}\r\n"
         + "table.findings th,table.findings td{border:1px solid #ccc;padding:6px 8px;"
@@ -275,26 +305,6 @@ public static class ViolationReportExporter
     /// A row cell sits between commas, so a literal comma MUST quote.</summary>
     private static string EncodeCell(string value) => QuoteRfc4180(GuardFormulaInjection(value));
 
-    /// <summary>Guard-before-quote for an appendix cell. The appendix is a single
-    /// column — a bare comma is unambiguous on its own line, so it does NOT force
-    /// quoting (the test pins bare DNs like <c>CN=builtin,DC=…</c> unquoted).
-    /// Quoting fires only to protect the formula guard's leading <c>'</c> or a
-    /// value carrying a <c>"</c>/CR/LF (which WOULD break the one-DN-per-line
-    /// structure). The guard runs first, so the <c>'</c> still lands inside the
-    /// quotes when both fire (e.g. a leading <c>=</c> + comma).</summary>
-    private static string EncodeAppendixCell(string value)
-    {
-        var guarded = GuardFormulaInjection(value);
-        var guardFired = !ReferenceEquals(guarded, value);
-
-        if (guardFired || value.IndexOfAny(LineBreakingQuoteTriggers) >= 0)
-        {
-            return "\"" + guarded.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
-        }
-
-        return guarded;
-    }
-
     /// <summary>#45 formula-injection guard: a single leading <c>'</c> when the
     /// raw cell's first char is one of <c>= + - @ \t \r \n</c> — the characters a
     /// spreadsheet would otherwise interpret as a formula/command lead.</summary>
@@ -325,10 +335,6 @@ public static class ViolationReportExporter
     }
 
     private static readonly char[] QuoteTriggers = { '"', ',', '\r', '\n' };
-
-    /// <summary>The subset of quote triggers that would break a single-column
-    /// appendix line (comma excluded — see <see cref="EncodeAppendixCell"/>).</summary>
-    private static readonly char[] LineBreakingQuoteTriggers = { '"', '\r', '\n' };
 }
 
 /// <summary>

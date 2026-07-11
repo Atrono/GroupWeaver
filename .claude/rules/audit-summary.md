@@ -32,8 +32,11 @@ with a reviewed PR that updates the tests deliberately. Builds on [[data-model]]
   `HasTriaged`; the view renders the caveat beside the band. `AuditSummary.Compute` never
   sees the `[ack]`/`[suppress]` tag grammar (the ADR-028 Core/App boundary). The export
   header (ADR-030 D3) adds optional `ReportHeader.RulesetName`/`TriagedCount`/`UncheckedCount`;
-  `ViolationReportExporter.ToHtml` renders those rows ONLY when `RulesetName is not null`,
-  so legacy 4-arg headers stay byte-identical (existing exporter tests untouched).
+  `ViolationReportExporter.ToHtml` renders those rows ONLY when `RulesetName is not null`
+  — the binding property is that conditional rendering (a legacy 4-arg header shows zero
+  Ruleset/Triaged/Unchecked rows), pinned scope-agnostically since the #329 revision
+  (ADR-013 addendum 2026-07-11) deliberately re-pinned the exporter bytes (BOM,
+  rectangular CSV, th-scope HTML).
 - **Tri-state honesty:** an unloaded/unexpanded subtree is **never counted as
   `Passing`** (`snapshot.IsLoaded` gate) — the same null-vs-empty / "unexpanded areas
   unchecked" truth as [[data-model]] and `RuleEngine.UncheckedDns` ([[rule-engine]]).

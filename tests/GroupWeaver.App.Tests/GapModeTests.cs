@@ -539,9 +539,9 @@ public sealed class GapModeTests
     // (pinned by tests/GroupWeaver.Tests/Export/GapReportExporterTests.cs); these tests pin the
     // VM wiring: CanExportDiff = not disposed && Report != GapReport.Empty && a seam is
     // installed; a refresh ARMS export (incl. a clean diff); the command writes EXACTLY the
-    // exporter bytes (UTF-8, NO BOM) to ONLY the dialog-returned path; a cancelled pick / a
-    // disposed VM is a no-op. The fake export-dialogs pattern (FakeExportDialogs) + a per-test
-    // temp dir mirror WorkspaceExportTests.
+    // exporter bytes (CSV carries the #329 in-string BOM, HTML stays BOM-less) to ONLY the
+    // dialog-returned path; a cancelled pick / a disposed VM is a no-op. The fake
+    // export-dialogs pattern (FakeExportDialogs) + a per-test temp dir mirror WorkspaceExportTests.
 
     /// <summary>
     /// <see cref="GapViewModel.CanExportDiff"/> is FALSE before any refresh (Report is still the
@@ -634,10 +634,11 @@ public sealed class GapModeTests
     /// <summary>
     /// Executing <see cref="GapViewModel.ExportDiffCsvCommand"/> writes EXACTLY the
     /// <see cref="GapReportExporter.ToCsv"/> bytes for the VM's Report + Summary + name closure
-    /// to the dialog-returned path, encoded UTF-8 WITHOUT a BOM (asserted on the raw bytes).
+    /// to the dialog-returned path — which per #329 start with the UTF-8 BOM EF BB BF (the
+    /// exporter's in-string U+FEFF through the VM's BOM-less UTF-8 writer).
     /// </summary>
     [Fact]
-    public async Task ExportDiffCsv_WritesExporterOutput_ToThePickedPath_Utf8NoBom()
+    public async Task ExportDiffCsv_WritesExporterOutput_ToThePickedPath_Utf8WithBom()
     {
         var gap = HeadlessGap(BuildDeltaIst(), BuildDeltaPlan());
         await gap.RefreshAsync();
@@ -654,8 +655,9 @@ public sealed class GapModeTests
         var expected = GapReportExporter.ToCsv(gap.Report, gap.Summary!, ResolveNameOf(gap));
         Assert.Equal(expected, ReadAllUtf8(temp.Path));
 
-        // UTF-8 with NO BOM: the raw bytes must not begin with the EF BB BF preamble.
-        AssertNoBom(temp.Path);
+        // #329: the CSV file's first three raw bytes are the UTF-8 BOM (Excel double-click
+        // correctness); the BOM is IN the exporter string, not the writer encoding.
+        AssertUtf8BomBytes(temp.Path);
 
         // Read-only invariant: ONLY the picked path was written, nothing else.
         Assert.True(
@@ -869,16 +871,32 @@ public sealed class GapModeTests
     private static ViolationReportExporter.ResolveName ResolveNameOf(GapViewModel gap) =>
         dn => gap.Snapshot is not null && gap.Snapshot.TryGetObject(dn, out var o) ? o.Name : dn;
 
+    /// <summary>Decodes the file's raw bytes WITHOUT BOM detection — a leading U+FEFF stays in
+    /// the returned string, so string equality against the exporter output (whose CSV contract
+    /// carries the in-string BOM, #329) compares the true bytes. (<c>File.ReadAllText</c> would
+    /// silently strip a file BOM.)</summary>
     private static string ReadAllUtf8(string path) =>
-        File.ReadAllText(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        Encoding.UTF8.GetString(File.ReadAllBytes(path));
 
     /// <summary>Asserts the file's raw bytes do NOT start with the UTF-8 BOM (EF BB BF) — the
-    /// VM writes UTF-8 WITHOUT a BOM (the exact bytes the exporter's pinned tests expect).</summary>
+    /// HTML export stays BOM-less (its <c>meta charset</c> governs; only the CSV carries the
+    /// #329 in-string BOM).</summary>
     private static void AssertNoBom(string path)
     {
         var bytes = File.ReadAllBytes(path);
         var hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
         Assert.False(hasBom, "the export must be UTF-8 without a BOM");
+    }
+
+    /// <summary>Asserts the file's first three raw bytes ARE the UTF-8 BOM EF BB BF — the #329
+    /// CSV contract (the exporter's in-string U+FEFF through the VM's BOM-less UTF-8 writer),
+    /// the Excel double-click correctness pin for the German-AD audience.</summary>
+    private static void AssertUtf8BomBytes(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        Assert.True(
+            bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+            "the CSV export must start with the UTF-8 BOM (EF BB BF)");
     }
 
     /// <summary>Replaces the single "Generated" metadata row's value with a placeholder so two
@@ -887,7 +905,7 @@ public sealed class GapModeTests
     private static string NormaliseGeneratedRow(string html) =>
         System.Text.RegularExpressions.Regex.Replace(
             html,
-            "<tr><th>Generated</th><td>.*?</td></tr>",
+            "<tr><th[^>]*>Generated</th><td>.*?</td></tr>",
             "<tr><th>Generated</th><td>TS</td></tr>",
             System.Text.RegularExpressions.RegexOptions.Singleline);
 

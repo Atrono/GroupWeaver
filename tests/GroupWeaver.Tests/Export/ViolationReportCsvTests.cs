@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 using GroupWeaver.Core.Export;
 using GroupWeaver.Core.Rules;
@@ -9,38 +10,67 @@ namespace GroupWeaver.Tests.Export;
 
 /// <summary>
 /// Pins <c>ViolationReportExporter.ToCsv(report, resolveName)</c> (AP 4.1 /
-/// ADR-013, issue #56), slice 1 — the violation-report CSV serializer.
+/// ADR-013, issue #56; REVISED by #329 / audit Lever 1 — the Excel-correctness
+/// contract).
 ///
-/// Contract (binding, from ADR-013 §3 + the spec "CSV" section):
+/// Contract (binding, from ADR-013 §3 + #329):
 /// <list type="bullet">
-///   <item>Header row verbatim: <c>RuleId,Severity,SubjectName,PrimaryDn,Dns,Message</c>.</item>
-///   <item>Rows iterate <c>report.Violations</c> in canonical order VERBATIM —
-///         the serializer never re-sorts (RuleReport already stores canonical order).</item>
-///   <item><c>Severity</c> = the enum NAME (<c>Error</c>/<c>Warning</c>/<c>Info</c>),
-///         InvariantCulture.</item>
-///   <item><c>SubjectName</c> = <c>resolveName(PrimaryDn)</c>; <c>PrimaryDn</c> = <c>Dns[0]</c>;
-///         <c>Dns</c> = the FULL list joined with ";" inside ONE cell (lossless —
-///         carries everything the structured finding has, unlike the VM projection).</item>
-///   <item>Two-layer cell encoding, GUARD BEFORE QUOTE (pinned order):
-///         (1) formula-injection guard (#45) — a cell whose first char is one of
-///         <c>= + - @ \t \r \n</c> gets a leading <c>'</c>; (2) RFC-4180 quoting —
-///         a cell containing <c>" , \r \n</c> is wrapped in <c>"..."</c> with embedded
-///         <c>"</c> doubled. The <c>'</c> therefore lands INSIDE the quotes.</item>
-///   <item>Appendix: a blank line, then a literal <c>UncheckedDns</c> header line, then
-///         the DN list one per line, each cell under the same guard+quote rules.</item>
-///   <item>Deterministic: no timestamp, no culture/ambient state (the CSV carries no
-///         header block — that is HTML-only).</item>
+///   <item><b>ONE rectangular RFC-4180 table.</b> Every record has exactly SEVEN
+///         fields. The old two-section shape (blank line + a bare
+///         <c>UncheckedDns</c> header + one-column DN lines) is GONE — strict
+///         parsers and Excel see a single table (#329 defect 1).</item>
+///   <item>Header row verbatim:
+///         <c>Section,RuleId,Severity,SubjectName,PrimaryDn,Dns,Message</c>.</item>
+///   <item><b>Leading UTF-8 BOM.</b> The returned string starts with EXACTLY ONE
+///         U+FEFF, so any UTF-8 byte writer (including the App's BOM-less
+///         <c>UTF8Encoding(false)</c> discipline) produces a file whose first
+///         three bytes are <c>EF BB BF</c> — Excel double-click decodes UTF-8
+///         instead of ANSI for the German-AD audience (#329 defect 2). The BOM
+///         is CSV-only; HTML keeps its <c>meta charset</c>.</item>
+///   <item><b>Finding rows:</b> <c>Section</c> = <c>finding</c>; rows iterate
+///         <c>report.Violations</c> in canonical order VERBATIM (never re-sorted);
+///         <c>Severity</c> = the enum NAME; <c>SubjectName</c> =
+///         <c>resolveName(PrimaryDn)</c>; <c>PrimaryDn</c> = <c>Dns[0]</c>;
+///         <c>Dns</c> = the FULL list joined with a single LF (<c>\n</c>) inside
+///         ONE quoted cell — DNs cannot contain raw newlines, so the join is
+///         unambiguous (the old bare-<c>;</c> join collided with RFC-4514
+///         escaped semicolons, #329 defect 3) and Excel renders in-cell breaks.</item>
+///   <item><b>Unchecked rows:</b> one row per <c>RuleReport.UncheckedDns</c>
+///         entry, in report order: <c>Section</c> = <c>unchecked</c>;
+///         RuleId/Severity/Message EMPTY; <c>SubjectName</c> =
+///         <c>resolveName(dn)</c>; <c>PrimaryDn</c> = <c>Dns</c> = the DN — every
+///         column keeps its finding-row meaning, so consumers can filter on
+///         <c>Section</c> and keep pivoting on <c>PrimaryDn</c>.</item>
+///   <item>Two-layer cell encoding on EVERY cell of EVERY row, GUARD BEFORE QUOTE
+///         (pinned order): (1) formula-injection guard (#45) — a cell whose first
+///         char is one of <c>= + - @ \t \r \n</c> gets a leading <c>'</c>;
+///         (2) RFC-4180 quoting — a cell containing <c>" , \r \n</c> is wrapped
+///         in <c>"..."</c> with embedded <c>"</c> doubled. The <c>'</c> therefore
+///         lands INSIDE the quotes. The old appendix comma-exemption is dead.</item>
+///   <item>CRLF record separators, trailing CRLF after the last record.
+///         Deterministic: no timestamp, no culture/ambient state.</item>
 /// </list>
 ///
 /// Violations are HAND-BUILT (report mechanics, not engine semantics — they need
 /// not be directory-consistent). The CSV is asserted as an exact byte-for-byte
 /// string where the format is fully determined; an RFC-4180-aware re-parse pins
-/// the record/field structure where embedded CRLFs would otherwise be ambiguous.
+/// the record/field structure (and enforces 7-field rectangularity on every
+/// record) where embedded LFs would otherwise be ambiguous.
 /// </summary>
 public class ViolationReportCsvTests
 {
     private const string Eol = "\r\n";
-    private const string HeaderRow = "RuleId,Severity,SubjectName,PrimaryDn,Dns,Message";
+    private const string Bom = "\uFEFF";
+    private const string HeaderRow = "Section,RuleId,Severity,SubjectName,PrimaryDn,Dns,Message";
+
+    // Column indexes of the rectangular table (pinned by the header row).
+    private const int ColSection = 0;
+    private const int ColRuleId = 1;
+    private const int ColSeverity = 2;
+    private const int ColSubjectName = 3;
+    private const int ColPrimaryDn = 4;
+    private const int ColDns = 5;
+    private const int ColMessage = 6;
 
     private const string ParentDn = "CN=DL_FS-Finance_RO,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example";
     private const string MemberDn = "CN=GG_Finance,OU=Groups,OU=AGDLP-Demo,DC=weavedemo,DC=example";
@@ -56,30 +86,52 @@ public class ViolationReportCsvTests
         _ => dn,
     };
 
-    // ---- header + a clean row -------------------------------------------------
+    // ---- BOM + header -----------------------------------------------------------
 
     [Fact]
-    public void Header_IsTheFixedColumnRow()
+    public void Output_StartsWithExactlyOneBom_ThenTheHeaderRow()
     {
         var csv = ViolationReportExporter.ToCsv(RuleReport.Empty, Names);
 
-        Assert.StartsWith(HeaderRow + Eol, csv);
+        // Exactly ONE leading U+FEFF, immediately followed by the header row —
+        // never zero (Excel-ANSI mojibake) and never doubled (a stray second BOM
+        // would become visible data in the first cell).
+        Assert.StartsWith(Bom + HeaderRow + Eol, csv, StringComparison.Ordinal);
+        Assert.Equal(-1, csv.IndexOf('\uFEFF', 1));
     }
 
     [Fact]
-    public void EmptyReport_IsHeaderOnly_NoAppendix()
+    public void Output_Utf8Bytes_StartWithEfBbBf()
     {
-        // No violations and no unchecked DNs -> the file is the header row only.
+        // The end-to-end Excel contract (#329 defect 2): encoding the returned
+        // string with the App's BOM-less writer encoding still yields a file whose
+        // FIRST THREE BYTES are the UTF-8 BOM, because the BOM travels IN the
+        // string. Byte 4 is the header's leading 'S' — one BOM, nothing between.
+        var csv = ViolationReportExporter.ToCsv(RuleReport.Empty, Names);
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(csv);
+
+        Assert.True(bytes.Length >= 4, "BOM + header expected");
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        Assert.Equal((byte)'S', bytes[3]);
+    }
+
+    [Fact]
+    public void EmptyReport_IsBomPlusHeaderOnly_NoOtherRows()
+    {
+        // No violations and no unchecked DNs -> the file is BOM + header row only.
         var csv = ViolationReportExporter.ToCsv(RuleReport.Empty, Names);
 
-        Assert.Equal(HeaderRow + Eol, csv);
+        Assert.Equal(Bom + HeaderRow + Eol, csv);
     }
 
+    // ---- finding rows -----------------------------------------------------------
+
     [Fact]
-    public void Row_RendersAllSixColumns_SubjectNameResolvedFromPrimaryDn()
+    public void FindingRow_RendersAllSevenColumns_SectionFinding_DnsJoinedWithLf()
     {
         // A nesting finding: Dns = [parent, member]; PrimaryDn = parent;
-        // SubjectName = resolveName(parent); Dns cell = both joined with ';'.
+        // SubjectName = resolveName(parent); Dns cell = both joined with a
+        // single LF inside ONE (quoted) cell.
         var nesting = V(RuleIds.Nesting, RuleSeverity.Error, "DL must not nest GG.", ParentDn, MemberDn);
         var report = new RuleReport(new[] { nesting }, Array.Empty<string>());
 
@@ -89,17 +141,98 @@ public class ViolationReportCsvTests
         Assert.Equal(
             new[]
             {
+                "finding",
                 RuleIds.Nesting,
                 "Error",
                 "DL_FS-Finance_RO",
                 ParentDn,
-                $"{ParentDn};{MemberDn}",
+                ParentDn + "\n" + MemberDn,
                 "DL must not nest GG.",
             },
             row);
     }
 
-    // ---- Severity enum names --------------------------------------------------
+    [Fact]
+    public void MultiDnCell_IsLfJoined_QuotedVerbatim_NeverSemicolonJoined()
+    {
+        // The pinned join (#329 defect 3): the raw text carries the LF-joined DN
+        // list inside one quoted cell, and the legacy ';' join is gone. A DN can
+        // never contain a raw newline, so the LF join is machine-splittable.
+        var report = new RuleReport(
+            new[]
+            {
+                V(RuleIds.Nesting, RuleSeverity.Error, "n", ParentDn, MemberDn),
+                V(RuleIds.Circular, RuleSeverity.Error, "c", SubjectDn, MemberDn, ParentDn),
+            },
+            Array.Empty<string>());
+
+        var csv = ViolationReportExporter.ToCsv(report, Names);
+
+        // Exact quoted literal for the two-DN cell (quoted: the LF is a trigger).
+        Assert.Contains("\"" + ParentDn + "\n" + MemberDn + "\"", csv, StringComparison.Ordinal);
+        // The legacy sub-delimiter never appears between the joined DNs.
+        Assert.DoesNotContain(ParentDn + ";" + MemberDn, csv, StringComparison.Ordinal);
+
+        // Round-trip: splitting the decoded cell on LF restores the exact DN lists.
+        var rows = DataRows(csv);
+        Assert.Equal(new[] { ParentDn, MemberDn }, rows[0][ColDns].Split('\n'));
+        Assert.Equal(new[] { SubjectDn, MemberDn, ParentDn }, rows[1][ColDns].Split('\n'));
+    }
+
+    [Fact]
+    public void HostileDn_CommaQuoteSemicolon_RoundTripsExactly()
+    {
+        // The #329 hostile vector: a DN carrying a comma, a double-quote AND a
+        // semicolon. RFC-4180: wrapped, embedded quotes doubled; the ';' is plain
+        // data (the join is LF, so it cannot collide). The strict re-parse must
+        // return the DN byte-for-byte.
+        const string hostileDn = "CN=Evil \"Group\"; comma, here,DC=agdlp,DC=lab";
+        var report = new RuleReport(
+            new[] { V(RuleIds.Nesting, RuleSeverity.Error, "n", hostileDn, MemberDn) },
+            Array.Empty<string>());
+
+        var csv = ViolationReportExporter.ToCsv(report, Names);
+
+        // The exact escaped literal of the PrimaryDn cell.
+        Assert.Contains(
+            "\"CN=Evil \"\"Group\"\"; comma, here,DC=agdlp,DC=lab\"",
+            csv,
+            StringComparison.Ordinal);
+
+        var row = Assert.Single(DataRows(csv));
+        Assert.Equal(hostileDn, row[ColPrimaryDn]);
+        // And inside the LF-joined Dns cell the hostile DN splits back out exactly.
+        Assert.Equal(new[] { hostileDn, MemberDn }, row[ColDns].Split('\n'));
+    }
+
+    [Fact]
+    public void NonAscii_UmlautName_SurvivesAsUtf8Bytes_BehindTheBom()
+    {
+        // #329 defect 4: the German-AD vector. The umlaut name must reach the CSV
+        // string verbatim and the UTF-8 bytes must carry the two-byte sequence for
+        // 'ä' (0xC3 0xA4) behind the leading BOM — the BOM is what makes Excel
+        // decode those bytes as UTF-8 on double-click.
+        var resolver = (ViolationReportExporter.ResolveName)(_ => "Vertrieb-Käufer");
+        var report = new RuleReport(
+            new[] { V("naming-gg", RuleSeverity.Warning, "msg", SubjectDn) },
+            Array.Empty<string>());
+
+        var csv = ViolationReportExporter.ToCsv(report, resolver);
+        Assert.Contains("Vertrieb-Käufer", csv, StringComparison.Ordinal);
+
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(csv);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        // "Kä" = 0x4B 0xC3 0xA4 somewhere in the payload.
+        var found = false;
+        for (var i = 3; i < bytes.Length - 2 && !found; i++)
+        {
+            found = bytes[i] == 0x4B && bytes[i + 1] == 0xC3 && bytes[i + 2] == 0xA4;
+        }
+
+        Assert.True(found, "the UTF-8 byte sequence for 'Kä' (4B C3 A4) must survive into the payload");
+    }
+
+    // ---- Severity enum names ------------------------------------------------------
 
     [Theory]
     [InlineData(RuleSeverity.Error, "Error")]
@@ -113,10 +246,10 @@ public class ViolationReportCsvTests
 
         var row = Assert.Single(DataRows(ViolationReportExporter.ToCsv(report, Names)));
 
-        Assert.Equal(expected, row[1]);
+        Assert.Equal(expected, row[ColSeverity]);
     }
 
-    // ---- canonical order is preserved verbatim --------------------------------
+    // ---- canonical order is preserved verbatim -------------------------------------
 
     [Fact]
     public void Rows_FollowReportViolationsOrder_Verbatim()
@@ -137,7 +270,8 @@ public class ViolationReportCsvTests
 
         Assert.Equal(
             violations.Select(v => v.RuleId).ToArray(),
-            rows.Select(r => r[0]).ToArray());
+            rows.Select(r => r[ColRuleId]).ToArray());
+        Assert.All(rows, r => Assert.Equal("finding", r[ColSection]));
     }
 
     // ---- RFC-4180 quoting -----------------------------------------------------
@@ -157,7 +291,7 @@ public class ViolationReportCsvTests
 
         // ...and round-trips to the exact field value (the comma is not a split).
         var row = Assert.Single(DataRows(csv));
-        Assert.Equal(dn, row[3]);
+        Assert.Equal(dn, row[ColPrimaryDn]);
     }
 
     [Fact]
@@ -175,7 +309,7 @@ public class ViolationReportCsvTests
         Assert.Contains("\"He said \"\"hi\"\"\"", csv);
         // Round-trip: the field decodes back to the original value.
         var row = Assert.Single(DataRows(csv));
-        Assert.Equal("He said \"hi\"", row[2]);
+        Assert.Equal("He said \"hi\"", row[ColSubjectName]);
     }
 
     [Fact]
@@ -192,7 +326,7 @@ public class ViolationReportCsvTests
         var csv = ViolationReportExporter.ToCsv(report, Names);
 
         var row = Assert.Single(DataRows(csv));
-        Assert.Equal(msg, row[5]);
+        Assert.Equal(msg, row[ColMessage]);
         // The embedded CRLF is wrapped — the message column is a quoted field.
         Assert.Contains($"\"{msg}\"", csv);
     }
@@ -222,7 +356,7 @@ public class ViolationReportCsvTests
         var row = Assert.Single(DataRows(csv));
 
         // The decoded field begins with the apostrophe guard then the original.
-        Assert.Equal("'" + hostileName, row[2]);
+        Assert.Equal("'" + hostileName, row[ColSubjectName]);
     }
 
     [Fact]
@@ -237,7 +371,7 @@ public class ViolationReportCsvTests
 
         var row = Assert.Single(DataRows(ViolationReportExporter.ToCsv(report, resolver)));
 
-        Assert.Equal("x=y", row[2]);
+        Assert.Equal("x=y", row[ColSubjectName]);
     }
 
     [Fact]
@@ -260,17 +394,18 @@ public class ViolationReportCsvTests
         Assert.DoesNotContain("'\"-2,3", csv);
         // Round-trip: the field decodes to the guarded value.
         var row = Assert.Single(DataRows(csv));
-        Assert.Equal("'-2,3", row[2]);
+        Assert.Equal("'-2,3", row[ColSubjectName]);
     }
 
-    // ---- UncheckedDns appendix ------------------------------------------------
+    // ---- unchecked rows (the ex-appendix, now rectangular) --------------------
 
     [Fact]
-    public void Appendix_BlankLineThenHeaderThenDnList()
+    public void UncheckedRows_AreRectangular_SectionUnchecked_AfterTheFindingRows()
     {
-        // The appendix is a separate section: a blank line, the literal
-        // "UncheckedDns" header line, then each unchecked DN on its own line.
-        // RuleReport sorts UncheckedDns OrdinalIgnoreCase, so the order is fixed.
+        // One row per unchecked DN, AFTER the finding rows, in RuleReport's
+        // OrdinalIgnoreCase order: Section=unchecked; RuleId/Severity/Message
+        // EMPTY; SubjectName=resolveName(dn); PrimaryDn=Dns=the DN. The DNs carry
+        // commas, so those cells quote — pin the exact tail literal.
         var unchecked1 = "CN=ignored2,DC=agdlp,DC=lab";
         var unchecked2 = "CN=builtin,DC=agdlp,DC=lab";
         var report = new RuleReport(
@@ -279,25 +414,47 @@ public class ViolationReportCsvTests
 
         var csv = ViolationReportExporter.ToCsv(report, Names);
 
-        // Exact tail: header row, the one data row, blank line, appendix header,
-        // then the two DNs in RuleReport's OrdinalIgnoreCase order.
-        var expectedTail = string.Join(
-            Eol,
-            "UncheckedDns",
-            "CN=builtin,DC=agdlp,DC=lab",
-            "CN=ignored2,DC=agdlp,DC=lab") + Eol;
-        Assert.EndsWith(expectedTail, csv);
+        // Exact tail: the two unchecked rows (RuleReport sorts OrdinalIgnoreCase,
+        // so builtin sorts first). The resolver has no name for either DN, so
+        // SubjectName falls back to the (quoted) DN itself.
+        var expectedTail =
+            "unchecked,,,\"CN=builtin,DC=agdlp,DC=lab\",\"CN=builtin,DC=agdlp,DC=lab\",\"CN=builtin,DC=agdlp,DC=lab\"," + Eol
+            + "unchecked,,,\"CN=ignored2,DC=agdlp,DC=lab\",\"CN=ignored2,DC=agdlp,DC=lab\",\"CN=ignored2,DC=agdlp,DC=lab\"," + Eol;
+        Assert.EndsWith(expectedTail, csv, StringComparison.Ordinal);
 
-        // And a genuine blank line separates the violations block from the appendix.
-        Assert.Contains(Eol + Eol + "UncheckedDns" + Eol, csv);
+        // Structure: 1 finding row then 2 unchecked rows, all 7 fields wide.
+        var rows = DataRows(csv);
+        Assert.Equal(new[] { "finding", "unchecked", "unchecked" }, rows.Select(r => r[ColSection]).ToArray());
+        Assert.Equal(unchecked2, rows[1][ColPrimaryDn]);
+        Assert.Equal(unchecked2, rows[1][ColDns]);
+        Assert.Equal(string.Empty, rows[1][ColRuleId]);
+        Assert.Equal(string.Empty, rows[1][ColSeverity]);
+        Assert.Equal(string.Empty, rows[1][ColMessage]);
     }
 
     [Fact]
-    public void Appendix_AppearsEvenWithNoViolations_AllClearButUnchecked()
+    public void UncheckedRows_NoLegacyAppendixMarkers_NoBlankLine()
+    {
+        // The old shape is DEAD: no blank separator line, no bare "UncheckedDns"
+        // header line. (This fixture has no embedded-CRLF cells, so a CRLFCRLF
+        // anywhere would be the legacy blank separator.)
+        var report = new RuleReport(
+            new[] { V(RuleIds.EmptyGroup, RuleSeverity.Info, "empty", SubjectDn) },
+            new[] { "CN=builtin,DC=agdlp,DC=lab" });
+
+        var csv = ViolationReportExporter.ToCsv(report, Names);
+
+        Assert.DoesNotContain("UncheckedDns", csv, StringComparison.Ordinal);
+        Assert.DoesNotContain(Eol + Eol, csv, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UncheckedRows_AppearEvenWithNoViolations_AllClearButUnchecked()
     {
         // F2: the export gate is "Snapshot is not null", NOT HasViolations — so
         // the all-clear-but-unchecked state is a real exportable artifact. With
-        // zero violations but a non-empty frontier, the appendix still renders.
+        // zero violations but a non-empty frontier, the unchecked rows still
+        // render — whole-file exact literal.
         var report = new RuleReport(
             Array.Empty<RuleViolation>(),
             new[] { "CN=unexpanded,DC=agdlp,DC=lab" });
@@ -305,15 +462,17 @@ public class ViolationReportCsvTests
         var csv = ViolationReportExporter.ToCsv(report, Names);
 
         Assert.Equal(
-            string.Join(Eol, HeaderRow, "", "UncheckedDns", "CN=unexpanded,DC=agdlp,DC=lab") + Eol,
+            Bom + HeaderRow + Eol
+            + "unchecked,,,\"CN=unexpanded,DC=agdlp,DC=lab\",\"CN=unexpanded,DC=agdlp,DC=lab\",\"CN=unexpanded,DC=agdlp,DC=lab\"," + Eol,
             csv);
     }
 
     [Fact]
-    public void Appendix_DnCells_AreGuardedAndQuoted_PerCell()
+    public void UncheckedRows_DnCells_AreGuardedAndQuoted_PerCell()
     {
-        // Same guard+quote rules apply to appendix cells. A DN that leads with a
-        // dangerous char AND contains a comma triggers BOTH, ' inside the quotes.
+        // The same guard+quote rules apply to unchecked-row cells. A DN leading
+        // with a dangerous char AND containing a comma triggers BOTH, ' inside
+        // the quotes — no appendix comma-exemption survives (#329 defect 1).
         var hostile = "=CN=Evil,DC=agdlp,DC=lab";
         var report = new RuleReport(
             Array.Empty<RuleViolation>(),
@@ -324,6 +483,10 @@ public class ViolationReportCsvTests
         // Guard (' for leading '='), then quote (for the comma): "'=CN=Evil,DC=agdlp,DC=lab".
         Assert.Contains("\"'=CN=Evil,DC=agdlp,DC=lab\"", csv);
         Assert.DoesNotContain("'\"=CN=Evil", csv);
+
+        var row = Assert.Single(DataRows(csv));
+        Assert.Equal("unchecked", row[ColSection]);
+        Assert.Equal("'" + hostile, row[ColPrimaryDn]);
     }
 
     // ---- determinism / InvariantCulture ---------------------------------------
@@ -368,15 +531,19 @@ public class ViolationReportCsvTests
             Message = message,
         };
 
-    /// <summary>Parses the CSV (RFC-4180) and returns the DATA rows only (header
-    /// dropped, appendix section dropped). The parser honors quoted fields with
-    /// embedded commas, doubled quotes, and embedded CRLFs so structure can be
-    /// asserted without coupling to a particular rendering of those bytes.</summary>
+    /// <summary>Parses the CSV (RFC-4180) and returns ALL data rows (header
+    /// dropped). Asserts the leading single BOM, the exact header record, and the
+    /// #329 rectangularity contract: EVERY record has exactly seven fields. The
+    /// parser honors quoted fields with embedded commas, doubled quotes, and
+    /// embedded CR/LF bytes so structure can be asserted without coupling to a
+    /// particular rendering of those bytes.</summary>
     private static List<string[]> DataRows(string csv)
     {
-        var records = ParseRfc4180(csv);
+        Assert.StartsWith(Bom, csv, StringComparison.Ordinal);
+        Assert.Equal(-1, csv.IndexOf('\uFEFF', 1)); // exactly one BOM
 
-        // Drop the header.
+        var records = ParseRfc4180(csv[1..]);
+
         Assert.NotEmpty(records);
         Assert.Equal(HeaderRow.Split(','), records[0]);
 
@@ -384,20 +551,7 @@ public class ViolationReportCsvTests
         for (var i = 1; i < records.Count; i++)
         {
             var record = records[i];
-
-            // The appendix begins at a blank line followed by the "UncheckedDns"
-            // header; stop collecting data rows there.
-            if (record.Length == 1 && record[0].Length == 0)
-            {
-                break;
-            }
-
-            if (record.Length == 1 && record[0] == "UncheckedDns")
-            {
-                break;
-            }
-
-            Assert.Equal(6, record.Length);
+            Assert.Equal(7, record.Length); // ONE rectangular table — no appendix
             dataRows.Add(record);
         }
 
@@ -406,7 +560,7 @@ public class ViolationReportCsvTests
 
     /// <summary>A minimal RFC-4180 reader: CRLF record separator, comma field
     /// separator, double-quote quoting with "" escaping, quoted fields may carry
-    /// commas/CRLFs/quotes. Trailing CRLF yields no spurious empty record.</summary>
+    /// commas/CRLFs/bare LFs/quotes. Trailing CRLF yields no spurious empty record.</summary>
     private static List<string[]> ParseRfc4180(string text)
     {
         var records = new List<string[]>();

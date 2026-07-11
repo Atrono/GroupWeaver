@@ -795,9 +795,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject, IDisposable
     /// Exports the current <see cref="Report"/> as RFC-4180 CSV to a user-picked path
     /// (AP 4.1 / ADR-013 §2/§5/§6). Gate (F2): <c>Snapshot is not null</c> — NOT
     /// <see cref="HasViolations"/> — so an all-clear-but-unexpanded scope still exports its
-    /// unchecked-areas appendix. Re-guards in the body (a stale-armed Execute ignores
+    /// rectangular <c>Section=unchecked</c> rows (#329 — the legacy appendix is gone).
+    /// Re-guards in the body (a stale-armed Execute ignores
     /// CanExecute), picks via the seam, and on a non-null pick writes the pure-Core
-    /// <see cref="ViolationReportExporter.ToCsv"/> output (UTF-8, no BOM) to ONLY that path —
+    /// <see cref="ViolationReportExporter.ToCsv"/> output through the BOM-less UTF-8 writer
+    /// (the CSV string itself carries the leading U+FEFF, #329) to ONLY that path —
     /// a cancelled pick is a no-op. Read-only toward AD: the only write target is the picked
     /// local file; the directory is never touched (the name closure reads the snapshot only).
     /// </summary>
