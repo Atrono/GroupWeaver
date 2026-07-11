@@ -1,7 +1,8 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    GroupWeaver graph-bundle gate: dump demo fixture -> Playwright-verify the shipped bundle.
+    GroupWeaver graph-bundle gate: dump demo fixtures -> Playwright-verify the shipped
+    bundle and the exported findings HTML.
 
 .DESCRIPTION
     Single gate for the browser graph layer (ADR-004 Consequences), used identically
@@ -9,6 +10,14 @@
     (--demo --dump-graph, the ONLY sanctioned dump mode - live AD never reaches
     artifacts), then runs tests/graph-bundle/verify.mjs against the literal
     src/App/web bundle. Screenshots land in artifacts/ui/graph-*.png.
+
+    ADR-041 D2.3 adds the export render check: the demo findings HTML is produced
+    via the sibling demo-only seam (--demo --dump-export, same exit-64 refusal
+    without --demo) and opened headless by tests/graph-bundle/verify-export.mjs
+    (zero console errors, table semantics, pinned severity palette, ADR-030 D3
+    header rows). Reads export OUTPUT only - src/App/web stays untouched (the
+    lint-web/hash-chain contract, harness.md).
+
     Each step fails the script with a non-zero exit code.
 #>
 [CmdletBinding()]
@@ -20,6 +29,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $appExe = Join-Path $repoRoot 'src/App/bin/Release/net8.0-windows/GroupWeaver.App.exe'
 $fixtureDir = Join-Path $repoRoot 'artifacts/graph-fixtures'
 $fixturePath = Join-Path $fixtureDir 'demo-graph.json'
+$exportPath = Join-Path $fixtureDir 'demo-report.html'
 $uiDir = Join-Path $repoRoot 'artifacts/ui'
 
 function Invoke-Step {
@@ -58,6 +68,17 @@ if (-not (Test-Path $fixturePath)) {
     exit 1
 }
 
+Invoke-Step 'dump demo findings export (--demo --dump-export)' {
+    # The ADR-041 D2.3 seam - same WinExe wait shape as the graph dump above.
+    $app = Start-Process -FilePath $appExe -ArgumentList '--demo', '--dump-export', "`"$exportPath`"" `
+        -NoNewWindow -PassThru -Wait
+    $global:LASTEXITCODE = $app.ExitCode
+}
+if (-not (Test-Path $exportPath)) {
+    Write-Host "FAILED: export not written to $exportPath" -ForegroundColor Red
+    exit 1
+}
+
 Push-Location (Join-Path $repoRoot 'tests/graph-bundle')
 try {
     Invoke-Step 'npm ci (graph-bundle harness deps)' { npm ci }
@@ -67,6 +88,10 @@ try {
 
     Invoke-Step 'node verify.mjs (bundle verification + screenshots)' {
         node verify.mjs $fixturePath $uiDir
+    }
+
+    Invoke-Step 'node verify-export.mjs (exported findings HTML render check)' {
+        node verify-export.mjs $exportPath
     }
 }
 finally {

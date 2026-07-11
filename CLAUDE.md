@@ -114,7 +114,10 @@ Docs/config-only changes (no `src/`/`tests/` edits) need only steps 4–6 (revie
    browser bundle via Playwright/headless Chromium; (b) native chrome (panels,
    settings, dialogs) via Avalonia.Headless. Screenshot both to `artifacts/ui/*.png`,
    Read the PNGs, judge vs. the matching `docs/ui-checklist.md` section (node colors
-   per type, contrast, legibility, no overlap at 200 demo nodes); fix until pass.
+   per type, contrast, legibility, no overlap at 200 demo nodes); fix until pass —
+   bounded (ADR-041 D4): max 3 judge→fix rounds per item, fresh capture each round,
+   ≥1 item must flip per round, never retry an identical fix; at cap/no-progress
+   `git restore` the unfinished edits, then the stuck rule. Never weaken the item.
 3. **Provider/graph changes:** run integration tests against the live
    `OU=AGDLP-Lab` fixtures, including the circular-nesting case (must terminate).
 4. `reviewer` subagent approves the diff.
