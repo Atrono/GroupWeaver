@@ -27,11 +27,20 @@ public static class GapReportExporter
 {
     private const string Eol = "\r\n";
 
+    /// <summary>The single leading U+FEFF the CSV string carries (#329 defect 2,
+    /// the <see cref="ViolationReportExporter"/> shared discipline): it travels IN
+    /// the string, so any UTF-8 byte writer — including the App's BOM-less
+    /// <c>UTF8Encoding(false)</c> writers — produces a file starting <c>EF BB BF</c>
+    /// and Excel double-click decodes UTF-8, not ANSI. CSV-only; HTML stays
+    /// BOM-less (its <c>meta charset</c> is the declaration).</summary>
+    private const char Bom = (char)0xFEFF;
+
     /// <summary>The fixed CSV header row (pinned by test).</summary>
     private const string CsvHeader = "Kind,SubjectName,PrimaryDn,SecondaryDn,Message";
 
     /// <summary>
-    /// Renders the gap report as RFC-4180 CSV. The fixed header row, then one row per finding
+    /// Renders the gap report as RFC-4180 CSV. The leading <see cref="Bom"/>, the fixed header
+    /// row, then one row per finding
     /// in <see cref="GapReport.Findings"/> canonical order VERBATIM (never re-sorted). Each row
     /// is <c>Kind,SubjectName,PrimaryDn,SecondaryDn,Message</c>: <c>Kind</c> is the
     /// <see cref="GapKind"/> NAME; <c>SubjectName</c> is <c>resolveName(Dns[0])</c>;
@@ -51,7 +60,7 @@ public static class GapReportExporter
         ArgumentNullException.ThrowIfNull(resolveName);
 
         var sb = new StringBuilder();
-        sb.Append(CsvHeader).Append(Eol);
+        sb.Append(Bom).Append(CsvHeader).Append(Eol);
 
         foreach (var finding in report.Findings)
         {
@@ -118,10 +127,12 @@ public static class GapReportExporter
             sb,
             "Edges",
             FormatCount(summary.AddedEdges) + " added, " + FormatCount(summary.RemovedEdges) + " removed");
+        // #329 (the gap-9 defect class): "area" pluralizes on the parent count — singular at
+        // exactly one, plural at zero and N>1.
         AppendMetaRow(
             sb,
             "Unchecked",
-            FormatCount(summary.UncheckedParents) + " unexpanded current-structure areas not compared");
+            Plural(summary.UncheckedParents, "unexpanded current-structure area") + " not compared");
 
         sb.Append("</table>").Append(Eol);
 
@@ -134,8 +145,9 @@ public static class GapReportExporter
         {
             sb.Append("<table class=\"findings\">").Append(Eol);
             sb.Append("<thead><tr>")
-                .Append("<th>Kind</th><th>Subject</th>")
-                .Append("<th>Primary DN</th><th>Secondary DN</th><th>Message</th>")
+                .Append("<th scope=\"col\">Kind</th><th scope=\"col\">Subject</th>")
+                .Append("<th scope=\"col\">Primary DN</th><th scope=\"col\">Secondary DN</th>")
+                .Append("<th scope=\"col\">Message</th>")
                 .Append("</tr></thead>").Append(Eol);
             sb.Append("<tbody>").Append(Eol);
             foreach (var finding in report.Findings)
@@ -162,9 +174,10 @@ public static class GapReportExporter
     }
 
     /// <summary>One key/value row of the header metadata table. The pre-escaped
-    /// <paramref name="encodedValue"/> is emitted as element text only.</summary>
+    /// <paramref name="encodedValue"/> is emitted as element text only. The
+    /// <c>&lt;th&gt;</c> is a ROW header — <c>scope="row"</c> (WCAG 1.3.1 / H63, #329).</summary>
     private static void AppendMetaRow(StringBuilder sb, string label, string encodedValue) =>
-        sb.Append("<tr><th>").Append(label).Append("</th><td>").Append(encodedValue)
+        sb.Append("<tr><th scope=\"row\">").Append(label).Append("</th><td>").Append(encodedValue)
             .Append("</td></tr>").Append(Eol);
 
     /// <summary>Escapes one untrusted token for HTML element text via
@@ -190,12 +203,19 @@ public static class GapReportExporter
     private static string FormatCount(int value) =>
         value.ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>Culture-invariant "N noun(s)": the trailing <c>s</c> appended to the
+    /// whole phrase iff <paramref name="count"/> ≠ 1 (#329 pluralization).</summary>
+    private static string Plural(int count, string noun) =>
+        FormatCount(count) + " " + noun + (count == 1 ? string.Empty : "s");
+
     /// <summary>The inline stylesheet (no external refs). Kind color is class-keyed
     /// (<c>.gap-added</c>/<c>.gap-removed</c>/<c>.gap-unchecked</c>) — never an inline style
-    /// carrying a token.</summary>
+    /// carrying a token. #329: a single-theme LIGHT artifact, declared via
+    /// <c>color-scheme:light</c>, and the body ink pairs an explicit background (WCAG F24).</summary>
     private const string StyleBlock =
         "<style>\r\n"
-        + "body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1b1f27;}\r\n"
+        + "body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#1b1f27;"
+        + "background:#ffffff;color-scheme:light;}\r\n"
         + "h1{font-size:1.4rem;}\r\n"
         + "table{border-collapse:collapse;width:100%;margin-bottom:16px;}\r\n"
         + "table.findings th,table.findings td{border:1px solid #ccc;padding:6px 8px;"

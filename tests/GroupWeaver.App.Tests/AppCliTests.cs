@@ -227,16 +227,19 @@ public sealed class AppCliTests
             Assert.StartsWith("<!DOCTYPE html>", html, StringComparison.Ordinal);
 
             // The pinned findings-table header row (the exporter emits it only when the
-            // report has violations — the demo baseline always has 19).
+            // report has violations — the demo baseline always has 19). #329 (gap-12):
+            // the column headers carry scope="col" (WCAG 1.3.1 / H63).
             Assert.Contains(
-                "<th>Severity</th><th>Rule</th><th>Subject</th><th>Primary DN</th><th>DNs</th><th>Message</th>",
+                "<th scope=\"col\">Severity</th><th scope=\"col\">Rule</th><th scope=\"col\">Subject</th>"
+                    + "<th scope=\"col\">Primary DN</th><th scope=\"col\">DNs</th><th scope=\"col\">Message</th>",
                 html,
                 StringComparison.Ordinal);
 
-            // The ADR-030 D3 honesty header rows render (RulesetName is non-null on this path).
-            Assert.Contains("<tr><th>Ruleset</th>", html, StringComparison.Ordinal);
-            Assert.Contains("<tr><th>Triaged</th>", html, StringComparison.Ordinal);
-            Assert.Contains("<tr><th>Unchecked</th>", html, StringComparison.Ordinal);
+            // The ADR-030 D3 honesty header rows render (RulesetName is non-null on this
+            // path); the meta <th>s are ROW headers — scope="row" (#329).
+            Assert.Contains("<tr><th scope=\"row\">Ruleset</th>", html, StringComparison.Ordinal);
+            Assert.Contains("<tr><th scope=\"row\">Triaged</th>", html, StringComparison.Ordinal);
+            Assert.Contains("<tr><th scope=\"row\">Unchecked</th>", html, StringComparison.Ordinal);
         }
         finally
         {

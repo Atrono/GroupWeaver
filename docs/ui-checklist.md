@@ -515,10 +515,13 @@ ever OPENED a written export. This section is the bar to judge against whenever
 one IS opened (real demo-mode exports, rendered/read as evidence):
 
 - [ ] Findings CSV (sidebar + audit): opens in Excel without mangling — encoding
-      deliberate (UTF-8; BOM decision explicit), delimiter/quoting correct for DNs
-      containing commas (escaped DNs stay verbatim), header row present, one finding
-      per row (RuleId / Severity / DNs / Message), severity carried as text (never
-      color-only) [I — no fixture opens the written file yet]
+      pinned as UTF-8 WITH a leading BOM (the exporter's in-string U+FEFF; file
+      starts EF BB BF, so Excel double-click decodes UTF-8), ONE rectangular
+      RFC-4180 table (Section=finding/unchecked rows — no appendix), multi-DN
+      cells LF-joined inside one quoted cell (never bare `;`), delimiter/quoting
+      correct for DNs containing commas (escaped DNs stay verbatim), header row
+      present, severity carried as text (never color-only) [T:ViolationReportCsvTests
+      + T:GapReportExporterTests; Excel-open itself stays [I]]
 - [ ] Findings HTML (sidebar + audit): renders standalone with zero external
       fetches; real table semantics (`<th>` headers); palette matches BrandTokens
       with AA text contrast in its rendered presentation; findings in canonical

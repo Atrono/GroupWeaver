@@ -11,11 +11,11 @@
 // watchdog accounting); same harness morals - plain playwright library,
 // sequential, zero sleeps, custom assert(), any failure => nonzero exit.
 //
-// KNOWN #329 DEBTS (assert only what is TRUE today - the #329 fix PR extends
-// this file): the HTML declares NO color-scheme and pairs no background with
-// its body ink (WCAG F24; forced-dark UAs may invert), hardcodes plural forms,
-// and its <th> cells carry no scope attributes. Do NOT assert those until
-// #329 lands; then pin them here.
+// #329 (audit Lever 1) pins live here too: the RENDERED document declares
+// `color-scheme: light`, pairs the body ink with an explicit background
+// (WCAG F24), and every <th> carries its scope (col on the findings header,
+// row on the meta rows) - asserted from computed styles/DOM, the same way the
+// severity palette is.
 //
 // Usage: node verify-export.mjs <demo-report.html>
 
@@ -137,7 +137,9 @@ async function main() {
     // --- real table semantics: <th> cells present --------------------------
     const dom = await page.evaluate((expectedMeta) => ({
       metaThTexts: [...document.querySelectorAll('table.meta th')].map((el) => el.textContent.trim()),
+      metaThScopes: [...document.querySelectorAll('table.meta th')].map((el) => el.getAttribute('scope')),
       findingsThTexts: [...document.querySelectorAll('table.findings thead th')].map((el) => el.textContent.trim()),
+      findingsThScopes: [...document.querySelectorAll('table.findings thead th')].map((el) => el.getAttribute('scope')),
       findingsRowCount: document.querySelectorAll('table.findings tbody tr').length,
       metaRowCount: expectedMeta.length,
     }), META_HEADERS);
@@ -147,7 +149,13 @@ async function main() {
     }
     assert(dom.findingsThTexts.length === FINDINGS_HEADERS.length,
       `findings table must carry exactly ${FINDINGS_HEADERS.length} <th> cells, got ${dom.findingsThTexts.length}`);
-    phase('findings table header (<th> cells present and pinned)');
+    // #329 (gap-12, WCAG 1.3.1/H63): every findings header cell is a COLUMN
+    // header, every meta header cell a ROW header - from the rendered DOM.
+    assert(dom.findingsThScopes.every((s) => s === 'col'),
+      `every findings <th> must carry scope="col", got [${dom.findingsThScopes.join(', ')}]`);
+    assert(dom.metaThScopes.every((s) => s === 'row'),
+      `every meta <th> must carry scope="row", got [${dom.metaThScopes.join(', ')}]`);
+    phase('findings table header (<th> cells present, pinned, and scoped)');
 
     // --- the demo baseline: exactly 19 finding rows ------------------------
     assert(dom.findingsRowCount === BASELINE_FINDINGS,
@@ -176,11 +184,28 @@ async function main() {
     }
     phase('severity palette rendered (sev-error/warning/info row accents at the pinned hexes)');
 
-    // NOTE (#329, expected extension): once the export declares `color-scheme`
-    // and pairs body ink with an explicit background, pin BOTH here (computed
-    // style of :root color-scheme + body background-color). Not asserted today
-    // because both are known-absent - this render check is the backstop the
-    // #329 fix PR extends, not a pre-assertion of the fix.
+    // --- #329: declared light scheme + F24 ink/background pairing ----------
+    // Computed styles from the rendered body: `color-scheme: light` must be
+    // DECLARED (Chromium computes 'light'; an undeclared document computes
+    // 'normal'), and the body ink (#1b1f27) pairs an explicit white background
+    // (WCAG F24 - forced-dark UAs must not composite the ink onto their own
+    // canvas).
+    const bodyComputed = await page.evaluate(() => {
+      const style = getComputedStyle(document.body);
+      return {
+        colorScheme: style.colorScheme,
+        color: style.color,
+        backgroundColor: style.backgroundColor,
+      };
+    });
+    assert(bodyComputed.colorScheme === 'light',
+      `the document must declare color-scheme: light (#329); computed '${bodyComputed.colorScheme}'`);
+    assert(toHex(bodyComputed.color) === '#1B1F27',
+      `body ink must render the pinned #1b1f27, got '${bodyComputed.color}' (${toHex(bodyComputed.color)})`);
+    assert(toHex(bodyComputed.backgroundColor) === '#FFFFFF',
+      `body must pair its ink with an explicit #ffffff background (WCAG F24), `
+      + `got '${bodyComputed.backgroundColor}' (${toHex(bodyComputed.backgroundColor)})`);
+    phase('light scheme declared + body ink/background pairing (F24)');
 
     // --- final audit: zero renderer complaints -----------------------------
     assert(pageErrors.length === 0,

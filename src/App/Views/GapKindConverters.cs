@@ -93,14 +93,18 @@ public static class GapSummaryConverter
     public static readonly IValueConverter ToLine =
         new FuncValueConverter<GapSummary?, string>(LineFor);
 
+    // #329 (audit gap-9): the trailing tally pluralizes — "1 unchecked area" at exactly one,
+    // "N unchecked areas" at zero and N>1. The compound "+a / −r" segments keep their shared
+    // plural noun regardless of the counts.
     private static string LineFor(GapSummary? summary) => summary is null
         ? string.Empty
         : string.Format(
             CultureInfo.InvariantCulture,
-            "+{0} / −{1} objects · +{2} / −{3} memberships · {4} unchecked areas",
+            "+{0} / −{1} objects · +{2} / −{3} memberships · {4} unchecked area{5}",
             summary.AddedNodes,
             summary.RemovedNodes,
             summary.AddedEdges,
             summary.RemovedEdges,
-            summary.UncheckedParents);
+            summary.UncheckedParents,
+            summary.UncheckedParents == 1 ? string.Empty : "s");
 }

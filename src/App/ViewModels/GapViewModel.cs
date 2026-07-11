@@ -238,7 +238,8 @@ public sealed partial class GapViewModel : ObservableObject, IDisposable
     /// Exports the current gap <see cref="Report"/> + <see cref="Summary"/> as RFC-4180 CSV to a
     /// user-picked path (mirrors <see cref="WorkspaceViewModel.ExportReportCsvAsync"/>). Re-guards in
     /// the body (a stale-armed Execute ignores CanExecute), picks via the seam, and on a non-null pick
-    /// writes the pure-Core <see cref="GapReportExporter.ToCsv"/> output (UTF-8, no BOM) to ONLY that
+    /// writes the pure-Core <see cref="GapReportExporter.ToCsv"/> output through the BOM-less UTF-8
+    /// writer (the CSV string itself carries the leading U+FEFF, #329) to ONLY that
     /// path — a cancelled pick is a no-op. Read-only toward AD: the only write target is the picked
     /// local file; the directory is never touched (the name closure reads the union snapshot only).
     /// </summary>

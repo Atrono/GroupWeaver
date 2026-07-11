@@ -73,6 +73,54 @@ public class GapReportExporterTests
         ConnectionSummary: "Gap analysis: plan compared against the current structure",
         GeneratedAt: FixedGeneratedAt);
 
+    // === CSV: leading UTF-8 BOM (#329, the ADR-013 shared-pipeline discipline) ============
+
+    /// <summary>The one-char UTF-8 BOM prefix (U+FEFF) the CSV string must carry (#329
+    /// defect 2) — built via a cast so no literal/escape can be mangled by tooling.</summary>
+    private static readonly string Bom = ((char)0xFEFF).ToString();
+
+    [Fact]
+    public void Csv_StartsWithExactlyOneBom_AndUtf8BytesStartWithEfBbBf()
+    {
+        // #329: the gap CSV shares the ViolationReportExporter pipeline (ADR-013), so it
+        // carries the same leading U+FEFF — any UTF-8 byte writer (including the App's
+        // BOM-less UTF8Encoding(false) discipline) then produces a file starting EF BB BF,
+        // making Excel double-click decode UTF-8 for the German-AD audience.
+        var csv = GapReportExporter.ToCsv(GapReport.Empty, EmptySummary(), Names);
+
+        Assert.StartsWith(Bom + CsvHeader + Eol, csv, StringComparison.Ordinal);
+        Assert.Equal(-1, csv.IndexOf((char)0xFEFF, 1)); // exactly one BOM
+
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(csv);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        Assert.Equal((byte)'K', bytes[3]); // the header's leading 'K' — nothing between
+    }
+
+    [Fact]
+    public void Csv_NonAsciiSubjectName_SurvivesAsUtf8Bytes_BehindTheBom()
+    {
+        // #329 defect 4: an umlaut-bearing name reaches the CSV verbatim and its UTF-8
+        // bytes (0xC3 0xA4 for 'ä') sit behind the BOM that makes Excel decode them.
+        var resolver = (ViolationReportExporter.ResolveName)(_ => "Vertrieb-Käufer");
+        var report = new GapReport(new[]
+        {
+            new GapFinding(GapKind.NodeAdded, new[] { AddedDn }, "msg"),
+        });
+
+        var csv = GapReportExporter.ToCsv(report, EmptySummary(), resolver);
+        Assert.Contains("Vertrieb-Käufer", csv, StringComparison.Ordinal);
+
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(csv);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        var found = false;
+        for (var i = 3; i < bytes.Length - 2 && !found; i++)
+        {
+            found = bytes[i] == 0x4B && bytes[i + 1] == 0xC3 && bytes[i + 2] == 0xA4; // "Kä"
+        }
+
+        Assert.True(found, "the UTF-8 byte sequence for 'Kä' (4B C3 A4) must survive into the payload");
+    }
+
     // === CSV: header + the SecondaryDn column rule (empty for node/area, child DN for edge) ===
 
     [Fact]
@@ -80,16 +128,16 @@ public class GapReportExporterTests
     {
         var csv = GapReportExporter.ToCsv(GapReport.Empty, EmptySummary(), Names);
 
-        Assert.StartsWith(CsvHeader + Eol, csv);
+        Assert.StartsWith(Bom + CsvHeader + Eol, csv, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Csv_EmptyReport_IsHeaderOnly()
+    public void Csv_EmptyReport_IsBomPlusHeaderOnly()
     {
-        // No findings -> the file is the header row only (the summary is unused for CSV).
+        // No findings -> the file is the BOM + header row only (the summary is unused for CSV).
         var csv = GapReportExporter.ToCsv(GapReport.Empty, EmptySummary(), Names);
 
-        Assert.Equal(CsvHeader + Eol, csv);
+        Assert.Equal(Bom + CsvHeader + Eol, csv);
     }
 
     [Fact]
@@ -480,6 +528,67 @@ public class GapReportExporterTests
     }
 
     [Fact]
+    public void Html_UncheckedTallyOfOne_UsesSingularArea()
+    {
+        // #329 (the gap-9 defect class): at N=1 the honesty row reads
+        // "1 unexpanded current-structure area not compared" — never "1 ... areas".
+        var summary = new GapSummary(
+            AddedNodes: 0,
+            RemovedNodes: 0,
+            CommonNodes: 5,
+            AddedEdges: 0,
+            RemovedEdges: 0,
+            CommonEdges: 5,
+            UncheckedEdges: 1,
+            UncheckedParents: 1);
+
+        var html = GapReportExporter.ToHtml(GapReport.Empty, summary, Names, Header);
+
+        Assert.Contains("1 unexpanded current-structure area not compared", html);
+        Assert.DoesNotContain("1 unexpanded current-structure areas", html);
+    }
+
+    // === HTML: #329 — color-scheme, F24 pairing, th scope ==================================
+
+    [Fact]
+    public void Html_StyleBlock_DeclaresColorSchemeLight()
+    {
+        // #329 defect 5: the gap report is the same single-theme light template — it must
+        // declare `color-scheme: light` (exactly light, no dark variant exists).
+        var html = RenderHtmlInjected();
+
+        Assert.Matches("color-scheme:\\s*light\\s*[;}]", html);
+        Assert.DoesNotMatch("color-scheme:\\s*light\\s+dark", html);
+    }
+
+    [Fact]
+    public void Html_Css_EveryColorDeclaration_HasABackgroundInTheSameRule()
+    {
+        // WCAG F24 (#329 defect 5): every rule declaring `color:` also declares a
+        // background — shared structural pin with the violation-report template.
+        ViolationReportHtmlTests.AssertEveryColorHasAPairedBackground(RenderHtmlInjected());
+    }
+
+    [Fact]
+    public void Html_TableHeaders_CarryScopeAttributes_ColOnFindings_RowOnMeta()
+    {
+        // #329 (gap-12, WCAG 1.3.1 / H63): every <th> declares its direction — the
+        // findings-table headers scope="col", the meta rows scope="row".
+        var html = RenderHtmlInjected();
+
+        ViolationReportHtmlTests.AssertEveryThCarriesAScope(html);
+        Assert.Contains("<th scope=\"row\">Root</th>", html);
+        Assert.Contains("<th scope=\"col\">Kind</th>", html);
+
+        var thead = Regex.Match(html, "<thead>.*?</thead>", RegexOptions.Singleline);
+        Assert.True(thead.Success, "the findings table must have a real <thead>");
+        foreach (Match th in Regex.Matches(thead.Value, "<th\\b[^>]*>"))
+        {
+            Assert.Contains("scope=\"col\"", th.Value);
+        }
+    }
+
+    [Fact]
     public void Html_HeaderIdentity_RootDnNameAndConnection_AreRendered_Escaped()
     {
         var html = RenderHtmlInjected();
@@ -609,7 +718,10 @@ public class GapReportExporterTests
     /// structure can be asserted without coupling to a particular rendering of those bytes.</summary>
     private static List<string[]> DataRows(string csv)
     {
-        var records = ParseRfc4180(csv);
+        // The single leading BOM is an encoding signature, not data — assert and strip it.
+        Assert.StartsWith(Bom, csv, StringComparison.Ordinal);
+        Assert.Equal(-1, csv.IndexOf((char)0xFEFF, 1));
+        var records = ParseRfc4180(csv[1..]);
 
         Assert.NotEmpty(records);
         Assert.Equal(CsvHeader.Split(','), records[0]);

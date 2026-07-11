@@ -296,7 +296,8 @@ public class ViolationReportHtmlTests
         // extra meta rows — the active ruleset name, the triaged count ("N findings excluded by triage")
         // and the unchecked count ("N unexpanded areas") — so a bare export is self-describing and can
         // never present a clean bill that omits the suppressions or the unexpanded scope. Pin the EXACT
-        // labels + value text the implementation emits.
+        // labels + value text the implementation emits. #329 (gap-12): the meta <th>s are ROW headers —
+        // they carry scope="row" (WCAG 1.3.1 / H63).
         var report = new RuleReport(
             new[] { V(RuleIds.EmptyGroup, RuleSeverity.Info, "empty", SubjectDn) },
             Array.Empty<string>());
@@ -312,9 +313,141 @@ public class ViolationReportHtmlTests
         var html = ViolationReportExporter.ToHtml(report, Names, header);
 
         // The three meta rows, verbatim (the exact <th> labels + <td> value text from ToHtml).
-        Assert.Contains("<tr><th>Ruleset</th><td>Strict AGDLP</td></tr>", html);
-        Assert.Contains("<tr><th>Triaged</th><td>4 findings excluded by triage</td></tr>", html);
-        Assert.Contains("<tr><th>Unchecked</th><td>7 unexpanded areas</td></tr>", html);
+        Assert.Contains("<tr><th scope=\"row\">Ruleset</th><td>Strict AGDLP</td></tr>", html);
+        Assert.Contains("<tr><th scope=\"row\">Triaged</th><td>4 findings excluded by triage</td></tr>", html);
+        Assert.Contains("<tr><th scope=\"row\">Unchecked</th><td>7 unexpanded areas</td></tr>", html);
+    }
+
+    [Fact]
+    public void PopulatedHeader_CountOfOne_UsesSingularNouns()
+    {
+        // #329 (missed-5, the gap-9 defect class on the export surface): at N=1 the honesty
+        // rows read "1 finding excluded by triage" and "1 unexpanded area" — never the
+        // hardcoded plurals "1 findings" / "1 areas".
+        var report = new RuleReport(
+            new[] { V(RuleIds.EmptyGroup, RuleSeverity.Info, "empty", SubjectDn) },
+            Array.Empty<string>());
+        var header = new ReportHeader(
+            RootDn: "OU=AGDLP-Demo,DC=weavedemo,DC=example",
+            RootName: "AGDLP-Demo",
+            ConnectionSummary: "DemoProvider (offline)",
+            GeneratedAt: FixedGeneratedAt,
+            RulesetName: "Strict AGDLP",
+            TriagedCount: 1,
+            UncheckedCount: 1);
+
+        var html = ViolationReportExporter.ToHtml(report, Names, header);
+
+        Assert.Contains("<td>1 finding excluded by triage</td>", html);
+        Assert.Contains("<td>1 unexpanded area</td>", html);
+        Assert.DoesNotContain("1 findings", html);
+        Assert.DoesNotContain("1 unexpanded areas", html);
+    }
+
+    // ---- #329: plural-correct severity tally in the Findings meta row -----------
+
+    [Fact]
+    public void FindingsMetaRow_PluralizesErrorAndWarning_InfoStaysInvariant()
+    {
+        // The header tally pluralizes the countable severity nouns ("1 error" / "2 errors",
+        // "1 warning" / "0 warnings") while "info" stays invariant (a mass noun — "2 infos"
+        // is not English and "2 info" reads as the severity label). Pin both arms.
+        var one = new RuleReport(
+            new[]
+            {
+                V(RuleIds.Nesting, RuleSeverity.Error, "e", SubjectDn, MemberDn),
+                V("naming-gg", RuleSeverity.Warning, "w", SubjectDn),
+                V(RuleIds.EmptyGroup, RuleSeverity.Info, "i", SubjectDn),
+            },
+            Array.Empty<string>());
+        var many = new RuleReport(
+            new[]
+            {
+                V(RuleIds.Nesting, RuleSeverity.Error, "e1", SubjectDn, MemberDn),
+                V(RuleIds.Nesting, RuleSeverity.Error, "e2", SubjectDn, MemberDn),
+                V(RuleIds.EmptyGroup, RuleSeverity.Info, "i1", SubjectDn),
+                V(RuleIds.EmptyGroup, RuleSeverity.Info, "i2", SubjectDn),
+                V(RuleIds.EmptyGroup, RuleSeverity.Info, "i3", SubjectDn),
+            },
+            Array.Empty<string>());
+
+        Assert.Contains(
+            "<tr><th scope=\"row\">Findings</th><td>1 error, 1 warning, 1 info</td></tr>",
+            Render(one));
+        Assert.Contains(
+            "<tr><th scope=\"row\">Findings</th><td>2 errors, 0 warnings, 3 info</td></tr>",
+            Render(many));
+    }
+
+    // ---- #329: color-scheme + F24 (paired color/background) + th scope ----------
+
+    [Fact]
+    public void StyleBlock_DeclaresColorSchemeLight()
+    {
+        // #329 defect 5 (connect-3/gap-4/crosscut-8): the report is a deliberately
+        // single-theme LIGHT document — it must SAY so, or forced-dark UAs invert
+        // the AA-verified palette. Pinned as the CSS declaration `color-scheme: light`
+        // (exactly `light`, not `light dark` — the template has no dark variant).
+        var html = Render(WithInjectedTokens());
+
+        Assert.Matches("color-scheme:\\s*light\\s*[;}]", html);
+        Assert.DoesNotMatch("color-scheme:\\s*light\\s+dark", html);
+    }
+
+    [Fact]
+    public void Css_EveryColorDeclaration_HasABackgroundInTheSameRule()
+    {
+        // WCAG F24 (#329 defect 5, audit-8/exports-3): setting a foreground color
+        // without a paired background lets user-agent recoloring composite the ink
+        // onto an arbitrary canvas. Structural pin — for EVERY rule in the inline
+        // stylesheet that declares `color:`, the SAME rule declares `background-color:`
+        // (or the `background:` shorthand). Survives innocent template edits; catches
+        // any new unpaired ink.
+        AssertEveryColorHasAPairedBackground(Render(WithInjectedTokens()));
+    }
+
+    [Fact]
+    public void TableHeaders_CarryScopeAttributes_ColOnFindings_RowOnMeta()
+    {
+        // #329 (gap-12, WCAG 1.3.1 / H63): every <th> in the document declares its
+        // direction — the findings-table column headers scope="col", the meta-table
+        // row headers scope="row". The sweep is structural (every <th> has a scope),
+        // plus targeted pins so col/row cannot be swapped.
+        var report = new RuleReport(
+            new[] { V(RuleIds.Nesting, RuleSeverity.Error, "n", SubjectDn, MemberDn) },
+            Array.Empty<string>());
+
+        var html = Render(report);
+
+        AssertEveryThCarriesAScope(html);
+        Assert.Contains("<th scope=\"row\">Root</th>", html);
+        Assert.Contains("<th scope=\"col\">Severity</th>", html);
+
+        // Every header cell inside the findings <thead> is a column header.
+        var thead = Regex.Match(html, "<thead>.*?</thead>", RegexOptions.Singleline);
+        Assert.True(thead.Success, "the findings table must have a real <thead>");
+        foreach (Match th in Regex.Matches(thead.Value, "<th\\b[^>]*>"))
+        {
+            Assert.Contains("scope=\"col\"", th.Value);
+        }
+    }
+
+    // ---- #329: multi-DN cells join with <br>, never the bare "; " ---------------
+
+    [Fact]
+    public void MultiDnCell_JoinsWithBrTag_NotSemicolon()
+    {
+        // #329 defect 3 on the HTML side (audit-9/plan-6): the Dns cell renders each
+        // (escaped) DN on its own line via <br> — unambiguous against RFC-4514 DNs
+        // containing escaped semicolons. The legacy "; " join must be gone.
+        var report = new RuleReport(
+            new[] { V(RuleIds.Nesting, RuleSeverity.Error, "n", SubjectDn, MemberDn) },
+            Array.Empty<string>());
+
+        var html = Render(report);
+
+        Assert.Contains(SubjectDn + "<br>" + MemberDn, html);
+        Assert.DoesNotContain(SubjectDn + "; " + MemberDn, html);
     }
 
     [Fact]
@@ -351,10 +484,12 @@ public class ViolationReportHtmlTests
 
         var html = Render(report); // the shared Header has a null RulesetName.
 
-        Assert.DoesNotContain("<th>Ruleset</th>", html);
-        Assert.DoesNotContain("<th>Triaged</th>", html);
-        Assert.DoesNotContain("findings excluded by triage", html);
-        Assert.DoesNotContain("unexpanded areas", html);
+        // Scope-attribute-agnostic forms (">Ruleset<" matches any <th ...>Ruleset</th>),
+        // so this conditional-rendering pin survives attribute changes on the <th>s.
+        Assert.DoesNotContain(">Ruleset<", html);
+        Assert.DoesNotContain(">Triaged<", html);
+        Assert.DoesNotContain("excluded by triage", html);
+        Assert.DoesNotContain("unexpanded area", html);
     }
 
     // ---- determinism ----------------------------------------------------------
@@ -395,6 +530,45 @@ public class ViolationReportHtmlTests
 
     private static string Render(RuleReport report) =>
         ViolationReportExporter.ToHtml(report, Names, Header);
+
+    /// <summary>The WCAG F24 structural pin (#329): parse every <c>selector{decls}</c>
+    /// rule out of the inline stylesheet; any rule declaring the <c>color:</c> property
+    /// (the lookbehind excludes <c>background-color</c>/<c>border-*-color</c>/<c>color-scheme</c>)
+    /// must also declare <c>background-color:</c> or the <c>background:</c> shorthand.</summary>
+    internal static void AssertEveryColorHasAPairedBackground(string html)
+    {
+        var style = Regex.Match(html, "<style>(.*?)</style>", RegexOptions.Singleline);
+        Assert.True(style.Success, "the document must carry exactly one inline <style> block");
+
+        var sawAColorRule = false;
+        foreach (Match rule in Regex.Matches(style.Groups[1].Value, "([^{}]+)\\{([^}]*)\\}"))
+        {
+            var decls = rule.Groups[2].Value;
+            if (!Regex.IsMatch(decls, "(?<![-\\w])color\\s*:"))
+            {
+                continue;
+            }
+
+            sawAColorRule = true;
+            Assert.True(
+                Regex.IsMatch(decls, "(?<![-\\w])background(-color)?\\s*:"),
+                $"CSS rule '{rule.Groups[1].Value.Trim()}' sets color: without a paired background (WCAG F24)");
+        }
+
+        Assert.True(sawAColorRule, "expected at least one color-declaring rule (the body ink)");
+    }
+
+    /// <summary>The H63 sweep (#329 / gap-12): EVERY <c>&lt;th&gt;</c> in the document
+    /// carries an explicit <c>scope="col"</c> or <c>scope="row"</c>.</summary>
+    internal static void AssertEveryThCarriesAScope(string html)
+    {
+        var ths = Regex.Matches(html, "<th\\b[^>]*>");
+        Assert.True(ths.Count > 0, "expected <th> header cells in the document");
+        foreach (Match th in ths)
+        {
+            Assert.Matches("scope=\"(col|row)\"", th.Value);
+        }
+    }
 
     // A report carrying the dangerous payload in a violation's DN list and Message
     // (the SubjectName is injected via the Names resolver). One nesting finding so
