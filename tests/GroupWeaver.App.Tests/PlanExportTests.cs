@@ -134,7 +134,18 @@ public sealed class PlanExportTests
         plan.Dispose();
     }
 
-    [Fact]
+    /// <summary>
+    /// The honest PS 5.1 parse-clean proof (#330): a plan carrying a non-ASCII name, exported
+    /// through the REAL command + the REAL BOM-less writer, must parse with ZERO errors under
+    /// a spawned Windows PowerShell 5.1 (<c>Parser.ParseFile</c> honors the BOM exactly like
+    /// <c>-File</c>; an in-process .NET re-read would silently use UTF-8 and prove nothing).
+    /// The name's trailing Cyrillic <c>ђ</c> (UTF-8 <c>D1 92</c>) is the parse-breaking
+    /// sentinel: BOM-less, ANSI mis-decodes 0x92 into a curly-quote string DELIMITER, so the
+    /// old encoding did not merely mojibake — it failed to parse. Skips LOUDLY via
+    /// <see cref="WindowsPowerShell51FactAttribute"/> when powershell.exe is absent (never on
+    /// this box or windows-2022 CI); the spawn is bounded like every other test here.
+    /// </summary>
+    [WindowsPowerShell51Fact(Timeout = 30_000)]
     public async Task ExportPlanScript_NonAsciiName_ParsesCleanUnderWindowsPowerShell51()
     {
         using var temp = new TempFile("ps1");
