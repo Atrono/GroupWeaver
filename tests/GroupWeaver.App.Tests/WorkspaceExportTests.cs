@@ -77,6 +77,11 @@ public sealed class WorkspaceExportTests
         Assert.True(File.Exists(temp.Path), "the CSV command must write the picked file");
         Assert.Equal(expected, ReadAllUtf8(temp.Path));
 
+        // #329 defect 2 (end-to-end): the CSV FILE starts with the UTF-8 BOM bytes EF BB BF
+        // (the exporter's in-string U+FEFF through the VM's BOM-less UTF-8 writer), so an
+        // Excel double-click decodes UTF-8 — the German-AD Excel-correctness contract.
+        AssertUtf8BomBytes(temp.Path);
+
         vm.Dispose();
     }
 
@@ -220,8 +225,11 @@ public sealed class WorkspaceExportTests
         var written = ReadAllUtf8(temp.Path);
         // The file equals the exporter output for this report…
         Assert.Equal(ViolationReportExporter.ToCsv(vm.Report, ResolveNameOf(vm)), written);
-        // …and the appendix is present despite there being zero violations.
-        Assert.Contains("\r\nUncheckedDns\r\n", written);
+        // …and the unchecked rows are present despite there being zero violations —
+        // #329 defect 1: rectangular `unchecked` Section rows, never the legacy
+        // blank-line + bare "UncheckedDns" appendix.
+        Assert.DoesNotContain("UncheckedDns", written);
+        Assert.Contains("\r\nunchecked,", written);
         foreach (var dn in vm.Report.UncheckedDns)
         {
             Assert.Contains(dn, written);
@@ -505,12 +513,26 @@ public sealed class WorkspaceExportTests
     private static string NormaliseGeneratedRow(string html) =>
         Regex.Replace(
             html,
-            "<tr><th>Generated</th><td>.*?</td></tr>",
+            "<tr><th[^>]*>Generated</th><td>.*?</td></tr>",
             "<tr><th>Generated</th><td>TS</td></tr>",
             RegexOptions.Singleline);
 
+    /// <summary>Decodes the file's raw bytes WITHOUT BOM detection — a leading U+FEFF
+    /// stays in the returned string, so string equality against the exporter output
+    /// (whose CSV contract carries the in-string BOM, #329) compares the true bytes.
+    /// (<c>File.ReadAllText</c> would silently strip a file BOM.)</summary>
     private static string ReadAllUtf8(string path) =>
-        File.ReadAllText(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        Encoding.UTF8.GetString(File.ReadAllBytes(path));
+
+    /// <summary>Asserts the file's first three raw bytes are the UTF-8 BOM EF BB BF
+    /// (#329 defect 2 — the Excel double-click contract for CSV exports).</summary>
+    private static void AssertUtf8BomBytes(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        Assert.True(
+            bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF,
+            "the CSV export must start with the UTF-8 BOM (EF BB BF)");
+    }
 
     /// <summary>Sets the export dialog seam on an already-constructed VM via the slice-3
     /// wiring point. Slice 0 added the ctor param; slice 3 must let a test inject the seam
