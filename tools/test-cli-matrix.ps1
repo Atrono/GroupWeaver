@@ -228,7 +228,7 @@ try {
     }
     else {
         $html = [string](Get-Content $exportHtml -Raw)
-        $headerRow = '<th>Severity</th><th>Rule</th><th>Subject</th><th>Primary DN</th><th>DNs</th><th>Message</th>'
+        $headerRow = '<th scope="col">Severity</th><th scope="col">Rule</th><th scope="col">Subject</th><th scope="col">Primary DN</th><th scope="col">DNs</th><th scope="col">Message</th>'
         if ($html -notlike "*$headerRow*") {
             Report 'check 6 (--demo --dump-export)' $false 'HTML is missing the pinned findings-table header row'
         }
