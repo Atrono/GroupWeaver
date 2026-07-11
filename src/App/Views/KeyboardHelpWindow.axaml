@@ -38,12 +38,23 @@
        Window, never layered over the workspace GraphHost (ADR-001 airspace guardrail 5). -->
   <DockPanel>
 
-    <!-- Footer: Close (OUTSIDE the scroller so it stays reachable). -->
+    <!-- Footer: "Report an issue…" link + Close (both OUTSIDE the scroller so they stay
+         reachable, incl. at the 440x360 floor). The link opens the prefilled GitHub UX-feedback
+         form in the default browser; keyboard-reachable (tab -> Enter) with an explicit
+         automation name. -->
     <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0"
             BorderBrush="{DynamicResource CardBorderBrush}" Padding="16,10">
-      <Button Classes="accent" Content="Close" MinWidth="84"
-              HorizontalAlignment="Right"
-              IsDefault="True" IsCancel="True" Click="OnCloseClick" />
+      <Grid ColumnDefinitions="*,Auto">
+        <Button Grid.Column="0" Classes="hyperlink" Padding="0"
+                HorizontalAlignment="Left" VerticalAlignment="Center"
+                AutomationProperties.Name="Report an issue"
+                ToolTip.Tip="Opens GitHub in your browser"
+                Click="OnReportIssueClick">
+          <TextBlock Text="Report an issue…" TextDecorations="Underline" />
+        </Button>
+        <Button Grid.Column="1" Classes="accent" Content="Close" MinWidth="84"
+                IsDefault="True" IsCancel="True" Click="OnCloseClick" />
+      </Grid>
     </Border>
 
     <ScrollViewer>

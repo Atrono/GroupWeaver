@@ -1,0 +1,79 @@
+name: UX feedback
+description: Something felt wrong, confusing, or hard to use (no crash needed)
+labels: ["ux"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!CAUTION]
+        > **Never paste real Active Directory data (DNs, user/group names, group
+        > structures) into a public issue.** If possible, reproduce the moment
+        > in demo mode (`--demo`) and screenshot from there.
+  - type: textarea
+    id: what-felt-wrong
+    attributes:
+      label: What felt wrong?
+      description: >
+        What were you trying to do, what got in the way, and what would have
+        felt right instead? Friction counts - nothing has to be broken.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where in the app?
+      options:
+        - Connect step
+        - Root picker
+        - Workspace / graph
+        - Findings sidebar / detail panel
+        - Audit screen
+        - Plan editor
+        - Gap analysis
+        - Settings / rule editor
+        - Exported file (CSV / HTML / script)
+        - Keyboard / accessibility
+        - Somewhere else / crosses several
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GroupWeaver version
+      placeholder: e.g. v0.4.4
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Demo mode (--demo)
+        - Live AD
+    validations:
+      required: true
+  - type: dropdown
+    id: theme
+    attributes:
+      label: Theme
+      options:
+        - Dark
+        - Light
+        - Both / not sure
+    validations:
+      required: false
+  - type: input
+    id: display-scale
+    attributes:
+      label: Display scaling
+      description: Windows display scale, if you know it (Settings > System > Display)
+      placeholder: e.g. 100%, 150%, 200%
+    validations:
+      required: false
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot (demo mode only)
+      description: Drag an image here - demo-mode data only, never a real directory.
+    validations:
+      required: false

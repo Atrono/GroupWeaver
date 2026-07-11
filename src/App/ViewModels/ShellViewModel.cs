@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GroupWeaver.App.Audit;
 using GroupWeaver.App.Diagnostics;
+using GroupWeaver.App.Feedback;
 using GroupWeaver.App.Graph;
 using GroupWeaver.App.Rules;
 using GroupWeaver.App.Settings;
@@ -362,14 +363,23 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// The top command strip's "?" affordance: shows the keyboard/gesture cheat sheet as a
     /// modal <see cref="KeyboardHelpWindow"/> over the main window — its own top-level Window
     /// (never layered over the workspace GraphHost, ADR-001 airspace guardrail 5), mirroring
-    /// <see cref="OpenSettingsAsync"/>. Static content, so there is no VM to build.
+    /// <see cref="OpenSettingsAsync"/>. Static content, so there is no VM to build; the one
+    /// piece of state passed in is the footer's prefilled "Report an issue" URL — built HERE
+    /// because only the shell knows the mode (<see cref="IsDemoMode"/>) and the applied theme
+    /// (the version is assembly truth, the <c>--check</c> banner's source).
     /// <c>ShowDialog</c> is the production-only path (headless-hostile); the non-modal show is
     /// the off-desktop-lifetime fallback.
     /// </summary>
     [RelayCommand]
     private async Task OpenKeyboardHelpAsync()
     {
-        var window = new KeyboardHelpWindow();
+        var window = new KeyboardHelpWindow
+        {
+            ReportIssueUrl = UxFeedbackLink.BuildUrl(
+                Program.InformationalVersion(),
+                IsDemoMode,
+                Application.Current?.RequestedThemeVariant),
+        };
         if (GetMainWindow() is { } owner)
         {
             await window.ShowDialog(owner);

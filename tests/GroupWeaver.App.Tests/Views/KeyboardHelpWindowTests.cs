@@ -3,6 +3,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -10,6 +11,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
+using GroupWeaver.App.Feedback;
 using GroupWeaver.App.Views;
 
 using Xunit;
@@ -130,6 +132,48 @@ public sealed class KeyboardHelpWindowTests
         Assert.True(window.IsVisible, "the keyboard-help sheet window must realize as shown at MinWidth/MinHeight");
 
         CapturePng(window, "keyboard-help", 440, 360);
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// Feedback-intake slice (feat/feedback-intake): the footer's "Report an issue…" link and
+    /// the Close button's unchanged contract, asserted at the 440x360 MinWidth/MinHeight FLOOR
+    /// (the hardest case — a footer inside the ScrollViewer would scroll out of reach exactly
+    /// here). Both buttons must (a) realize effectively visible, and (b) sit OUTSIDE the
+    /// ScrollViewer (docked footer, no ScrollViewer visual ancestor) so they stay reachable at
+    /// any size. The link carries the explicit automation name "Report an issue" (glyph/ellipsis
+    /// content — the #219 accessible-name discipline); Close keeps IsDefault + IsCancel (Enter
+    /// and Esc both dismiss the modal sheet — the pre-existing contract, unchanged by adding
+    /// the link). A bare-constructed window (this headless path — no shell) must fall back to
+    /// the un-prefilled template URL, never an empty/null link target.
+    /// </summary>
+    [AvaloniaFact]
+    public void Footer_ReportIssueLink_AndCloseContract_AtMinSizeFloor()
+    {
+        var window = new KeyboardHelpWindow { Width = 440, Height = 360 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        var buttons = window.GetVisualDescendants().OfType<Button>().ToList();
+
+        // The "Report an issue" link: named for automation, visible, and OUTSIDE the scroller.
+        var report = buttons.Single(b => AutomationProperties.GetName(b) == "Report an issue");
+        Assert.True(report.IsEffectivelyVisible, "the report-issue link must be visible at the floor size");
+        Assert.Empty(report.GetVisualAncestors().OfType<ScrollViewer>());
+
+        // Close keeps its full pre-existing contract: IsDefault (Enter) + IsCancel (Esc),
+        // visible and reachable outside the scroller at the floor size.
+        var close = buttons.Single(b => (b.Content as string) == "Close");
+        Assert.True(close.IsDefault, "Close must remain the default (Enter) button");
+        Assert.True(close.IsCancel, "Close must remain the cancel (Esc) button");
+        Assert.True(close.IsEffectivelyVisible, "Close must be visible at the floor size");
+        Assert.Empty(close.GetVisualAncestors().OfType<ScrollViewer>());
+
+        // Bare construction (no shell): the link target falls back to the template-only URL.
+        Assert.Equal(UxFeedbackLink.TemplateOnlyUrl, window.ReportIssueUrl);
 
         window.Close();
     }
