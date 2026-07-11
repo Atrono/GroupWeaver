@@ -57,6 +57,12 @@ public static class PlanScriptExporter
 
         var sb = new StringBuilder();
 
+        // #330: the emitted STRING leads with exactly one U+FEFF. The App's writer is
+        // BOM-less (UTF8Encoding(false)), so this in-string char becomes the file's
+        // EF BB BF preamble — without it PS 5.1 decodes the file via the ANSI codepage
+        // and non-ASCII names mojibake (a mis-decoded curly quote even breaks the parse).
+        sb.Append('\uFEFF');
+
         AppendHeader(sb, header, groups.Count, users.Count, memberships.Count);
 
         sb.Append("# --- Groups (created only if absent) ---").Append(Eol);
@@ -163,19 +169,24 @@ public static class PlanScriptExporter
 
     private static void AppendMembership(StringBuilder sb, string parentToken, string childToken)
     {
+        // #330 guard idiom: read the parent's raw member attribute and compare DNs —
+        // the member-ENUMERATION cmdlet throws on FSP-bearing / >5000-member groups,
+        // which under Set-StrictMode + Stop would abort the whole run. The untrusted
+        // tokens are bound to locals as single-quoted literals first; only the
+        // variables appear afterwards. The child DN lookup is kind-agnostic (group OR
+        // user member) and piped through Select-Object -ExpandProperty so a vanished
+        // child yields $null instead of a StrictMode property error.
         var parent = Ps1(parentToken);
         var child = Ps1(childToken);
-        sb.Append("if (-not (Get-ADGroupMember -Identity ")
-            .Append(parent)
-            .Append(" | Where-Object { $_.SamAccountName -eq ")
-            .Append(child)
-            .Append(" })) {")
+        sb.Append("$parent = ").Append(parent).Append(Eol);
+        sb.Append("$child = ").Append(child).Append(Eol);
+        sb.Append("$childDn = Get-ADObject -Filter 'SamAccountName -eq $child'")
+            .Append(" | Select-Object -ExpandProperty DistinguishedName")
             .Append(Eol);
-        sb.Append("    Add-ADGroupMember -Identity ")
-            .Append(parent)
-            .Append(" -Members ")
-            .Append(child)
+        sb.Append("if ((Get-ADGroup -Identity $parent -Properties member)")
+            .Append(".member -notcontains $childDn) {")
             .Append(Eol);
+        sb.Append("    Add-ADGroupMember -Identity $parent -Members $child").Append(Eol);
         sb.Append('}').Append(Eol);
     }
 

@@ -71,3 +71,34 @@ build environment cannot inject canvas mouse gestures for headless verification
   — deferred; empty-start ships first.
 - **Reject self-membership (A→A) in the model:** would make the plan unable to reproduce a
   finding the live tool reports; the UI disables the combo instead.
+
+## Addendum (2026-07-11) — #330 revision of the emitted script's guards and encoding
+
+The 2026-07-11 fit-audit (docs/ux-fit-audit-2026-07-11.md, Lever 2 → issue
+#330) found the D5 script broken on the directories it targets: the
+idempotence guards enumerated group members via the cmdlet that
+`.claude/rules/lab-environment.md` documents as throwing "unspecified error"
+on any FSP-bearing group (and >5000-member groups) — under the script's own
+`Set-StrictMode` + Stop preference that is an abort mid-run; and the emitted
+file was UTF-8 without BOM, which Windows PowerShell 5.1 decodes via the ANSI
+codepage, turning any non-ASCII group name into a parse error. Revised
+contract (pinned by `PlanScriptExporterTests` + `PlanExportTests`, including a
+spawned-PS-5.1 `Parser.ParseFile` zero-errors proof):
+
+- **Membership guards read the raw `member` attribute**
+  (`Get-ADGroup -Identity $parent -Properties member`, `-notcontains` against
+  a kind-agnostically resolved `$childDn`) — the lab-notes idiom; the
+  throwing enumeration cmdlet's name no longer appears anywhere in the output.
+- **The script string begins with exactly one U+FEFF**; the App writer stays
+  `UTF8Encoding(false)`, so the file leads with EF BB BF and PS 5.1 parses
+  non-ASCII names correctly. Names keep flowing verbatim inside single-quoted
+  literals (D5's `''`-doubling and control-char rejection unchanged).
+- The provenance header itself stays ASCII; the ui-checklist "Plan export
+  .ps1" clause is re-worded from "ASCII-only" to "BOM-led UTF-8, parses clean
+  under the PS 5.1 parser" (the enforcement moved from a human convention to
+  a spawned-parser test).
+
+Rejected at revision: ASCII-escaping non-ASCII names into `$([char]0xNNNN)`
+interpolations (unreadable and hand-edit-hostile for the admin the script is
+FOR); keeping the enumeration cmdlet wrapped in try/catch (masks real errors
+and still pays the >5000-member failure).
