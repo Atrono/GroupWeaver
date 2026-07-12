@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Diagnostics;
 using GroupWeaver.App.Rules;
 using GroupWeaver.Core.Model;
 using GroupWeaver.Core.Rules;
@@ -521,6 +523,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// embedded default via <see cref="ResetToDefault"/> — in-memory only, no disk write.</summary>
     [RelayCommand]
     private void Reset() => ResetToDefault();
+
+    /// <summary>The File-tab "Open logs folder" button (ADR-037 D10): opens the LOG DIRECTORY
+    /// in Explorer — a constant-source path (<see cref="FileLogSink.ResolveLogDirectory"/>,
+    /// never user input), shelled out never-throw (the <c>UxFeedbackLink.OpenInBrowser</c>
+    /// discipline: a failed launch simply does nothing). Best-effort directory creation so
+    /// the button works before the first sink write.</summary>
+    [RelayCommand]
+    private void OpenLogsFolder()
+    {
+        try
+        {
+            var directory = FileLogSink.ResolveLogDirectory();
+            Directory.CreateDirectory(directory);
+            Process.Start(new ProcessStartInfo(directory) { UseShellExecute = true });
+        }
+        catch
+        {
+            // Never-throw by contract: opening Explorer is a best-effort convenience.
+        }
+    }
 
     /// <summary>The Ignore-tab Add button (AP 3.3 / S7): appends a fresh, empty dn-mode
     /// global ignore entry (endpoint hidden) for the user to fill in. The gate

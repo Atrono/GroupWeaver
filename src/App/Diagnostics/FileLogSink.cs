@@ -54,9 +54,11 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
     private readonly Task _writerTask;
     private readonly string _directory;
     private readonly string _baseFileName;
+    private readonly string _fileSuffix;
     private readonly LogLevel _minLevel;
     private readonly long _maxFileBytes;
     private readonly string _sid;
+    private readonly Redaction _redaction;
     private readonly ArrayBufferWriter<byte> _buffer = new(4096);
     private FileStream? _stream;
     private long _bytesWritten;
@@ -83,18 +85,42 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
     }
 
     /// <summary>Test seam (caps injectable — roll/retention tests); throws on I/O failure, which
-    /// only <see cref="TryCreate"/> swallows.</summary>
+    /// only <see cref="TryCreate"/> swallows. <paramref name="redaction"/> defaults to the
+    /// ambient <see cref="Redactor.Current"/> (ADR-037 D9 — existing call sites compile
+    /// unchanged); the <see cref="Redaction.Identity"/> instance (<c>--log-plain</c>) suffixes
+    /// the file name <c>-PLAIN</c> and writes a first-line warning so a raw-data file is
+    /// visibly marked "do not attach publicly" (D10).</summary>
     internal FileLogSink(
-        string directory, LogLevel minLevel, Session session, long maxFileBytes, int channelCapacity)
+        string directory,
+        LogLevel minLevel,
+        Session session,
+        long maxFileBytes,
+        int channelCapacity,
+        Redaction? redaction = null)
     {
         _directory = directory;
         _minLevel = minLevel;
         _sid = session.Sid;
         _maxFileBytes = maxFileBytes;
+        _redaction = redaction ?? Redactor.Current;
+        _fileSuffix = _redaction.IsIdentity ? "-PLAIN" : string.Empty;
         _baseFileName =
             $"gw-{session.StartedUtc.ToUniversalTime():yyyyMMdd'T'HHmmss'Z'}-{Environment.ProcessId}";
-        CurrentLogFilePath = Path.Combine(directory, _baseFileName + ".jsonl");
+        CurrentLogFilePath = Path.Combine(directory, _baseFileName + _fileSuffix + ".jsonl");
         _stream = new FileStream(CurrentLogFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        if (_redaction.IsIdentity)
+        {
+            // Safe here: the writer task does not exist yet and no logger can enqueue before
+            // the ctor returns, so this is strictly the FIRST line of the file. One JSON
+            // object, so line-based JSONL consumers survive it.
+            WriteLine(new LogEvent(
+                DateTimeOffset.UtcNow, LogLevel.Warning, "App.Diagnostics", "PlainLoggingEnabled",
+                [],
+                Msg: "--log-plain: redaction is OFF — this file contains raw directory data "
+                    + "(plain mode); never attach it to a public issue.",
+                ExType: null, ExMessage: null, ExStack: null));
+        }
+
         _channel = Channel.CreateBounded<LogEvent>(new BoundedChannelOptions(channelCapacity)
         {
             SingleReader = true,
@@ -371,7 +397,7 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
         _stream.Dispose();
         _stream = null; // a throw below leaves a clean "disabled" state, never a disposed stream
         _part++;
-        var path = Path.Combine(_directory, $"{_baseFileName}-part{_part}.jsonl");
+        var path = Path.Combine(_directory, $"{_baseFileName}-part{_part}{_fileSuffix}.jsonl");
         _stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         CurrentLogFilePath = path;
         _bytesWritten = 0;
@@ -502,14 +528,17 @@ public sealed class FileLogSink : ILoggerFactory, ILoggerProvider
                 else
                 {
                     evt = "Message";
-                    msg = Redactor.Scrub(formatter(state, exception));
+                    msg = sink._redaction.Scrub(formatter(state, exception));
                 }
 
+                // ADR-037 D9: msgScrubbed AND stack both route through the sink's OWN
+                // Redaction (exception messages and stack frames embed DNs) — never the
+                // static facade, so a --log-plain sink is plain regardless of the ambient.
                 sink.Enqueue(new LogEvent(
                     DateTimeOffset.UtcNow, logLevel, category, evt, ExtractFields(state), msg,
                     exception?.GetType().FullName,
-                    exception is null ? null : Redactor.Scrub(exception.Message),
-                    exception?.StackTrace));
+                    exception is null ? null : sink._redaction.Scrub(exception.Message),
+                    sink._redaction.Scrub(exception?.StackTrace)));
             }
             catch
             {

@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GroupWeaver.App.Diagnostics;
 using GroupWeaver.Core.Providers;
 using GroupWeaver.Providers;
 
@@ -156,6 +157,13 @@ public sealed partial class ConnectionViewModel : ObservableObject
                     ErrorMessage = baseDnResult.ErrorMessage;
                     return;
                 }
+
+                // ADR-037 D9: register the concrete server/baseDn strings the app learns at
+                // connect, so the free-text scrubber can token-replace them in exception /
+                // jsError messages (a hostname matches no (CN|OU|DC)= pattern). Null — the
+                // zero-config serverless default — is a safe no-op.
+                Redactor.Learn(serverResult.Value);
+                Redactor.Learn(baseDnResult.Value);
 
                 bool targeting = serverResult.Value is not null || baseDnResult.Value is not null;
                 provider = targeting && _targetedProviderFactory is not null

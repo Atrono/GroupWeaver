@@ -124,6 +124,16 @@ internal static class Program
             StateDir: stateDir,
             E2e: e2e);
 
+        // ADR-037 D9 (--log-plain): swap the ambient redaction to the identity instance
+        // BEFORE the sink resolves it — the sink then writes the -PLAIN file name plus its
+        // first-line warning, and every call-site helper (Redactor.Dn/Host/Scrub, the E2E
+        // channel included) passes raw values through. Default stays "redacted" at EVERY
+        // level; this flag is the sole opt-out.
+        if (args.Contains("--log-plain"))
+        {
+            Redactor.Current = Redaction.Identity;
+        }
+
         var minLevel = ResolveLogLevel(args);
         var sink = FileLogSink.TryCreate(minLevel, AppLog.Session);
         if (sink is not null)
@@ -274,7 +284,10 @@ internal static class Program
                 utc = DateTimeOffset.UtcNow,
                 exType = exception?.GetType().FullName,
                 msgScrubbed = Redactor.Scrub(exception?.Message),
-                stack = exception?.StackTrace,
+                // ADR-037 D9 (WP10): the stack is scrubbed too, not dropped — frames embed
+                // DNs (provider Load/Bind arguments) and the marker is exactly the artifact
+                // users attach to public issues.
+                stack = Redactor.Scrub(exception?.StackTrace),
                 version = InformationalVersion(),
                 logFile,
             };
