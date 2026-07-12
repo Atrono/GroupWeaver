@@ -78,7 +78,7 @@ public sealed class CrashMarkerTests : IDisposable
         Assert.Equal(AppLog.Session.Sid, root.GetProperty("sid").GetString());
         Assert.Equal(TimeSpan.Zero, root.GetProperty("utc").GetDateTimeOffset().Offset);
         Assert.Equal("System.InvalidOperationException", root.GetProperty("exType").GetString());
-        Assert.Equal("boom", root.GetProperty("msgScrubbed").GetString()); // identity Redactor in WP1
+        Assert.Equal("boom", root.GetProperty("msgScrubbed").GetString()); // non-sensitive text passes Scrub unchanged (D9)
         Assert.False(
             string.IsNullOrWhiteSpace(root.GetProperty("stack").GetString()),
             "a thrown exception must carry its stack trace");

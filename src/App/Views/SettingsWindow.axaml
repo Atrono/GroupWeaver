@@ -827,6 +827,14 @@
                  accent; the primary stays the footer Save). -->
             <Button Classes="destructive" Content="Reset to default" MinWidth="130" Command="{Binding ResetCommand}" />
           </StackPanel>
+
+          <!-- ADR-037 D10: the one user-facing diagnostics affordance — opens the log
+               DIRECTORY (constant-source path, never user input) via a never-throw shell-out. -->
+          <TextBlock FontWeight="SemiBold" Margin="0,12,0,0" Text="Diagnostics" />
+          <TextBlock Opacity="0.6" TextWrapping="Wrap"
+                     Text="Log files are redacted by default and safe to attach to a public issue. Files ending in -PLAIN contain raw directory data — keep those private." />
+          <Button Classes="ghost" Content="Open logs folder" MinWidth="130" HorizontalAlignment="Left"
+                  Command="{Binding OpenLogsFolderCommand}" />
         </StackPanel>
       </TabItem>
 

@@ -230,6 +230,13 @@ function Start-E2EApp {
         $AppArgs = @($AppArgs) + @('--e2e')
         Write-DriverLog 'e2e-channel-seam' @{}
     }
+    # ADR-037 D9: E2E runs opt into full-volume PLAIN logging (--verbose-logs --log-plain) -
+    # scenarios assert RAW demo/fixture DNs in trace/log output, which the default-redacted
+    # sink would token-hash. Every launch here drives demo or lab-fixture data only; the
+    # -PLAIN artifacts land in the per-scenario state dir, never a user's real logs folder.
+    foreach ($logFlag in @('--verbose-logs', '--log-plain')) {
+        if ($AppArgs -notcontains $logFlag) { $AppArgs = @($AppArgs) + @($logFlag) }
+    }
     Write-DriverLog 'app-launch' @{ exe = $ExePath; args = ($AppArgs -join ' ') }
 
     $savedEnv = @{}
