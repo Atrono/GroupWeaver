@@ -13,7 +13,7 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
-    <Version>0.4.4</Version>
+    <Version>0.4.5</Version>
     <!-- Pin the transitive NuGet graph (packages.lock.json per project); the build
          gate restores with -locked-mode so a lock/manifest mismatch fails loudly.
          Regenerate after a package edit with a plain `dotnet restore`. Spikes are
