@@ -222,8 +222,12 @@ public static class GapReportExporter
         + "text-align:left;vertical-align:top;}\r\n"
         + "table.meta th{text-align:left;padding:2px 12px 2px 0;width:120px;}\r\n"
         + "thead{background:#eef1f5;}\r\n"
-        + "tr.gap-added{border-left:4px solid #4FA3E3;}\r\n"
-        + "tr.gap-removed{border-left:4px solid #D13438;}\r\n"
+
+        // The canonical DIFF palette, mirrored by hand (Core cannot reference App — the
+        // Tokens.axaml discipline): BrandTokens.AddedHex/RemovedHex/UncheckedHex, the
+        // graph bundle's diff cues, and GapKindConverters all pin these same hexes.
+        + "tr.gap-added{border-left:4px solid #2FAE4E;}\r\n"
+        + "tr.gap-removed{border-left:4px solid #E0503A;}\r\n"
         + "tr.gap-unchecked{border-left:4px solid #8A8F98;}\r\n"
         + ".all-clear{font-weight:600;}\r\n"
         + "</style>";
