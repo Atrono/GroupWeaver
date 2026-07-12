@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -71,6 +72,68 @@ public sealed class CrashMarkerRedactionTests : IDisposable
 
         Assert.Contains("dn#", stack, StringComparison.Ordinal);
         Assert.Contains("LdapProvider.Load", stack, StringComparison.Ordinal);
+    }
+
+    /// <summary>Review follow-up (the D9 "full user paths" class): <c>HandleFatal</c> hands the
+    /// marker the sink's <c>CurrentLogFilePath</c> — a full user-profile path embedding the USER
+    /// NAME. The marker keeps only the file NAME (<c>Path.GetFileName</c> — still joinable with
+    /// the session's log file) and the serialized artifact contains NO <c>C:\Users</c> fragment
+    /// and no log-directory path anywhere — swept over every DECODED JSON string (values and
+    /// names; a byte-level scan would miss the <c>\\</c>-escaped backslashes).</summary>
+    [Fact]
+    public void CrashMarker_NeverSerializesAUserProfilePath_LogFileIsNameOnly()
+    {
+        var logDir = Path.Combine(_dir, "logs-pathleak");
+        using var scope = new EnvVarScope("GROUPWEAVER_LOG_DIR", logDir);
+
+        const string fullLogPath =
+            @"C:\Users\alice\AppData\Roaming\GroupWeaver\logs\gw-20260101T000000Z-1234.jsonl";
+        var exception = new StackedException(
+            "boom at startup", "   at GroupWeaver.App.Program.Main()"); // injected: no real pdb paths
+        Program.WriteCrashMarker(exception, fullLogPath);
+
+        var marker = Assert.Single(Directory.GetFiles(logDir, "crash-*.json"));
+        using var doc = JsonDocument.Parse(File.ReadAllText(marker));
+        var root = doc.RootElement;
+
+        // The file NAME survives joinable; the directory half (the user-name carrier) does not.
+        Assert.Equal("gw-20260101T000000Z-1234.jsonl", root.GetProperty("logFile").GetString());
+
+        var strings = new List<string>();
+        CollectStrings(root, strings);
+        Assert.DoesNotContain(strings, s => s.Contains(@"C:\Users", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(strings, s => s.Contains("alice", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(strings, s => s.Contains("AppData", StringComparison.OrdinalIgnoreCase));
+        // Belt-and-braces: the LIVE log directory (equally user-profile-rooted) never leaks either.
+        Assert.DoesNotContain(strings, s => s.Contains(logDir, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Every decoded JSON string — values and property names, recursively.</summary>
+    private static void CollectStrings(JsonElement element, List<string> strings)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+                strings.Add(element.GetString()!);
+                break;
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    strings.Add(property.Name);
+                    CollectStrings(property.Value, strings);
+                }
+
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    CollectStrings(item, strings);
+                }
+
+                break;
+            default:
+                break;
+        }
     }
 
     /// <summary>Sets a process environment variable for the scope's lifetime and RESTORES the
