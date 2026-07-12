@@ -9,6 +9,10 @@ body:
         > **Never paste real Active Directory data (DNs, user/group names, group
         > structures) into a public issue.** If possible, reproduce the problem
         > in demo mode (`--demo`) and report it from there.
+
+        Log files from the logs folder (Settings → File → "Open logs folder") are
+        redacted by default: files **without** a `-PLAIN` suffix are safe to attach.
+        Files ending in `-PLAIN` contain raw directory data — never attach those.
   - type: textarea
     id: what-happened
     attributes:
