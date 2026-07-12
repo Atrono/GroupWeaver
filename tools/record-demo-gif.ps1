@@ -79,10 +79,15 @@ $script:uiStateBackup = $null
 # Node-hunt colors = the RENDERED dark-theme node colors, NOT the source palette
 # (src/App/Views/AdObjectKindConverters.cs / web/graph.js). In the dark theme a node
 # is a blue-gray fill with a thin kind-COLORED BORDER, so the border renders blended,
-# well off the flat palette: DL rust 0xA14000 -> ~(136,94,69) on the canvas, while the
+# well off the flat palette: DL rust 0xA14000 -> rendered blend on the canvas, while the
 # LEGEND swatch keeps the exact palette 0xA14000 - hunting the rendered color is what
 # distinguishes the graph node from the legend swatch (diagnosed 2026-06-17, #78).
-$colorRoot = @(136, 94, 69)
+# Re-derived 2026-07-12 from a probe capture: (136,94,69) -> (129,103,91). The SOURCE
+# palette is pin-verified unchanged (verify.mjs parity); the composited output drifted
+# with the rendering stack (WebView2 Evergreen self-updates between recordings) - when
+# this hunt times out with the node visibly clear of the legend, sample the probe and
+# re-derive here rather than widening the tolerance.
+$colorRoot = @(129, 103, 91)
 $colorGlobalGroup = @(0x10, 0x7C, 0x10)
 # The Avalonia detail-panel kind badge (unlike the cytoscape node) uses the EXACT
 # source palette, same as the legend swatch - so the "node selected" confirmation
@@ -249,7 +254,11 @@ try {
     # down-right so the root clears the legend: this both lets the rust hunt find it
     # AND keeps the captured frame from showing a node half-hidden behind the legend.
     [void](Wait-NodeBlob { Save-Probe } $colorExternalNode 30 'the external frontier node (render signal)')
-    Send-CanvasDrag 620 280 940 470
+    # Pan delta re-derived 2026-07-12 (#333): the legend's DIFF key wraps "Unchecked"
+    # onto its own row, growing the panel ~40px taller/longer - the old +320px pan
+    # left the rust root half-under the panel edge (probe-verified). +420px clears it;
+    # the drag start stays right of the legend column and on empty canvas.
+    Send-CanvasDrag 520 280 940 470
     Start-Sleep -Milliseconds 500
     [void](Wait-NodeBlob { Save-Probe } $colorRoot 30 'the root node (DomainLocalGroup rust)')
     Log 'graph rendered (panned clear of the legend)'

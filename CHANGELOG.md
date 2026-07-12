@@ -4,6 +4,93 @@ All notable changes to GroupWeaver are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-07-12
+
+The exports-you-can-trust release: the artifacts that leave your machine —
+findings CSV/HTML and the plan script — now survive Excel, strict parsers, and
+real directories; plus a security hardening on the LDAP bind, a large-directory
+performance win, and two fit-audit fix waves. Still **read-only by
+construction** — no code path writes to Active Directory.
+
+### Security
+- **LDAP binds now require Kerberos sealing and signing** — every directory
+  connection negotiates encryption + integrity protection explicitly instead of
+  relying on defaults (ADR-040, #292).
+- **Diagnostics logs are redacted by default** — DNs, names, servers, and paths
+  appear only as session-salted `dn#…`/`host#…` tokens (joinable within a
+  session, unlinkable across sessions); crash markers scrub both the message
+  and the stack. `--log-plain` opts out explicitly: the file carries a `-PLAIN`
+  suffix and a first-line warning, and the bug template says which files are
+  safe to attach (ADR-037 D9/D10, #249).
+
+### Fixed
+- **Findings CSV opens correctly in Excel and strict RFC-4180 parsers** — one
+  rectangular table (the unquoted "unchecked DNs" appendix that produced ragged
+  rows is gone; those entries are now regular `unchecked` rows), a UTF-8 BOM so
+  double-clicking in Excel no longer garbles umlauts and other non-ASCII names,
+  and multi-DN cells that quote correctly even for DNs containing commas or
+  quotes (#329).
+- **Findings HTML renders faithfully everywhere** — declares its light color
+  scheme (forced-dark browsers no longer invert the palette), pairs every ink
+  with a background (WCAG F24), uses real header semantics (`th scope`), and
+  pluralizes its counts correctly (#329).
+- **The exported plan script no longer aborts mid-run on real directories** —
+  its idempotence guards read the raw `member` attribute instead of an API that
+  throws on groups containing foreign security principals, and the file is
+  BOM-led UTF-8 so Windows PowerShell 5.1 parses non-ASCII group names instead
+  of failing (#330).
+- **Graph legend spells out "Unchecked"** — the DIFF key no longer abbreviates
+  the product's core honesty term to "Unck" (#333).
+- **Gap HTML export uses the diff palette, never severity hues** — Added rows
+  are the diff green and Removed rows the diff red-orange; planned removals no
+  longer read as rule Errors in the shared report (caught by the release
+  pre-flight audit).
+- **Minimap click/drag-to-pan targets the clicked point** (#284), and the
+  roll-up ring no longer overwrites a node's own severity halo (#273).
+- **Gap view's double-tap is an honest no-op** with a visible cue instead of
+  silently doing nothing (#275); the Plan editor column no longer clips
+  Rename/Remove or hides Findings (#281).
+- **Polish from the fit-audit waves:** the workspace findings/detail splitter
+  matches its sibling separators in both themes (#285), the Settings glob-test
+  field no longer truncates its hint text (#286), and the Connect target line
+  renders the base DN in the monospace face like every other verbatim
+  directory value (#287); DN-honesty and typography conventions extended to
+  Connect/RootPicker/Gap (#274); the shared active-row band theme-resolves
+  (#227).
+- **Accessibility retones and focus fixes:** WebView2-missing banner (#276),
+  graph control-cluster border and legend zero-counts (#277), Audit
+  status-pill composite contrast (#278), keyboard focus parked across the
+  focus-mode transition (#230), focus-visible ring on TextBox + chip rows
+  (#282).
+
+### Added
+- **Report an issue from inside the app** — the F1 keyboard-help sheet links to
+  a prefilled GitHub UX-feedback form (version, demo/live mode, theme); a new
+  "Feedback and support" README section and a dedicated UX-feedback issue
+  template open the funnel the roadmap is prioritized from.
+- **Keyboard-operable minimap** — arrow keys pan the viewport rectangle (#279).
+- **Destructive-action button tier** — one-click state-discarding actions
+  (Reset to default, Remove, New plan) carry a distinct red outline and are
+  never the primary (ADR-036, #236).
+- **Diagnostics foundation** — structured JSONL logging, crash markers, and a
+  renderer liveness heartbeat land under `%APPDATA%\GroupWeaver\logs`
+  (ADR-037), redacted by default (see Security); Settings gains an
+  "Open logs folder" button.
+- `--demo --dump-export <path>` CLI seam writes the demo findings HTML for
+  verification pipelines (demo-only, like `--dump-graph`; ADR-041).
+
+### Performance
+- **Batched LDAP member resolution** — group expansion resolves members in
+  batched directory queries instead of one bind per DN, a large win on big
+  groups (ADR-039, #290).
+
+### Internal
+- Verification hardening behind the scenes: a WCAG contrast build gate,
+  systematic accessible-name and text-clipping sweeps, structural
+  visual-regression gates with an export render check (ADR-041), a windowed
+  E2E scenario suite (ADR-038), NuGet lock files + central package management,
+  and a coverage floor in CI.
+
 ## [0.4.4] - 2026-07-01
 
 Accessibility and design-consistency release: the complete follow-through of the

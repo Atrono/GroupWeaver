@@ -247,7 +247,7 @@
       "groupweaver.providers": {
         "type": "Project",
         "dependencies": {
-          "GroupWeaver.Core": "[0.4.4, )",
+          "GroupWeaver.Core": "[0.4.5, )",
           "System.DirectoryServices": "[8.0.0, )"
         }
       }
