@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 
 using GroupWeaver.App.Audit;
+using GroupWeaver.App.Diagnostics;
 
 using Microsoft.Extensions.Logging;
 
@@ -18,13 +19,13 @@ namespace GroupWeaver.App.Tests.Diagnostics;
 /// carries the pinned vocabulary — <c>schema</c> (well-formed run, unsupported/older
 /// <c>schemaVersion</c>, incl. a JSON <c>null</c> body), <c>corrupt</c> (undeserializable JSON),
 /// <c>io</c> (unreadable file, and the runs DIRECTORY itself when the listing fails). The
-/// <c>file</c> field routes through the TYPED redaction stubs (ADR-037 D9 redaction-correct-now):
-/// <c>Redactor.RunFile</c> for a run-file name (its slug is a slugified DN),
-/// <c>Redactor.Path</c> for the runs directory (a full user path) — both identity in WP1, so the
-/// equality assertions below hold verbatim; WP10 changes the VALUES (hash the slug / reduce the
-/// path), not this shape. WHICH helper a call site uses is not observable through identity stubs
-/// (no reflection here) — it is pinned by the call-site comments in <see cref="AuditRunStore"/>
-/// and becomes observable (and re-pinned) when WP10's real implementations land.
+/// <c>file</c> field routes through the TYPED redaction helpers (ADR-037 D9, WP10 #249):
+/// <c>Redactor.RunFile</c> for a run-file name — its slug is a slugified DN, so the field is
+/// <c>&lt;utcstamp&gt;-run#&lt;hash8&gt;.json</c> (timestamp joinable, slug hashed) — and
+/// <c>Redactor.Path</c> for the runs directory (a full user path ⇒ <c>path#&lt;hash8&gt;</c>).
+/// WHICH helper each call site uses is now OBSERVABLE through the distinct token shapes, so
+/// these assertions pin the helper choice too (expected tokens via <see cref="RedactionTokens"/>
+/// over <see cref="Redactor.SessionSalt"/> — never by calling the redactor itself).
 ///
 /// <para>Hermetic per the #124 lesson: the store is built over a
 /// <see cref="Directory.CreateTempSubdirectory(string)"/> base with an injected
@@ -72,7 +73,8 @@ public sealed class AuditRunSkippedLogTests : IDisposable
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("corrupt", entry.Fields["reason"]);
-        Assert.Equal(Path.GetFileName(path), entry.Fields["file"]); // via Redactor.RunFile (identity in WP1)
+        // via Redactor.RunFile: timestamp joinable, slug hashed (D9).
+        Assert.Equal(ExpectedRunFileToken("corrupt", "20260101T000000Z"), entry.Fields["file"]);
         Assert.IsAssignableFrom<JsonException>(entry.Exception);
     }
 
@@ -99,10 +101,10 @@ public sealed class AuditRunSkippedLogTests : IDisposable
             Assert.Equal("schema", e.Fields["reason"]);
             Assert.Null(e.Exception);
         });
-        // file = the run-file NAME, via Redactor.RunFile (identity in WP1).
-        Assert.Equal(Path.GetFileName(older), entries[0].Fields["file"]);
-        Assert.Equal(Path.GetFileName(future), entries[1].Fields["file"]);
-        Assert.Equal(Path.GetFileName(nullBody), entries[2].Fields["file"]);
+        // file = the run-file NAME via Redactor.RunFile: timestamp joinable, slug hashed (D9).
+        Assert.Equal(ExpectedRunFileToken("older", "20260101T000001Z"), entries[0].Fields["file"]);
+        Assert.Equal(ExpectedRunFileToken("future", "20260101T000002Z"), entries[1].Fields["file"]);
+        Assert.Equal(ExpectedRunFileToken("null", "20260101T000003Z"), entries[2].Fields["file"]);
     }
 
     // === 3. io: an unreadable run FILE (locked exclusively) ====================================
@@ -119,7 +121,8 @@ public sealed class AuditRunSkippedLogTests : IDisposable
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("io", entry.Fields["reason"]);
-        Assert.Equal(Path.GetFileName(path), entry.Fields["file"]); // via Redactor.RunFile (identity in WP1)
+        // via Redactor.RunFile: timestamp joinable, slug hashed (D9).
+        Assert.Equal(ExpectedRunFileToken("locked", "20260101T000004Z"), entry.Fields["file"]);
         Assert.IsAssignableFrom<IOException>(entry.Exception);
     }
 
@@ -152,11 +155,20 @@ public sealed class AuditRunSkippedLogTests : IDisposable
         var entry = Assert.Single(_capture.EntriesNamed("AuditRunSkipped"));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("io", entry.Fields["reason"]);
-        Assert.Equal(store.RunsDirectory, entry.Fields["file"]); // via Redactor.Path (identity in WP1)
+        // via Redactor.Path: the full user path hashes wholly to path#<hash8> (D9).
+        Assert.Equal(
+            RedactionTokens.Path(Redactor.SessionSalt, store.RunsDirectory),
+            entry.Fields["file"]);
         Assert.Same(thrown, entry.Exception);
     }
 
     // === helpers ===============================================================================
+
+    /// <summary>The expected <c>file</c> field for a canonical run-file name
+    /// <c>&lt;stamp&gt;-&lt;slug&gt;.json</c>: the timestamp survives joinable, the slug (a
+    /// slugified root DN) hashes to <c>run#&lt;hash8&gt;</c> (ADR-037 D9, WP10 #249).</summary>
+    private static string ExpectedRunFileToken(string slug, string stamp) =>
+        $"{stamp}-{RedactionTokens.Run(Redactor.SessionSalt, slug)}.json";
 
     private string WriteRunFile(string name, string content)
     {

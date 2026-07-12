@@ -107,14 +107,13 @@ public sealed class FileLogSinkWireTests : IDisposable
     // === 3. Exception block: ex {type, msgScrubbed, stack}, last property ======================
 
     /// <summary>A logged exception appends <c>ex {type, msgScrubbed, stack}</c> as the LAST
-    /// property, in that inner order. In WP1 the <see cref="Redactor"/> is the identity stub
-    /// (<c>Mode == "identity"</c>), so <c>msgScrubbed</c> equals the raw message — WP10 (#249)
-    /// changes the VALUE, never this SHAPE.</summary>
+    /// property, in that inner order. <c>msgScrubbed</c> routes through
+    /// <see cref="Redactor.Scrub"/>, which passes NON-SENSITIVE text through unchanged
+    /// (ADR-037 D9) — so "boom" stays "boom" here under redacted AND plain modes; the
+    /// token-replacement half is pinned in <c>FileLogSinkRedactionSweepTests</c>.</summary>
     [Fact]
     public void LoggedException_AppendsTheExBlock_TypeMsgScrubbedStack_AsTheLastProperty()
     {
-        Assert.Equal("identity", Redactor.Mode); // the WP1 stub premise of the msgScrubbed assert
-
         var sink = CreateSink();
         var logger = sink.CreateLogger("App.Shell");
         logger.LogError(new EventId(0, "ScopeLoadFailed"), ThrownException(), "failed {kind}", "io");
