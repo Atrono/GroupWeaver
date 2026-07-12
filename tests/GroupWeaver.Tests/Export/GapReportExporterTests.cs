@@ -588,6 +588,39 @@ public class GapReportExporterTests
         }
     }
 
+    // === HTML: the diff row-accent palette is the CANONICAL diff palette ===================
+
+    [Fact]
+    public void Html_DiffPalette_RowAccents_UseTheCanonicalDiffHues()
+    {
+        // The gap document paints DIFF STATUS, and its row accents must be the ONE
+        // pinned diff palette the rest of the product uses (BrandTokens / the graph
+        // diff cues / GapKindConverters, ui-checklist Gap "Changes list" clause):
+        // Added = #2FAE4E green, Removed = #E0503A red-orange, Unchecked = #8A8F98
+        // gray. Pinned per RULE (the hue inside each tr.gap-* block) so an innocent
+        // extra declaration cannot break the pin but a hue swap always does.
+        var html = RenderHtmlInjected();
+
+        Assert.Matches("tr\\.gap-added\\{[^}]*#2FAE4E", html);
+        Assert.Matches("tr\\.gap-removed\\{[^}]*#E0503A", html);
+        Assert.Matches("tr\\.gap-unchecked\\{[^}]*#8A8F98", html);
+    }
+
+    [Fact]
+    public void Html_DiffPalette_NeverBorrowsTheSeverityHues()
+    {
+        // The confusable-severity-hue NEGATIVE pin (ui-checklist: the Removed
+        // red-orange is deliberately NOT the severity-Error red #D13438; Added is
+        // NOT the severity-Info blue #4FA3E3). The gap report renders diff status,
+        // never rule severity, so neither severity hex may appear ANYWHERE in the
+        // document — a reader must never be able to misread a diff accent as a
+        // severity accent.
+        var html = RenderHtmlInjected();
+
+        Assert.DoesNotContain("#D13438", html, StringComparison.OrdinalIgnoreCase); // severity Error red
+        Assert.DoesNotContain("#4FA3E3", html, StringComparison.OrdinalIgnoreCase); // severity Info blue
+    }
+
     [Fact]
     public void Html_HeaderIdentity_RootDnNameAndConnection_AreRendered_Escaped()
     {
