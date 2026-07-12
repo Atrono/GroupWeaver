@@ -16,6 +16,12 @@ construction** — no code path writes to Active Directory.
 - **LDAP binds now require Kerberos sealing and signing** — every directory
   connection negotiates encryption + integrity protection explicitly instead of
   relying on defaults (ADR-040, #292).
+- **Diagnostics logs are redacted by default** — DNs, names, servers, and paths
+  appear only as session-salted `dn#…`/`host#…` tokens (joinable within a
+  session, unlinkable across sessions); crash markers scrub both the message
+  and the stack. `--log-plain` opts out explicitly: the file carries a `-PLAIN`
+  suffix and a first-line warning, and the bug template says which files are
+  safe to attach (ADR-037 D9/D10, #249).
 
 ### Fixed
 - **Findings CSV opens correctly in Excel and strict RFC-4180 parsers** — one
@@ -35,6 +41,10 @@ construction** — no code path writes to Active Directory.
   of failing (#330).
 - **Graph legend spells out "Unchecked"** — the DIFF key no longer abbreviates
   the product's core honesty term to "Unck" (#333).
+- **Gap HTML export uses the diff palette, never severity hues** — Added rows
+  are the diff green and Removed rows the diff red-orange; planned removals no
+  longer read as rule Errors in the shared report (caught by the release
+  pre-flight audit).
 - **Minimap click/drag-to-pan targets the clicked point** (#284), and the
   roll-up ring no longer overwrites a node's own severity halo (#273).
 - **Gap view's double-tap is an honest no-op** with a visible cue instead of
@@ -64,7 +74,8 @@ construction** — no code path writes to Active Directory.
   never the primary (ADR-036, #236).
 - **Diagnostics foundation** — structured JSONL logging, crash markers, and a
   renderer liveness heartbeat land under `%APPDATA%\GroupWeaver\logs`
-  (ADR-037).
+  (ADR-037), redacted by default (see Security); Settings gains an
+  "Open logs folder" button.
 - `--demo --dump-export <path>` CLI seam writes the demo findings HTML for
   verification pipelines (demo-only, like `--dump-graph`; ADR-041).
 
