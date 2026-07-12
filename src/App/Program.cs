@@ -289,7 +289,12 @@ internal static class Program
                 // users attach to public issues.
                 stack = Redactor.Scrub(exception?.StackTrace),
                 version = InformationalVersion(),
-                logFile,
+                // ADR-037 D9: the file NAME only, never the full path — a full user path
+                // embeds the user name (a D9-enumerated sensitive class) and the marker is
+                // exactly the artifact bug_report.yml calls safe to attach. The marker sits
+                // next to the log file, so the bare name identifies it; null stays null
+                // (omitted per WhenWritingNull).
+                logFile = Path.GetFileName(logFile),
             };
             var path = Path.Combine(
                 directory, $"crash-{AppLog.Session.Sid}-{DateTimeOffset.UtcNow:yyyyMMdd'T'HHmmss'Z'}.json");
