@@ -7,6 +7,6 @@
     "playwright": "1.61.1"
   },
   "devDependencies": {
-    "eslint": "10.6.0"
+    "eslint": "10.7.0"
   }
 }
