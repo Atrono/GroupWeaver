@@ -11,9 +11,9 @@
 
   <ItemGroup>
     <!-- Test-host packages, shared by both suites. -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <!-- App.Tests only. The headless platform is version-locked to Avalonia core:
          MUST equal the App's exact 11.3.17 pin (ADR-003 D2). Avalonia.Skia at the
          same pin gives real Skia rendering (UseHeadlessDrawing=false). -->
